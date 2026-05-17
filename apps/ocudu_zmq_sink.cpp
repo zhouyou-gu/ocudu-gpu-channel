@@ -1,3 +1,4 @@
+#include "app_support.h"
 #include "ocudu_gpu_channel/iq.h"
 #include <chrono>
 #include <cstring>
@@ -11,17 +12,6 @@ namespace {
 void usage()
 {
   std::cout << "usage: ocudu-zmq-sink --endpoint tcp://127.0.0.1:2001 [--duration 60s] [--request-interval-us 1000]\n";
-}
-
-std::chrono::milliseconds parse_duration(const std::string& value)
-{
-  if (value.ends_with("ms")) {
-    return std::chrono::milliseconds(std::stoll(value.substr(0, value.size() - 2)));
-  }
-  if (value.ends_with('s')) {
-    return std::chrono::seconds(std::stoll(value.substr(0, value.size() - 1)));
-  }
-  return std::chrono::milliseconds(std::stoll(value));
 }
 
 } // namespace
@@ -41,7 +31,7 @@ int main(int argc, char** argv)
     if (arg == "--endpoint" && i + 1 < argc) {
       endpoint = argv[++i];
     } else if (arg == "--duration" && i + 1 < argc) {
-      duration = parse_duration(argv[++i]);
+      duration = ocg::app::parse_duration(argv[++i]);
     } else if (arg == "--request-interval-us" && i + 1 < argc) {
       request_interval = std::chrono::microseconds(std::stoll(argv[++i]));
     } else {
@@ -66,17 +56,34 @@ int main(int argc, char** argv)
   std::uint64_t requests = 0;
   std::uint64_t samples_received = 0;
   double power_sum = 0.0;
-  const auto end = std::chrono::steady_clock::now() + duration;
+  const auto start = std::chrono::steady_clock::now();
+  const auto end = start + duration;
+  // Deadline-based pacing: the interval is measured request-to-request, not
+  // added on top of per-request work, so the synthetic consumer actually
+  // sustains the real-time request rate and drains the broker at line rate.
+  auto deadline = start;
+  bool awaiting_reply = false;
   while (std::chrono::steady_clock::now() < end) {
-    std::uint8_t dummy = 0;
-    if (zmq_send(socket, &dummy, sizeof(dummy), 0) < 0) {
-      std::this_thread::sleep_for(std::chrono::microseconds(100));
-      continue;
+    // Keep exactly one request outstanding: only send a new request once the
+    // previous reply has arrived. Sending again before the reply would push
+    // the REQ socket into the EFSM error state if a peer is slow to start.
+    if (!awaiting_reply) {
+      std::uint8_t dummy = 0;
+      if (zmq_send(socket, &dummy, sizeof(dummy), 0) < 0) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        continue;
+      }
+      awaiting_reply = true;
     }
 
     zmq_msg_t msg;
     zmq_msg_init(&msg);
     const int nbytes = zmq_msg_recv(&msg, socket, 0);
+    if (nbytes < 0) {
+      zmq_msg_close(&msg);
+      continue; // reply not ready yet; keep waiting on the same request
+    }
+    awaiting_reply = false;
     if (nbytes > 0 && static_cast<std::size_t>(nbytes) % sizeof(ocg::IqSample) == 0) {
       const auto* samples = static_cast<const ocg::IqSample*>(zmq_msg_data(&msg));
       const std::size_t count = static_cast<std::size_t>(nbytes) / sizeof(ocg::IqSample);
@@ -88,7 +95,8 @@ int main(int argc, char** argv)
     }
     zmq_msg_close(&msg);
     if (request_interval.count() > 0) {
-      std::this_thread::sleep_for(request_interval);
+      deadline += request_interval;
+      std::this_thread::sleep_until(deadline);
     }
   }
 

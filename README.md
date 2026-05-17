@@ -87,7 +87,7 @@ On a CUDA build, use the MVP topology to collect the GPU transfer and kernel tim
 
 CUDA output keeps `model_mix_latency` and adds `h2d_us`, `kernel_us`, `d2h_us`, and `gpu_process_us`.
 
-For validation runs where starvation or continuity failures should fail the process:
+For validation runs where zero flow, starvation, or continuity failures should fail the process:
 
 ```sh
 ./build/ocudu-gpu-channel --config examples/topology.cuda-mvp.yaml --duration 20s --strict-realtime
@@ -104,6 +104,8 @@ The remote GPU path is intentionally user-space only:
 ```
 
 The bootstrap installs CMake, CUDA Toolkit 12.8.1, and ZeroMQ if needed under `~/ocudu-gpu-channel-workspace/tools/`, then writes `tools/env.sh` on the remote host. Source that file before remote CMake builds.
+
+For OCUDU runtime interop, use the Docker gNB runbook and smoke helpers in [docs/ocudu-interop.md](docs/ocudu-interop.md). The first milestone proves OCUDU ZMQ sample flow through the CUDA broker; the second attempts srsUE attach and ping through the same broker path.
 
 ## Known Limits
 

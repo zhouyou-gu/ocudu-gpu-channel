@@ -13,6 +13,9 @@ set(OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES "120" CACHE STRING "CUDA architectures 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ZMQ REQUIRED IMPORTED_TARGET libzmq)
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 include(CheckLanguage)
 check_language(CUDA)
 set(OCUDU_GPU_CHANNEL_HAS_CUDA 0)
@@ -40,7 +43,7 @@ if(OCUDU_GPU_CHANNEL_HAS_CUDA)
 endif()
 
 target_include_directories(ocudu_gpu_channel_lib PUBLIC include)
-target_link_libraries(ocudu_gpu_channel_lib PUBLIC PkgConfig::ZMQ)
+target_link_libraries(ocudu_gpu_channel_lib PUBLIC PkgConfig::ZMQ Threads::Threads)
 target_compile_definitions(ocudu_gpu_channel_lib PUBLIC
   OCUDU_GPU_CHANNEL_HAS_CUDA=${OCUDU_GPU_CHANNEL_HAS_CUDA}
 )
@@ -77,4 +80,8 @@ if(OCUDU_GPU_CHANNEL_BUILD_TESTS)
   add_executable(test_ring tests/test_ring.cpp)
   target_link_libraries(test_ring PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME ring COMMAND test_ring)
+
+  add_executable(test_broker tests/test_broker.cpp)
+  target_link_libraries(test_broker PRIVATE ocudu_gpu_channel_lib)
+  add_test(NAME broker COMMAND test_broker)
 endif()

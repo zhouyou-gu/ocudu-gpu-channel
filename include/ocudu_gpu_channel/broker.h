@@ -9,12 +9,12 @@
 namespace ocg {
 
 struct BrokerStats {
-  uint64_t tx_pulls = 0;
-  uint64_t rx_requests = 0;
-  uint64_t rx_starvations = 0;
-  uint64_t tx_queue_overflows = 0;
-  uint64_t tx_sequence_gaps = 0;
-  uint64_t zmq_errors = 0;
+  std::uint64_t tx_pulls = 0;
+  std::uint64_t rx_requests = 0;
+  std::uint64_t rx_starvations = 0;
+  std::uint64_t tx_queue_overflows = 0;
+  std::uint64_t tx_sequence_gaps = 0;
+  std::uint64_t zmq_errors = 0;
 };
 
 class Broker {

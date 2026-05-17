@@ -7,12 +7,24 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <stdexcept>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 #include <zmq.h>
+
+// Concurrent per-direction relay broker, modelled on srsRAN's GNU Radio
+// Companion ZMQ broker (ZMQ REQ source -> Throttle -> channel -> ZMQ REP sink).
+// Each device gets a dedicated puller thread (ZMQ REQ, drains the peer's TX
+// into a ring) and a dedicated server thread (ZMQ REP, feeds the peer's RX
+// from the processed link). The server is REQ/REP-gated and never zero-fills:
+// it holds a request until real processed IQ is ready, and throttles its serve
+// to the device sample rate so both directions stay balanced and lock-step.
+//
+// Every worker publishes a lock-free `WorkerDiag` (current state plus progress
+// and stall counters); a once-per-second `event=heartbeat` line reports them so
+// a wedged relay can be pinpointed to a single thread from the broker log.
 
 namespace ocg {
 namespace {
@@ -60,154 +72,114 @@ SocketPtr make_socket(void* context, int type)
   if (socket == nullptr) {
     throw std::runtime_error(std::string("zmq_socket failed: ") + zmq_strerror(zmq_errno()));
   }
-  set_int_option(socket, ZMQ_RCVTIMEO, 0);
-  set_int_option(socket, ZMQ_SNDTIMEO, 0);
+  // 100 ms send/receive timeouts so a worker thread wakes periodically to
+  // observe the stop flag instead of blocking forever.
+  set_int_option(socket, ZMQ_RCVTIMEO, 100);
+  set_int_option(socket, ZMQ_SNDTIMEO, 100);
   set_int_option(socket, ZMQ_LINGER, 0);
   set_int_option(socket, ZMQ_RCVHWM, 4);
   set_int_option(socket, ZMQ_SNDHWM, 4);
   return SocketPtr(socket);
 }
 
-bool recv_samples_into(void* socket, std::span<IqSample> out, std::size_t& sample_count, int flags)
+// Returns true if a sample message was received; false on a timeout (EAGAIN).
+bool recv_samples_into(void* socket, std::span<IqSample> out, std::size_t& sample_count)
 {
   zmq_msg_t msg;
   zmq_msg_init(&msg);
-  const int nbytes = zmq_msg_recv(&msg, socket, flags);
+  const int nbytes = zmq_msg_recv(&msg, socket, 0);
   if (nbytes < 0) {
     const int err = zmq_errno();
     zmq_msg_close(&msg);
-    if (err == EAGAIN) {
+    if (err == EAGAIN || err == EINTR) {
       return false;
-    }
-    if (err == EFSM) {
-      throw std::runtime_error("zmq_msg_recv reached invalid REQ/REP state");
     }
     throw std::runtime_error(std::string("zmq_msg_recv failed: ") + zmq_strerror(err));
   }
-
   if (static_cast<std::size_t>(nbytes) % sizeof(IqSample) != 0) {
     zmq_msg_close(&msg);
     throw std::runtime_error("received ZMQ payload is not aligned to cf32 IQ samples");
   }
-
   sample_count = static_cast<std::size_t>(nbytes) / sizeof(IqSample);
   if (sample_count > out.size()) {
+    const std::string detail = "received ZMQ payload samples=" + std::to_string(sample_count) +
+                               " exceeds preallocated TX receive buffer samples=" + std::to_string(out.size());
     zmq_msg_close(&msg);
-    throw std::runtime_error("received ZMQ payload exceeds preallocated TX batch buffer");
+    throw std::runtime_error(detail);
   }
-
   std::memcpy(out.data(), zmq_msg_data(&msg), static_cast<std::size_t>(nbytes));
   zmq_msg_close(&msg);
   return true;
 }
 
-bool send_samples(void* socket, const IqBuffer& samples, int flags)
+bool send_request(void* socket)
 {
-  const auto nbytes = samples.size() * sizeof(IqSample);
-  const int sent = zmq_send(socket, samples.data(), nbytes, flags);
+  const std::uint8_t dummy = 0;
+  const int sent = zmq_send(socket, &dummy, sizeof(dummy), 0);
   if (sent < 0) {
     const int err = zmq_errno();
-    if (err == EAGAIN) {
+    if (err == EAGAIN || err == EINTR) {
       return false;
     }
-    if (err == EFSM) {
-      throw std::runtime_error("zmq_send samples reached invalid REQ/REP state");
+    throw std::runtime_error(std::string("zmq_send request failed: ") + zmq_strerror(err));
+  }
+  return true;
+}
+
+bool send_samples(void* socket, const IqBuffer& samples)
+{
+  const auto nbytes = samples.size() * sizeof(IqSample);
+  const int sent = zmq_send(socket, samples.data(), nbytes, 0);
+  if (sent < 0) {
+    const int err = zmq_errno();
+    if (err == EAGAIN || err == EINTR) {
+      return false;
     }
     throw std::runtime_error(std::string("zmq_send samples failed: ") + zmq_strerror(err));
   }
   return static_cast<std::size_t>(sent) == nbytes;
 }
 
-bool send_request(void* socket, int flags)
-{
-  const std::uint8_t dummy = 0;
-  const int sent = zmq_send(socket, &dummy, sizeof(dummy), flags);
-  if (sent < 0) {
-    const int err = zmq_errno();
-    if (err == EAGAIN) {
-      return false;
-    }
-    if (err == EFSM) {
-      throw std::runtime_error("zmq_send request reached invalid REQ/REP state");
-    }
-    throw std::runtime_error(std::string("zmq_send request failed: ") + zmq_strerror(err));
-  }
-  return sent == static_cast<int>(sizeof(dummy));
-}
-
-struct DeviceSockets {
-  const DeviceConfig* device = nullptr;
+// One device's broker-side state: a REQ socket draining the device TX into a
+// ring, and a REP socket feeding the device RX.
+struct Device {
+  const DeviceConfig* config = nullptr;
   SocketPtr tx_req;
   SocketPtr rx_rep;
   IqRing tx_ring;
-  bool tx_request_pending = false;
-  bool rx_reply_pending = false;
-  IqBuffer tx_recv;
-  IqBuffer rx_reply;
+  std::mutex ring_mutex;
+  std::size_t batch = 0;
 };
 
-enum class PollKind {
-  TxSend,
-  TxRecv,
-  RxRecv,
-  RxSend
+// One link's runtime state. The cursor is advanced by the destination device's
+// server thread and read by the source device's puller thread, so it is atomic.
+struct LinkRuntime {
+  std::size_t src_index = 0;
+  std::size_t dst_index = 0;
+  const ModelConfig* model = nullptr;
+  std::atomic<std::uint64_t> cursor{0};
+  std::atomic<bool> cursor_init{false};
 };
 
-struct PollRef {
-  std::size_t device_index = 0;
-  PollKind kind = PollKind::TxSend;
+struct AtomicStats {
+  std::atomic<std::uint64_t> tx_pulls{0};
+  std::atomic<std::uint64_t> rx_requests{0};
+  std::atomic<std::uint64_t> rx_starvations{0};
+  std::atomic<std::uint64_t> tx_queue_overflows{0};
+  std::atomic<std::uint64_t> tx_sequence_gaps{0};
+  std::atomic<std::uint64_t> zmq_errors{0};
 };
 
-struct LinkCursor {
-  bool initialized = false;
-  std::uint64_t next_sequence = 0;
+// Lock-free live diagnostics for one worker thread. `state` always points at a
+// static string literal, so it can be published with a single atomic store and
+// read by the heartbeat without locking.
+struct WorkerDiag {
+  std::atomic<const char*> state{"start"};
+  std::atomic<std::uint64_t> progress{0};      // completed pulls / serves
+  std::atomic<std::uint64_t> idle_waits{0};    // ZMQ timeouts waiting on the peer
+  std::atomic<std::uint64_t> blocked_iters{0}; // puller room stalls / server data spins
+  std::atomic<std::uint64_t> last_samples{0};  // samples in the last pull / serve
 };
-
-std::string link_key(const LinkConfig& link)
-{
-  return link.from + ">" + link.to + ":" + link.model;
-}
-
-std::size_t device_index_by_id(const std::vector<DeviceSockets>& devices, const std::string& id)
-{
-  for (std::size_t i = 0; i != devices.size(); ++i) {
-    if (devices[i].device->id == id) {
-      return i;
-    }
-  }
-  throw std::runtime_error("unknown device id: " + id);
-}
-
-void release_consumed_samples(std::vector<DeviceSockets>& devices,
-                              const TopologyConfig& config,
-                              const std::unordered_map<std::string, LinkCursor>& link_cursors)
-{
-  for (auto& device : devices) {
-    bool has_outgoing_link = false;
-    bool has_initialized_consumer = false;
-    std::uint64_t min_cursor = device.tx_ring.next_sequence();
-
-    for (const auto& link : config.links) {
-      if (link.from != device.device->id) {
-        continue;
-      }
-      has_outgoing_link = true;
-      auto cursor_it = link_cursors.find(link_key(link));
-      if (cursor_it == link_cursors.end() || !cursor_it->second.initialized) {
-        min_cursor = device.tx_ring.earliest_sequence();
-        continue;
-      }
-      has_initialized_consumer = true;
-      min_cursor = std::min(min_cursor, cursor_it->second.next_sequence);
-    }
-
-    if (!has_outgoing_link) {
-      device.tx_ring.discard_before(device.tx_ring.next_sequence());
-    } else if (has_initialized_consumer) {
-      device.tx_ring.discard_before(min_cursor);
-    }
-  }
-}
 
 } // namespace
 
@@ -231,191 +203,349 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     throw std::runtime_error(std::string("zmq_ctx_new failed: ") + zmq_strerror(zmq_errno()));
   }
 
-  BrokerStats stats;
-  std::vector<DeviceSockets> sockets;
-  sockets.reserve(config_.devices.size());
-  std::unordered_map<std::string, LinkCursor> link_cursors;
-  std::unordered_map<std::string, IqBuffer> link_inputs;
-  std::unordered_map<std::string, IqBuffer> link_outputs;
+  AtomicStats stats;
 
+  // Build per-device broker state.
+  std::vector<std::unique_ptr<Device>> devices;
+  devices.reserve(config_.devices.size());
   for (const auto& device : config_.devices) {
-    DeviceSockets entry;
-    entry.device = &device;
-    entry.tx_req = make_socket(context.get(), ZMQ_REQ);
-    entry.rx_rep = make_socket(context.get(), ZMQ_REP);
-    entry.tx_ring.reset(config_.runtime.queue_samples);
-    const auto batch_samples = resolve_batch_samples(config_.runtime, device.sample_rate_hz);
-    entry.tx_recv.resize(batch_samples);
-    entry.rx_reply.resize(batch_samples);
-
-    if (zmq_connect(entry.tx_req.get(), device.tx_endpoint.c_str()) != 0) {
+    auto dev = std::make_unique<Device>();
+    dev->config = &device;
+    dev->batch = resolve_batch_samples(config_.runtime, device.sample_rate_hz);
+    dev->tx_ring.reset(config_.runtime.queue_samples);
+    dev->tx_req = make_socket(context.get(), ZMQ_REQ);
+    dev->rx_rep = make_socket(context.get(), ZMQ_REP);
+    if (zmq_connect(dev->tx_req.get(), device.tx_endpoint.c_str()) != 0) {
       throw std::runtime_error("failed to connect TX REQ for " + device.id + ": " + zmq_strerror(zmq_errno()));
     }
-    if (zmq_bind(entry.rx_rep.get(), device.rx_endpoint.c_str()) != 0) {
+    if (zmq_bind(dev->rx_rep.get(), device.rx_endpoint.c_str()) != 0) {
       throw std::runtime_error("failed to bind RX REP for " + device.id + ": " + zmq_strerror(zmq_errno()));
     }
     std::cout << "event=socket_ready device=" << device.id << " tx_connect=" << device.tx_endpoint
               << " rx_bind=" << device.rx_endpoint << "\n";
-    sockets.push_back(std::move(entry));
+    devices.push_back(std::move(dev));
   }
 
-  for (const auto& link : config_.links) {
-    const auto* destination = find_device(config_, link.to);
-    if (destination == nullptr) {
-      continue;
+  // Build per-link runtime state.
+  std::vector<LinkRuntime> links(config_.links.size());
+  for (std::size_t i = 0; i != config_.links.size(); ++i) {
+    const auto& link = config_.links[i];
+    const auto* src = find_device(config_, link.from);
+    const auto* dst = find_device(config_, link.to);
+    const auto* model = find_model(config_, link.model);
+    if (src == nullptr || dst == nullptr || model == nullptr) {
+      throw std::runtime_error("invalid link: " + link_key(link));
     }
-    const std::size_t count = resolve_batch_samples(config_.runtime, destination->sample_rate_hz);
-    const auto key = link_key(link);
-    link_inputs[key].resize(count);
-    link_outputs[key].resize(count);
-    link_cursors.emplace(key, LinkCursor{});
+    for (std::size_t d = 0; d != config_.devices.size(); ++d) {
+      if (config_.devices[d].id == link.from) {
+        links[i].src_index = d;
+      }
+      if (config_.devices[d].id == link.to) {
+        links[i].dst_index = d;
+      }
+    }
+    links[i].model = model;
   }
 
-  std::vector<zmq_pollitem_t> poll_items;
-  std::vector<PollRef> poll_refs;
-  poll_items.reserve(sockets.size() * 2);
-  poll_refs.reserve(sockets.size() * 2);
+  // Live per-worker diagnostics, one entry per device for each thread role.
+  // Sized once up front and never resized, so the worker threads and the
+  // heartbeat can reference stable elements without synchronisation.
+  std::vector<WorkerDiag> puller_diag(devices.size());
+  std::vector<WorkerDiag> server_diag(devices.size());
 
-  const auto start = std::chrono::steady_clock::now();
+  const auto report_thread_error = [&stats](const char* role, const std::exception& e) {
+    stats.zmq_errors.fetch_add(1);
+    stop_requested.store(true);
+    std::cerr << "event=error role=" << role << " detail=\"" << e.what() << "\"\n";
+  };
 
-  while (!stop_requested.load()) {
-    if (duration.count() > 0 && std::chrono::steady_clock::now() - start >= duration) {
-      break;
-    }
-
-    poll_items.clear();
-    poll_refs.clear();
-    for (std::size_t i = 0; i != sockets.size(); ++i) {
-      auto& entry = sockets[i];
-      if (entry.tx_request_pending) {
-        poll_items.push_back({entry.tx_req.get(), 0, ZMQ_POLLIN, 0});
-        poll_refs.push_back({i, PollKind::TxRecv});
-      } else if (entry.tx_ring.free_capacity() >= resolve_batch_samples(config_.runtime, entry.device->sample_rate_hz)) {
-        poll_items.push_back({entry.tx_req.get(), 0, ZMQ_POLLOUT, 0});
-        poll_refs.push_back({i, PollKind::TxSend});
-      }
-
-      if (entry.rx_reply_pending) {
-        poll_items.push_back({entry.rx_rep.get(), 0, ZMQ_POLLOUT, 0});
-        poll_refs.push_back({i, PollKind::RxSend});
-      } else {
-        poll_items.push_back({entry.rx_rep.get(), 0, ZMQ_POLLIN, 0});
-        poll_refs.push_back({i, PollKind::RxRecv});
-      }
-    }
-
-    const int ready = zmq_poll(poll_items.data(), static_cast<int>(poll_items.size()), 1);
-    if (ready < 0) {
-      const int err = zmq_errno();
-      if (err == EINTR) {
-        continue;
-      }
-      throw std::runtime_error(std::string("zmq_poll failed: ") + zmq_strerror(err));
-    }
-
-    bool did_work = ready > 0;
-    for (std::size_t poll_index = 0; poll_index != poll_items.size(); ++poll_index) {
-      if (poll_items[poll_index].revents == 0) {
-        continue;
-      }
-
-      auto& entry = sockets[poll_refs[poll_index].device_index];
-      switch (poll_refs[poll_index].kind) {
-        case PollKind::TxSend:
-          if ((poll_items[poll_index].revents & ZMQ_POLLOUT) != 0 && send_request(entry.tx_req.get(), ZMQ_DONTWAIT)) {
-            entry.tx_request_pending = true;
+  // Puller thread: ZMQ REQ source. Drains device d's TX flat-out (bounded only
+  // by ring room), exactly as srsRAN's RX channel drains a peer TX.
+  const auto run_puller = [&](std::size_t d) {
+    WorkerDiag& diag = puller_diag[d];
+    try {
+      Device& dev = *devices[d];
+      // recv_buf must hold the largest single ZMQ payload the peer can send.
+      // The ring capacity is that hard upper bound: a larger payload could
+      // never be relayed and is rejected by recv_samples_into().
+      IqBuffer recv_buf(std::max<std::size_t>(config_.runtime.queue_samples, dev.batch));
+      bool request_outstanding = false;
+      std::size_t pending = 0;       // samples pulled but not yet in the ring
+      bool pending_counted = false;  // ring-full already counted for this message
+      while (!stop_requested.load()) {
+        // Release samples consumed by every link reading this device's ring,
+        // then check for room.
+        std::size_t room = 0;
+        {
+          std::lock_guard<std::mutex> lk(dev.ring_mutex);
+          std::uint64_t min_cursor = dev.tx_ring.next_sequence();
+          bool has_consumer = false;
+          bool has_outgoing = false;
+          for (const auto& link : links) {
+            if (link.src_index != d) {
+              continue;
+            }
+            has_outgoing = true;
+            if (!link.cursor_init.load()) {
+              min_cursor = dev.tx_ring.earliest_sequence();
+              continue;
+            }
+            has_consumer = true;
+            min_cursor = std::min(min_cursor, link.cursor.load());
           }
-          break;
-        case PollKind::TxRecv:
-          if ((poll_items[poll_index].revents & ZMQ_POLLIN) != 0) {
-            std::size_t sample_count = 0;
-            if (recv_samples_into(entry.tx_req.get(), entry.tx_recv, sample_count, ZMQ_DONTWAIT)) {
-              if (!entry.tx_ring.push(std::span<const IqSample>(entry.tx_recv.data(), sample_count))) {
-                ++stats.tx_queue_overflows;
+          if (!has_outgoing) {
+            dev.tx_ring.discard_before(dev.tx_ring.next_sequence());
+          } else if (has_consumer) {
+            dev.tx_ring.discard_before(min_cursor);
+          }
+          room = dev.tx_ring.free_capacity();
+        }
+        // Land a previously pulled message before pulling the next one. The
+        // message is held in recv_buf and retried until it fits, never dropped.
+        if (pending > 0) {
+          bool pushed = false;
+          {
+            std::lock_guard<std::mutex> lk(dev.ring_mutex);
+            pushed = dev.tx_ring.push(std::span<const IqSample>(recv_buf.data(), pending));
+          }
+          if (pushed) {
+            diag.state.store("push");
+            diag.last_samples.store(pending);
+            diag.progress.fetch_add(1);
+            stats.tx_pulls.fetch_add(1);
+            pending = 0;
+            pending_counted = false;
+          } else {
+            diag.state.store("wait_room");
+            diag.blocked_iters.fetch_add(1);
+            if (!pending_counted) {
+              stats.tx_queue_overflows.fetch_add(1);
+              pending_counted = true;
+            }
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
+          }
+          continue;
+        }
+
+        if (room < dev.batch) {
+          diag.state.store("wait_room");
+          diag.blocked_iters.fetch_add(1);
+          std::this_thread::sleep_for(std::chrono::microseconds(50));
+          continue;
+        }
+        if (!request_outstanding) {
+          diag.state.store("send_req");
+          if (!send_request(dev.tx_req.get())) {
+            diag.idle_waits.fetch_add(1);
+            continue; // send timed out; retry
+          }
+          request_outstanding = true;
+        }
+        diag.state.store("recv_reply");
+        std::size_t sample_count = 0;
+        if (!recv_samples_into(dev.tx_req.get(), recv_buf, sample_count)) {
+          diag.idle_waits.fetch_add(1);
+          continue; // receive timed out; the request is still outstanding
+        }
+        request_outstanding = false;
+        pending = sample_count; // hand off to the land-pending branch above
+      }
+    } catch (const std::exception& e) {
+      report_thread_error("puller", e);
+    }
+    diag.state.store("stopped");
+  };
+
+  // Server thread: ZMQ REP sink. Feeds device d's RX with processed IQ, one
+  // request at a time, holding the request until real data is ready, and
+  // throttling the serve to the device sample rate.
+  const auto run_server = [&](std::size_t d) {
+    WorkerDiag& diag = server_diag[d];
+    try {
+      Device& dev = *devices[d];
+      std::vector<std::size_t> incoming;
+      for (std::size_t i = 0; i != links.size(); ++i) {
+        if (links[i].dst_index == d) {
+          incoming.push_back(i);
+        }
+      }
+      IqBuffer rx_reply(dev.batch);
+      std::vector<IqBuffer> inputs(incoming.size(), IqBuffer(dev.batch));
+      std::vector<IqBuffer> outputs(incoming.size(), IqBuffer(dev.batch));
+
+      const std::uint64_t rate = std::max<std::uint64_t>(1, dev.config->sample_rate_hz);
+      std::chrono::steady_clock::time_point throttle_anchor{};
+      std::uint64_t served = 0;
+      bool throttle_anchored = false;
+      const auto batch_duration =
+          std::chrono::nanoseconds((dev.batch * 1000000000ULL) / std::max<std::uint64_t>(1, dev.config->sample_rate_hz));
+      const auto starvation_deadline = batch_duration * 5;
+
+      while (!stop_requested.load()) {
+        diag.state.store("wait_req");
+        std::uint8_t dummy = 0;
+        const int received = zmq_recv(dev.rx_rep.get(), &dummy, sizeof(dummy), 0);
+        if (received < 0) {
+          const int err = zmq_errno();
+          if (err == EAGAIN || err == EINTR || err == EFSM) {
+            diag.idle_waits.fetch_add(1);
+            continue;
+          }
+          throw std::runtime_error(std::string("rx request failed: ") + zmq_strerror(err));
+        }
+
+        // A request was accepted; it must be answered with real processed IQ.
+        std::fill(rx_reply.begin(), rx_reply.end(), IqSample{});
+        bool aborted = false;
+        for (std::size_t k = 0; k != incoming.size(); ++k) {
+          auto& link = links[incoming[k]];
+          Device& src = *devices[link.src_index];
+          bool got = false;
+          const auto wait_start = std::chrono::steady_clock::now();
+          bool starvation_counted = false;
+          while (!stop_requested.load() && !got) {
+            {
+              std::lock_guard<std::mutex> lk(src.ring_mutex);
+              if (!link.cursor_init.load()) {
+                link.cursor.store(src.tx_ring.earliest_sequence());
+                link.cursor_init.store(true);
               }
-              entry.tx_request_pending = false;
-              ++stats.tx_pulls;
+              std::uint64_t cur = link.cursor.load();
+              if (cur < src.tx_ring.earliest_sequence()) {
+                cur = src.tx_ring.earliest_sequence();
+                link.cursor.store(cur);
+                stats.tx_sequence_gaps.fetch_add(1);
+              }
+              if (src.tx_ring.read(cur, inputs[k])) {
+                got = true;
+              }
+            }
+            if (!got) {
+              diag.state.store("wait_data");
+              diag.blocked_iters.fetch_add(1);
+              if (served > 0 && !starvation_counted &&
+                  std::chrono::steady_clock::now() - wait_start > starvation_deadline) {
+                stats.rx_starvations.fetch_add(1);
+                starvation_counted = true;
+              }
+              std::this_thread::sleep_for(std::chrono::microseconds(50));
             }
           }
-          break;
-        case PollKind::RxRecv: {
-          if ((poll_items[poll_index].revents & ZMQ_POLLIN) == 0) {
+          if (!got) {
+            aborted = true; // stopping
             break;
           }
-          std::uint8_t dummy = 0;
-          const int received = zmq_recv(entry.rx_rep.get(), &dummy, sizeof(dummy), ZMQ_DONTWAIT);
-          if (received < 0) {
-            const int err = zmq_errno();
-            if (err == EAGAIN) {
-              break;
-            }
-            if (err == EFSM) {
-              throw std::runtime_error("rx request reached invalid REQ/REP state");
-            }
-            throw std::runtime_error(std::string("rx request failed: ") + zmq_strerror(err));
+          diag.state.store("process");
+          // No lock needed: prepare() preallocated every link's processor
+          // state, so concurrent process_into() calls touch disjoint state.
+          processor_->process_into(link_key(config_.links[incoming[k]]), *link.model, inputs[k], outputs[k],
+                                   dev.config->sample_rate_hz);
+          for (std::size_t s = 0; s != rx_reply.size(); ++s) {
+            rx_reply[s] += outputs[k][s];
           }
-
-          std::fill(entry.rx_reply.begin(), entry.rx_reply.end(), IqSample{});
-          bool has_source = false;
-          for (const auto& link : config_.links) {
-            if (link.to != entry.device->id) {
-              continue;
-            }
-            const auto source_index = device_index_by_id(sockets, link.from);
-            auto& source_ring = sockets[source_index].tx_ring;
-            const auto key = link_key(link);
-            auto& cursor = link_cursors[key];
-            auto& input = link_inputs[key];
-            auto& output = link_outputs[key];
-
-            if (!cursor.initialized) {
-              cursor.next_sequence = source_ring.earliest_sequence();
-              cursor.initialized = true;
-            }
-            if (cursor.next_sequence < source_ring.earliest_sequence()) {
-              cursor.next_sequence = source_ring.earliest_sequence();
-              ++stats.tx_sequence_gaps;
-            }
-            if (!source_ring.read(cursor.next_sequence, input)) {
-              continue;
-            }
-
-            const auto* source = find_device(config_, link.from);
-            const auto* model = find_model(config_, link.model);
-            if (source == nullptr || model == nullptr) {
-              continue;
-            }
-            processor_->process_into(key, *model, input, output, source->sample_rate_hz);
-            for (std::size_t sample_idx = 0; sample_idx != entry.rx_reply.size(); ++sample_idx) {
-              entry.rx_reply[sample_idx] += output[sample_idx];
-            }
-            cursor.next_sequence += input.size();
-            has_source = true;
-          }
-          if (!has_source) {
-            ++stats.rx_starvations;
-          }
-          entry.rx_reply_pending = true;
+          link.cursor.fetch_add(inputs[k].size());
+        }
+        if (aborted) {
           break;
         }
-        case PollKind::RxSend:
-          if ((poll_items[poll_index].revents & ZMQ_POLLOUT) != 0 &&
-              send_samples(entry.rx_rep.get(), entry.rx_reply, ZMQ_DONTWAIT)) {
-            entry.rx_reply_pending = false;
-            ++stats.rx_requests;
-          }
-          break;
-      }
-    }
 
-    if (!did_work) {
-      std::this_thread::sleep_for(std::chrono::microseconds(100));
+        // Throttle: cap the serve cadence at the device sample rate so the
+        // lock-step radio runs at real time, not faster.
+        if (!throttle_anchored) {
+          throttle_anchor = std::chrono::steady_clock::now();
+          throttle_anchored = true;
+        } else {
+          diag.state.store("throttle");
+          const auto target = throttle_anchor + std::chrono::nanoseconds((served * 1000000000ULL) / rate);
+          std::this_thread::sleep_until(target);
+        }
+
+        diag.state.store("send");
+        while (!stop_requested.load() && !send_samples(dev.rx_rep.get(), rx_reply)) {
+          // send timed out; retry so the REP socket stays in a valid state
+        }
+        served += rx_reply.size();
+        diag.last_samples.store(rx_reply.size());
+        diag.progress.fetch_add(1);
+        stats.rx_requests.fetch_add(1);
+      }
+    } catch (const std::exception& e) {
+      report_thread_error("server", e);
     }
-    release_consumed_samples(sockets, config_, link_cursors);
+    diag.state.store("stopped");
+  };
+
+  std::vector<std::thread> workers;
+  workers.reserve(devices.size() * 2);
+  for (std::size_t d = 0; d != devices.size(); ++d) {
+    workers.emplace_back(run_puller, d);
+    workers.emplace_back(run_server, d);
   }
 
-  sockets.clear();
-  return stats;
+  // Heartbeat: once per second, publish each worker's live state so a wedged
+  // relay is diagnosable from the broker log without attaching a debugger.
+  const auto emit_heartbeat = [&](std::uint64_t elapsed_s) {
+    for (std::size_t d = 0; d != devices.size(); ++d) {
+      std::size_t ring_size = 0;
+      std::size_t ring_cap = 0;
+      {
+        std::lock_guard<std::mutex> lk(devices[d]->ring_mutex);
+        ring_size = devices[d]->tx_ring.size();
+        ring_cap = devices[d]->tx_ring.capacity();
+      }
+      const WorkerDiag& p = puller_diag[d];
+      const WorkerDiag& s = server_diag[d];
+      std::cout << "event=heartbeat t=" << elapsed_s << " dev=" << devices[d]->config->id << " ring="
+                << ring_size << "/" << ring_cap << " puller[state=" << p.state.load()
+                << " pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
+                << " room_stall=" << p.blocked_iters.load() << " last=" << p.last_samples.load()
+                << "] server[state=" << s.state.load() << " serves=" << s.progress.load()
+                << " idle=" << s.idle_waits.load() << " data_spin=" << s.blocked_iters.load()
+                << " last=" << s.last_samples.load() << "]\n";
+    }
+    std::cout.flush();
+  };
+
+  const auto start = std::chrono::steady_clock::now();
+  auto next_heartbeat = start + std::chrono::seconds(1);
+  while (!stop_requested.load()) {
+    const auto now = std::chrono::steady_clock::now();
+    if (duration.count() > 0 && now - start >= duration) {
+      break;
+    }
+    if (now >= next_heartbeat) {
+      const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+      emit_heartbeat(static_cast<std::uint64_t>(elapsed));
+      next_heartbeat += std::chrono::seconds(1);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  stop_requested.store(true);
+  for (auto& worker : workers) {
+    worker.join();
+  }
+
+  // Final per-device worker breakdown, so the relay outcome is legible even
+  // without the heartbeat trail.
+  for (std::size_t d = 0; d != devices.size(); ++d) {
+    const WorkerDiag& p = puller_diag[d];
+    const WorkerDiag& s = server_diag[d];
+    std::cout << "event=worker_summary dev=" << devices[d]->config->id
+              << " puller[pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
+              << " room_stall=" << p.blocked_iters.load() << "]"
+              << " server[serves=" << s.progress.load() << " idle=" << s.idle_waits.load()
+              << " data_spin=" << s.blocked_iters.load() << "]\n";
+  }
+  std::cout.flush();
+
+  BrokerStats result;
+  result.tx_pulls = stats.tx_pulls.load();
+  result.rx_requests = stats.rx_requests.load();
+  result.rx_starvations = stats.rx_starvations.load();
+  result.tx_queue_overflows = stats.tx_queue_overflows.load();
+  result.tx_sequence_gaps = stats.tx_sequence_gaps.load();
+  result.zmq_errors = stats.zmq_errors.load();
+  return result;
 }
 
 } // namespace ocg

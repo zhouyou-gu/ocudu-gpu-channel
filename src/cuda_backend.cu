@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cuda_runtime.h>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -78,11 +79,6 @@ double param_or(const ModelStep& step, const std::string& name, double fallback)
 {
   auto it = step.params.find(name);
   return it == step.params.end() ? fallback : it->second;
-}
-
-std::string link_key(const LinkConfig& link)
-{
-  return link.from + ">" + link.to + ":" + link.model;
 }
 
 struct CudaLinkState {
@@ -246,14 +242,23 @@ public:
     check(cudaEventElapsedTime(&kernel_ms, state.h2d_done, state.kernel_done), "cudaEventElapsedTime kernel");
     check(cudaEventElapsedTime(&d2h_ms, state.kernel_done, state.d2h_done), "cudaEventElapsedTime D2H");
     const auto total_elapsed = std::chrono::steady_clock::now() - total_start;
-    last_timings_.h2d_us = static_cast<double>(h2d_ms) * 1000.0;
-    last_timings_.kernel_us = static_cast<double>(kernel_ms) * 1000.0;
-    last_timings_.d2h_us = static_cast<double>(d2h_ms) * 1000.0;
-    last_timings_.gpu_process_us =
-        static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(total_elapsed).count()) / 1000.0;
+    // process_into() can run concurrently for distinct links (one broker server
+    // thread per destination device); guard the shared last-timings snapshot.
+    {
+      std::lock_guard<std::mutex> lock(timings_mutex_);
+      last_timings_.h2d_us = static_cast<double>(h2d_ms) * 1000.0;
+      last_timings_.kernel_us = static_cast<double>(kernel_ms) * 1000.0;
+      last_timings_.d2h_us = static_cast<double>(d2h_ms) * 1000.0;
+      last_timings_.gpu_process_us =
+          static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(total_elapsed).count()) / 1000.0;
+    }
   }
 
-  ProcessorTimings last_timings() const override { return last_timings_; }
+  ProcessorTimings last_timings() const override
+  {
+    std::lock_guard<std::mutex> lock(timings_mutex_);
+    return last_timings_;
+  }
   const char* backend_name() const override { return "cuda"; }
 
 private:
@@ -293,6 +298,7 @@ private:
   }
 
   int device_ = 0;
+  mutable std::mutex timings_mutex_;
   ProcessorTimings last_timings_;
   std::unordered_map<std::string, CudaLinkState> states_;
 };

@@ -30,6 +30,7 @@ This workspace starts as a new repository for a GPU-backed channel-emulation lay
 - Run `scripts/remote/*.sh` helpers as Bash scripts, not by sourcing them from zsh, because the shared helper relies on Bash-specific `BASH_SOURCE`.
 - Treat strict realtime broker validation as failed when starvation, queue overflow, sequence gap, or ZMQ error counters are nonzero.
 - Keep CUDA/GPU channel emulation as the primary product target; describe CPU behavior only as reference, baseline, local development, or unported-model fallback.
+- Model the ZMQ broker on srsRAN's GNU Radio Companion reference broker. That broker is a concurrent, per-direction relay shaped `ZMQ REQ source -> Throttle -> channel -> ZMQ REP sink`: a dedicated puller (ZMQ REQ, drains a peer's TX) and a dedicated server (ZMQ REP, feeds a peer's RX) per device, run as independent threads, with a symmetric per-direction throttle. The broker is REQ/REP-gated and never zero-fills a reply -- when it has no processed IQ it holds the request until it does, mirroring how OCUDU's own gNB TX holds a request when its buffer is empty. When changing broker structure, reference the GRC broker shape rather than inventing a new pacing model.
 
 ## Handoff Condition
 

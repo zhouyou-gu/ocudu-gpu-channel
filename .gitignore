@@ -17,6 +17,8 @@
 
 # External source checkouts kept outside the tracked project.
 /ocudu/
+/srsRAN_4G/
+/srsran_4g/
 
 # Local editor and OS noise.
 .DS_Store

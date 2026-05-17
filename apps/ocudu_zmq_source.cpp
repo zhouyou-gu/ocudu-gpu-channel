@@ -1,3 +1,4 @@
+#include "app_support.h"
 #include "ocudu_gpu_channel/iq.h"
 #include <chrono>
 #include <cmath>
@@ -13,17 +14,6 @@ namespace {
 void usage()
 {
   std::cout << "usage: ocudu-zmq-source --endpoint tcp://*:2000 [--batch-samples 23040] [--duration 60s]\n";
-}
-
-std::chrono::milliseconds parse_duration(const std::string& value)
-{
-  if (value.ends_with("ms")) {
-    return std::chrono::milliseconds(std::stoll(value.substr(0, value.size() - 2)));
-  }
-  if (value.ends_with('s')) {
-    return std::chrono::seconds(std::stoll(value.substr(0, value.size() - 1)));
-  }
-  return std::chrono::milliseconds(std::stoll(value));
 }
 
 } // namespace
@@ -45,7 +35,7 @@ int main(int argc, char** argv)
     } else if (arg == "--batch-samples" && i + 1 < argc) {
       batch_samples = static_cast<std::size_t>(std::stoull(argv[++i]));
     } else if (arg == "--duration" && i + 1 < argc) {
-      duration = parse_duration(argv[++i]);
+      duration = ocg::app::parse_duration(argv[++i]);
     } else {
       std::cerr << "unknown or incomplete argument: " << arg << "\n";
       usage();
@@ -68,7 +58,8 @@ int main(int argc, char** argv)
   ocg::IqBuffer samples(batch_samples);
   std::uint64_t seq = 0;
   const auto start = std::chrono::steady_clock::now();
-  while (duration.count() == 0 || std::chrono::steady_clock::now() - start < duration) {
+  auto running = [&] { return duration.count() == 0 || std::chrono::steady_clock::now() - start < duration; };
+  while (running()) {
     std::uint8_t dummy = 0;
     const int received = zmq_recv(socket, &dummy, sizeof(dummy), 0);
     if (received < 0) {
@@ -81,7 +72,13 @@ int main(int argc, char** argv)
       samples[i] = {std::cos(phase), std::sin(phase)};
     }
     seq += samples.size();
-    zmq_send(socket, samples.data(), samples.size() * sizeof(ocg::IqSample), 0);
+
+    // A request was accepted; the REP socket must answer it. Retry a timed-out
+    // send so the socket never gets stuck expecting a reply mid-transaction.
+    const auto reply_bytes = samples.size() * sizeof(ocg::IqSample);
+    while (running() && zmq_send(socket, samples.data(), reply_bytes, 0) < 0) {
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
   }
 
   zmq_close(socket);

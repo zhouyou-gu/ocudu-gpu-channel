@@ -83,4 +83,8 @@ std::size_t resolve_batch_samples(const RuntimeConfig& runtime, std::uint64_t sa
 const DeviceConfig* find_device(const TopologyConfig& config, const std::string& id);
 const ModelConfig* find_model(const TopologyConfig& config, const std::string& id);
 
+// Canonical per-link identity ("from>to:model"), shared by the broker and the
+// channel processors so they key per-link state the same way.
+std::string link_key(const LinkConfig& link);
+
 } // namespace ocg

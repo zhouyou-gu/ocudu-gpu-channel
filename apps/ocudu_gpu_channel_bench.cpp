@@ -1,3 +1,4 @@
+#include "app_support.h"
 #include "ocudu_gpu_channel/backend.h"
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/latency.h"
@@ -11,17 +12,6 @@
 #include <unordered_map>
 
 namespace {
-
-std::chrono::milliseconds parse_duration(const std::string& value)
-{
-  if (value.ends_with("ms")) {
-    return std::chrono::milliseconds(std::stoll(value.substr(0, value.size() - 2)));
-  }
-  if (value.ends_with('s')) {
-    return std::chrono::seconds(std::stoll(value.substr(0, value.size() - 1)));
-  }
-  return std::chrono::milliseconds(std::stoll(value));
-}
 
 void usage()
 {
@@ -60,7 +50,7 @@ int main(int argc, char** argv)
     if (arg == "--config" && i + 1 < argc) {
       config_path = argv[++i];
     } else if (arg == "--duration" && i + 1 < argc) {
-      duration = parse_duration(argv[++i]);
+      duration = ocg::app::parse_duration(argv[++i]);
     } else if (arg == "--scs-khz" && i + 1 < argc) {
       scs_khz = static_cast<unsigned>(std::stoul(argv[++i]));
     } else {
@@ -102,7 +92,7 @@ int main(int argc, char** argv)
     for (const auto& link : config.links) {
       const auto* destination = ocg::find_device(config, link.to);
       if (destination != nullptr) {
-        processed_by_link[link.from + ">" + link.to + ":" + link.model].resize(
+        processed_by_link[ocg::link_key(link)].resize(
             ocg::resolve_batch_samples(config.runtime, destination->sample_rate_hz));
       }
     }
@@ -124,7 +114,7 @@ int main(int argc, char** argv)
           if (tx_it == latest_tx.end() || source == nullptr || model == nullptr) {
             continue;
           }
-          const std::string key = link.from + ">" + link.to + ":" + link.model;
+          const std::string key = ocg::link_key(link);
           auto& processed = processed_by_link[key];
           processor->process_into(key, *model, tx_it->second, processed, source->sample_rate_hz);
           const auto timings = processor->last_timings();

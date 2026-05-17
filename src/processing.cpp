@@ -28,14 +28,6 @@ double estimate_average_power(std::span<const IqSample> input)
   return sum / static_cast<double>(input.size());
 }
 
-IqBuffer resize_or_pad(const IqBuffer& input, std::size_t size)
-{
-  IqBuffer out(size);
-  const std::size_t copy_count = std::min(size, input.size());
-  std::copy_n(input.begin(), copy_count, out.begin());
-  return out;
-}
-
 bool cuda_step_supported(ModelStepType type)
 {
   return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
@@ -48,21 +40,45 @@ bool cuda_step_supported(ModelStepType type)
 std::unique_ptr<ChannelProcessor> make_cuda_processor(const TopologyConfig& config);
 #endif
 
+CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std::string& key,
+                                                                       const ModelConfig& model,
+                                                                       std::size_t sample_count)
+{
+  auto it = states_.find(key);
+  if (it == states_.end()) {
+    // Lazy creation only happens for single-shot use; the broker preallocates
+    // every link in prepare() so process_into() never inserts concurrently.
+    it = states_.emplace(key, LinkState{}).first;
+  }
+
+  LinkState& state = it->second;
+  if (state.scratch_a.size() < sample_count) {
+    state.scratch_a.resize(sample_count);
+    state.scratch_b.resize(sample_count);
+  }
+  if (state.steps.size() != model.chain.size()) {
+    state.steps.assign(model.chain.size(), StepState{});
+    for (std::size_t i = 0; i != state.steps.size(); ++i) {
+      state.steps[i].rng.seed(static_cast<unsigned>(std::hash<std::string>{}(key + ":" + std::to_string(i))));
+    }
+  }
+  return state;
+}
+
 void CpuChannelProcessor::prepare(const TopologyConfig& config)
 {
   for (const auto& link : config.links) {
     const auto* destination = find_device(config, link.to);
-    if (destination == nullptr) {
+    const auto* model = find_model(config, link.model);
+    if (destination == nullptr || model == nullptr) {
       continue;
     }
     const std::size_t count = resolve_batch_samples(config.runtime, destination->sample_rate_hz);
-    auto& state = states_[link.from + ">" + link.to + ":" + link.model + ":0"];
-    state.scratch_a.resize(count);
-    state.scratch_b.resize(count);
+    ensure_link_state(link_key(link), *model, count);
   }
 }
 
-void CpuChannelProcessor::process_into(const std::string& link_key,
+void CpuChannelProcessor::process_into(const std::string& link_key_value,
                                        const ModelConfig& model,
                                        std::span<const IqSample> input,
                                        std::span<IqSample> output,
@@ -75,26 +91,15 @@ void CpuChannelProcessor::process_into(const std::string& link_key,
     return;
   }
 
-  auto& base_state = states_[link_key + ":0"];
-  if (base_state.scratch_a.size() < input.size()) {
-    base_state.scratch_a.resize(input.size());
-  }
-  if (base_state.scratch_b.size() < input.size()) {
-    base_state.scratch_b.resize(input.size());
-  }
+  LinkState& state = ensure_link_state(link_key_value, model, input.size());
 
-  std::copy(input.begin(), input.end(), base_state.scratch_a.begin());
-  std::span<IqSample> current(base_state.scratch_a.data(), input.size());
-  std::span<IqSample> next(base_state.scratch_b.data(), input.size());
+  std::copy(input.begin(), input.end(), state.scratch_a.begin());
+  std::span<IqSample> current(state.scratch_a.data(), input.size());
+  std::span<IqSample> next(state.scratch_b.data(), input.size());
 
   for (std::size_t step_index = 0; step_index != model.chain.size(); ++step_index) {
     const auto& step = model.chain[step_index];
-    const std::string state_key = link_key + ":" + std::to_string(step_index);
-    auto& state = states_[state_key];
-    if (!state.seeded) {
-      state.rng.seed(static_cast<unsigned>(std::hash<std::string>{}(state_key)));
-      state.seeded = true;
-    }
+    StepState& step_state = state.steps[step_index];
 
     switch (step.type) {
       case ModelStepType::Gain: {
@@ -120,7 +125,7 @@ void CpuChannelProcessor::process_into(const std::string& link_key,
         const double sigma = std::sqrt(std::max(0.0, noise_power) / 2.0);
         std::normal_distribution<float> dist(0.0F, static_cast<float>(sigma));
         for (std::size_t i = 0; i != current.size(); ++i) {
-          next[i] = {current[i].i + dist(state.rng), current[i].q + dist(state.rng)};
+          next[i] = {current[i].i + dist(step_state.rng), current[i].q + dist(step_state.rng)};
         }
         break;
       }
@@ -128,18 +133,20 @@ void CpuChannelProcessor::process_into(const std::string& link_key,
       case ModelStepType::FractionalDelay: {
         const double requested_delay = param_or(step, "delay_samples", 0.0);
         const auto integer_delay = static_cast<std::size_t>(std::max(0.0, std::floor(requested_delay)));
-        const double fraction = step.type == ModelStepType::FractionalDelay ? requested_delay - std::floor(requested_delay)
-                                                                            : 0.0;
+        const double fraction =
+            step.type == ModelStepType::FractionalDelay ? requested_delay - std::floor(requested_delay) : 0.0;
         const std::size_t history_size = integer_delay + 2;
-        if (state.delay_line.size() < history_size) {
-          state.delay_line.insert(state.delay_line.begin(), history_size - state.delay_line.size(), {});
+        if (step_state.delay_line.size() < history_size) {
+          step_state.delay_line.insert(step_state.delay_line.begin(),
+                                       history_size - step_state.delay_line.size(), {});
         }
 
         auto sample_at = [&](std::ptrdiff_t index) {
           if (index >= 0) {
             return current[static_cast<std::size_t>(index)];
           }
-          return state.delay_line[static_cast<std::size_t>(static_cast<std::ptrdiff_t>(state.delay_line.size()) + index)];
+          return step_state.delay_line[static_cast<std::size_t>(
+              static_cast<std::ptrdiff_t>(step_state.delay_line.size()) + index)];
         };
 
         for (std::size_t n = 0; n != current.size(); ++n) {
@@ -151,11 +158,13 @@ void CpuChannelProcessor::process_into(const std::string& link_key,
         }
 
         if (current.size() >= history_size) {
-          state.delay_line.assign(current.end() - static_cast<std::ptrdiff_t>(history_size), current.end());
+          step_state.delay_line.assign(current.end() - static_cast<std::ptrdiff_t>(history_size), current.end());
         } else {
           const std::size_t keep_old = history_size - current.size();
-          std::move(state.delay_line.end() - static_cast<std::ptrdiff_t>(keep_old), state.delay_line.end(), state.delay_line.begin());
-          std::copy(current.begin(), current.end(), state.delay_line.begin() + static_cast<std::ptrdiff_t>(keep_old));
+          std::move(step_state.delay_line.end() - static_cast<std::ptrdiff_t>(keep_old), step_state.delay_line.end(),
+                    step_state.delay_line.begin());
+          std::copy(current.begin(), current.end(),
+                    step_state.delay_line.begin() + static_cast<std::ptrdiff_t>(keep_old));
         }
         break;
       }
@@ -166,10 +175,10 @@ void CpuChannelProcessor::process_into(const std::string& link_key,
         const double phase_increment =
             sample_rate_hz == 0 ? 0.0 : 2.0 * std::numbers::pi * cfo_hz / static_cast<double>(sample_rate_hz);
         for (std::size_t i = 0; i != current.size(); ++i) {
-          next[i] = rotate(current[i], fixed_phase + state.phase_rad);
-          state.phase_rad += phase_increment;
-          if (state.phase_rad > 2.0 * std::numbers::pi) {
-            state.phase_rad = std::fmod(state.phase_rad, 2.0 * std::numbers::pi);
+          next[i] = rotate(current[i], fixed_phase + step_state.phase_rad);
+          step_state.phase_rad += phase_increment;
+          if (step_state.phase_rad > 2.0 * std::numbers::pi) {
+            step_state.phase_rad = std::fmod(step_state.phase_rad, 2.0 * std::numbers::pi);
           }
         }
         break;
@@ -181,62 +190,14 @@ void CpuChannelProcessor::process_into(const std::string& link_key,
   std::copy(current.begin(), current.end(), output.begin());
 }
 
-IqBuffer CpuChannelProcessor::process(const std::string& link_key,
+IqBuffer CpuChannelProcessor::process(const std::string& link_key_value,
                                       const ModelConfig& model,
                                       const IqBuffer& input,
                                       std::uint64_t sample_rate_hz)
 {
   IqBuffer output(input.size());
-  process_into(link_key, model, input, output, sample_rate_hz);
+  process_into(link_key_value, model, input, output, sample_rate_hz);
   return output;
-}
-
-IqBuffer CpuChannelProcessor::mix_for_destination(const TopologyConfig& config,
-                                                  const std::string& destination_id,
-                                                  const std::unordered_map<std::string, IqBuffer>& latest_tx)
-{
-  const auto* destination = find_device(config, destination_id);
-  if (destination == nullptr) {
-    throw std::runtime_error("unknown destination device: " + destination_id);
-  }
-
-  IqBuffer mixed(resolve_batch_samples(config.runtime, destination->sample_rate_hz));
-  bool has_source = false;
-
-  for (const auto& link : config.links) {
-    if (link.to != destination_id) {
-      continue;
-    }
-
-    auto tx_it = latest_tx.find(link.from);
-    if (tx_it == latest_tx.end()) {
-      continue;
-    }
-
-    const auto* source = find_device(config, link.from);
-    const auto* model = find_model(config, link.model);
-    if (source == nullptr || model == nullptr) {
-      continue;
-    }
-
-    const std::size_t target_size = std::max(mixed.size(), tx_it->second.size());
-    if (mixed.size() < target_size) {
-      mixed.resize(target_size);
-    }
-
-    IqBuffer input = resize_or_pad(tx_it->second, target_size);
-    IqBuffer processed =
-        process(link.from + ">" + link.to + ":" + link.model, *model, input, source->sample_rate_hz);
-    for (std::size_t i = 0; i != target_size; ++i) {
-      mixed[i] += processed[i];
-    }
-    has_source = true;
-  }
-
-  if (!has_source) {
-    return {};
-  }
-  return mixed;
 }
 
 std::vector<std::string> validate_cuda_support(const TopologyConfig& config)

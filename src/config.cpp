@@ -201,8 +201,25 @@ TopologyConfig load_config_file(const std::string& path)
       continue;
     }
 
+    // This is a minimal block-style YAML reader. Reject the two inputs it would
+    // otherwise misparse with a confusing key error instead of a clear one.
+    for (char ch : without_comment) {
+      if (ch == '\t') {
+        throw std::runtime_error("tab indentation is not supported at line " + std::to_string(line_number) +
+                                 "; use spaces");
+      }
+      if (ch != ' ') {
+        break;
+      }
+    }
+
     const int indent = indent_of(without_comment);
     std::string line = trim(without_comment);
+
+    if (line.find_first_of("{[") != std::string::npos) {
+      throw std::runtime_error("flow-style YAML is not supported at line " + std::to_string(line_number) +
+                               "; use block style");
+    }
 
     if (indent == 0) {
       current_device = nullptr;
@@ -318,6 +335,15 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     }
     if (device.sample_rate_hz == 0) {
       errors.emplace_back("device " + device.id + " sample_rate_hz must be greater than zero");
+    }
+    // The broker ring must hold a pulled batch plus a batch of serve slack;
+    // queue_samples == batch_samples deadlocks the puller's room check.
+    if (device.sample_rate_hz != 0 && config.runtime.queue_samples != 0) {
+      const std::size_t batch = resolve_batch_samples(config.runtime, device.sample_rate_hz);
+      if (config.runtime.queue_samples < 2 * batch) {
+        errors.emplace_back("device " + device.id + " needs runtime.queue_samples >= 2 * batch (" +
+                            std::to_string(2 * batch) + "), got " + std::to_string(config.runtime.queue_samples));
+      }
     }
     if (device.tx_endpoint.empty()) {
       errors.emplace_back("device " + device.id + " tx_endpoint is required");
@@ -466,6 +492,11 @@ const ModelConfig* find_model(const TopologyConfig& config, const std::string& i
 {
   auto it = config.models.find(id);
   return it == config.models.end() ? nullptr : &it->second;
+}
+
+std::string link_key(const LinkConfig& link)
+{
+  return link.from + ">" + link.to + ":" + link.model;
 }
 
 } // namespace ocg

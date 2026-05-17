@@ -53,14 +53,12 @@ int main()
   latest["gnb0"] = {{1.0F, 0.0F}, {0.0F, 1.0F}, {1.0F, 1.0F}, {0.0F, 0.0F}};
   latest["ue0"] = {{0.5F, 0.0F}, {0.0F, 0.5F}, {0.5F, 0.5F}, {0.0F, 0.0F}};
 
+  // prepare() + a prepared link key: the path the broker exercises.
   ocg::CpuChannelProcessor processor;
-  auto ue = processor.mix_for_destination(config, "ue0", latest);
-  require(ue.size() == 4, "UE output size");
-  require(near(ue[0].i, 2.0F), "gain on I");
-  require(near(ue[1].q, 2.0F), "gain on Q");
+  processor.prepare(config);
 
   ocg::IqBuffer output(4);
-  processor.process_into("span-gain", model, latest["gnb0"], output, 1000);
+  processor.process_into(ocg::link_key(config.links[0]), model, latest["gnb0"], output, 1000);
   require(near(output[2].i, 2.0F), "process_into gain on I");
   require(near(output[2].q, 2.0F), "process_into gain on Q");
 

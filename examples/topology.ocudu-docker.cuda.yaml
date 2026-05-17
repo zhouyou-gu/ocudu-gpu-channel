@@ -1,0 +1,46 @@
+runtime:
+  backend: cuda
+  gpu_device: 0
+  # OCUDU's ZMQ radio exchanges samples in 23040-sample (1 ms slot) units;
+  # the broker must serve and process in that unit or the gNB RX overflows.
+  batch_samples: 23040
+  # queue_samples gives the broker pull/serve slack and must exceed the largest
+  # variable OCUDU ZMQ TX payload (DEFAULT_STREAM_BUFFER_SIZE = 614400).
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    # tx_endpoint: broker REQ connects to the gNB TX port published on the host
+    # by the compose `ports: 2000:2000` mapping, so loopback is correct here.
+    tx_endpoint: tcp://127.0.0.1:2000
+    # rx_endpoint: broker REP binds this; bind all interfaces so the gNB
+    # container can reach it via host.docker.internal.
+    rx_endpoint: tcp://*:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    # tx_endpoint: broker REQ connects to the srsUE TX port published on the
+    # host by `docker run -p 2101:2101`, so loopback is correct here.
+    tx_endpoint: tcp://127.0.0.1:2101
+    # rx_endpoint: broker REP binds this. It MUST bind all interfaces (`*`),
+    # not loopback: the srsUE container reaches it via host.docker.internal,
+    # which arrives on the bridge gateway, not 127.0.0.1.
+    rx_endpoint: tcp://*:2100
+links:
+  - from: gnb0
+    to: ue0
+    model: cuda_mvp
+  - from: ue0
+    to: gnb0
+    model: cuda_mvp
+models:
+  cuda_mvp:
+    chain:
+      - type: gain
+        gain_db: -3
+      - type: phase
+        phase_rad: 0.125
+      - type: cfo
+        cfo_hz: 250
+        phase_rad: 0
