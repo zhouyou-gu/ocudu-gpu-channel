@@ -10,6 +10,7 @@
 #include <mutex>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 #include <zmq.h>
@@ -35,6 +36,28 @@ void signal_handler(int)
 {
   stop_requested.store(true);
 }
+
+// Installs the broker stop-signal handlers for the lifetime of one run() call
+// and restores whatever the host process had before, so embedding the broker
+// does not permanently hijack SIGINT/SIGTERM.
+struct SignalGuard {
+  using Handler = void (*)(int);
+  Handler prev_int = nullptr;
+  Handler prev_term = nullptr;
+
+  SignalGuard()
+  {
+    prev_int = std::signal(SIGINT, signal_handler);
+    prev_term = std::signal(SIGTERM, signal_handler);
+  }
+  ~SignalGuard()
+  {
+    std::signal(SIGINT, prev_int);
+    std::signal(SIGTERM, prev_term);
+  }
+  SignalGuard(const SignalGuard&) = delete;
+  SignalGuard& operator=(const SignalGuard&) = delete;
+};
 
 struct SocketDeleter {
   void operator()(void* socket) const
@@ -157,6 +180,7 @@ struct LinkRuntime {
   std::size_t src_index = 0;
   std::size_t dst_index = 0;
   const ModelConfig* model = nullptr;
+  std::string key; // canonical link_key, precomputed to keep it off the hot path
   std::atomic<std::uint64_t> cursor{0};
   std::atomic<bool> cursor_init{false};
 };
@@ -195,8 +219,7 @@ Broker::Broker(TopologyConfig config) : config_(std::move(config))
 BrokerStats Broker::run(std::chrono::milliseconds duration)
 {
   stop_requested.store(false);
-  std::signal(SIGINT, signal_handler);
-  std::signal(SIGTERM, signal_handler);
+  SignalGuard signal_guard;
 
   ContextPtr context(zmq_ctx_new());
   if (context == nullptr) {
@@ -245,6 +268,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
       }
     }
     links[i].model = model;
+    links[i].key = link_key(link);
   }
 
   // Live per-worker diagnostics, one entry per device for each thread role.
@@ -438,8 +462,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           diag.state.store("process");
           // No lock needed: prepare() preallocated every link's processor
           // state, so concurrent process_into() calls touch disjoint state.
-          processor_->process_into(link_key(config_.links[incoming[k]]), *link.model, inputs[k], outputs[k],
-                                   dev.config->sample_rate_hz);
+          processor_->process_into(link.key, *link.model, inputs[k], outputs[k], dev.config->sample_rate_hz);
           for (std::size_t s = 0; s != rx_reply.size(); ++s) {
             rx_reply[s] += outputs[k][s];
           }
@@ -465,6 +488,12 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           // send timed out; retry so the REP socket stays in a valid state
         }
         served += rx_reply.size();
+        // Re-base the throttle origin every ~1 s of served IQ so the
+        // (served * 1e9) product cannot overflow on a long-running relay.
+        if (served >= rate) {
+          throttle_anchor += std::chrono::nanoseconds((served * 1000000000ULL) / rate);
+          served = 0;
+        }
         diag.last_samples.store(rx_reply.size());
         diag.progress.fetch_add(1);
         stats.rx_requests.fetch_add(1);

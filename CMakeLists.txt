@@ -30,11 +30,15 @@ add_library(ocudu_gpu_channel_lib
   src/backend.cpp
   src/broker.cpp
   src/config.cpp
+  src/cpu_backend.cpp
   src/latency.cpp
   src/processing.cpp
   src/ring.cpp
 )
 
+# The GPU backend is the primary target; it is compiled in whenever the build
+# has CUDA. The CPU backend (src/cpu_backend.cpp) is always built as the
+# reference/fallback.
 if(OCUDU_GPU_CHANNEL_HAS_CUDA)
   target_sources(ocudu_gpu_channel_lib PRIVATE src/cuda_backend.cu)
   set_target_properties(ocudu_gpu_channel_lib PROPERTIES

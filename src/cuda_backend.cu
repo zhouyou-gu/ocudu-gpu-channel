@@ -1,4 +1,4 @@
-#include "ocudu_gpu_channel/backend.h"
+#include "ocudu_gpu_channel/cuda_backend.h"
 #include "ocudu_gpu_channel/processing.h"
 #include <algorithm>
 #include <chrono>

@@ -1,5 +1,6 @@
 #include "ocudu_gpu_channel/backend.h"
 #include "ocudu_gpu_channel/config.h"
+#include "ocudu_gpu_channel/cpu_backend.h"
 #include "ocudu_gpu_channel/processing.h"
 #include <cmath>
 #include <cstdlib>

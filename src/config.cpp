@@ -216,9 +216,22 @@ TopologyConfig load_config_file(const std::string& path)
     const int indent = indent_of(without_comment);
     std::string line = trim(without_comment);
 
-    if (line.find_first_of("{[") != std::string::npos) {
-      throw std::runtime_error("flow-style YAML is not supported at line " + std::to_string(line_number) +
-                               "; use block style");
+    // Reject flow-style mappings/sequences (`{...}` / `[...]`) used as a value
+    // or list item. Checking only the value side avoids a false positive on a
+    // bracketed IPv6 endpoint such as `tcp://[::1]:2000`.
+    {
+      std::string probe = line;
+      if (probe.rfind("- ", 0) == 0) {
+        probe = trim(probe.substr(2));
+      }
+      const auto colon = probe.find(':');
+      const std::string value_part = colon == std::string::npos ? probe : trim(probe.substr(colon + 1));
+      const bool bare_flow = !probe.empty() && (probe.front() == '{' || probe.front() == '[');
+      const bool value_flow = !value_part.empty() && (value_part.front() == '{' || value_part.front() == '[');
+      if (bare_flow || value_flow) {
+        throw std::runtime_error("flow-style YAML is not supported at line " + std::to_string(line_number) +
+                                 "; use block style");
+      }
     }
 
     if (indent == 0) {
@@ -368,6 +381,23 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     if (source != nullptr && destination != nullptr && source->sample_rate_hz != destination->sample_rate_hz) {
       errors.emplace_back("link " + link.from + "->" + link.to +
                           " has mixed sample rates but no resampler is implemented");
+    }
+  }
+
+  // The broker relays both directions for every device: it pulls each device's
+  // TX and feeds each device's RX. A device that is no link's source has its
+  // pulled IQ discarded; one that is no link's destination could only be
+  // zero-filled. Reject both rather than silently mishandle such a device.
+  for (const auto& device : config.devices) {
+    const bool is_source = std::any_of(config.links.begin(), config.links.end(),
+                                       [&](const LinkConfig& link) { return link.from == device.id; });
+    const bool is_destination = std::any_of(config.links.begin(), config.links.end(),
+                                            [&](const LinkConfig& link) { return link.to == device.id; });
+    if (!is_source) {
+      errors.emplace_back("device " + device.id + " is not the source of any link");
+    }
+    if (!is_destination) {
+      errors.emplace_back("device " + device.id + " is not the destination of any link");
     }
   }
 

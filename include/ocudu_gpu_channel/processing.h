@@ -3,11 +3,19 @@
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/iq.h"
 #include <memory>
-#include <random>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <vector>
+
+// Channel-processing backend interface and selection.
+//
+// The emulator has two backends, each in its own translation unit:
+//   - cuda_backend (cuda_backend.h / .cu): the PRIMARY target — GPU-accelerated
+//     channel emulation built to scale to many concurrent gNB/UE links.
+//   - cpu_backend  (cpu_backend.h / .cpp): the reference/fallback backend.
+//
+// Both implement the ChannelProcessor interface below. create_channel_processor()
+// picks one from the topology's runtime.backend (CUDA by default).
 
 namespace ocg {
 
@@ -38,50 +46,11 @@ public:
   virtual const char* backend_name() const = 0;
 };
 
-class CpuChannelProcessor final : public ChannelProcessor {
-public:
-  void prepare(const TopologyConfig& config) override;
-
-  void process_into(const std::string& link_key,
-                    const ModelConfig& model,
-                    std::span<const IqSample> input,
-                    std::span<IqSample> output,
-                    std::uint64_t sample_rate_hz) override;
-
-  ProcessorTimings last_timings() const override { return {}; }
-  const char* backend_name() const override { return "cpu"; }
-
-  // Convenience wrapper for single-shot use (tests, local development).
-  IqBuffer process(const std::string& link_key,
-                   const ModelConfig& model,
-                   const IqBuffer& input,
-                   std::uint64_t sample_rate_hz);
-
-private:
-  // Per-model-step running state (CFO phase, delay history, AWGN RNG).
-  struct StepState {
-    std::vector<IqSample> delay_line;
-    double phase_rad = 0.0;
-    std::mt19937 rng;
-  };
-
-  // All state owned by one link: two ping-pong scratch buffers and one
-  // StepState per model-chain step. A link is processed by a single thread,
-  // so a LinkState needs no internal locking.
-  struct LinkState {
-    IqBuffer scratch_a;
-    IqBuffer scratch_b;
-    std::vector<StepState> steps;
-  };
-
-  LinkState& ensure_link_state(const std::string& link_key,
-                               const ModelConfig& model,
-                               std::size_t sample_count);
-
-  std::unordered_map<std::string, LinkState> states_;
-};
-
+// Returns the model steps in `config` the CUDA backend cannot run yet (AWGN and
+// delay); empty when the topology is fully GPU-supported.
 std::vector<std::string> validate_cuda_support(const TopologyConfig& config);
+
+// Builds the processor for config.runtime.backend (Backend::Cuda by default).
 std::unique_ptr<ChannelProcessor> create_channel_processor(const TopologyConfig& config);
 
 } // namespace ocg

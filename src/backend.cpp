@@ -1,10 +1,9 @@
 #include "ocudu_gpu_channel/backend.h"
+#if OCUDU_GPU_CHANNEL_HAS_CUDA
+#include "ocudu_gpu_channel/cuda_backend.h"
+#endif
 
 namespace ocg {
-
-#if OCUDU_GPU_CHANNEL_HAS_CUDA
-extern bool cuda_runtime_probe();
-#endif
 
 bool cuda_compiled()
 {
