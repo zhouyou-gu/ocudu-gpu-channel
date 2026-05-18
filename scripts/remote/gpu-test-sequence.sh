@@ -17,7 +17,8 @@
 # It rsyncs the local working tree first, so it validates uncommitted code.
 # The OCUDU Docker gNB/srsUE attach paths are separate, heavier tests
 # (scripts/remote/ocudu-attach-smoke.sh -- single UE; ocudu-multi-ue-smoke.sh
-# -- two UEs) and are not part of this sequence.
+# -- two UEs, one gNB; ocudu-multi-gnb-smoke.sh -- two gNBs, two cells) and are
+# not part of this sequence.
 #
 # Run as a Bash script: scripts/remote/gpu-test-sequence.sh
 set -euo pipefail
