@@ -2,6 +2,10 @@
 # Milestone B2: one OCUDU gNB + two srsUE containers attaching together through
 # the CUDA broker, the two uplinks superposing at the gNB RX.
 #
+# This is the locked-in multi-UE OCUDU test -- the two-UE counterpart of the
+# single-UE ocudu-attach-smoke.sh. The lightweight synthetic+ctest checks live
+# in gpu-test-sequence.sh; this Docker stack is the heavier separate test.
+#
 # One-command test: rsyncs the working tree, builds, brings up Open5GS (with
 # both subscribers) + the gNB + the broker on the multi-UE topology, launches
 # two srsUE containers, and reports whether both reach RRC / PDU / ping.
