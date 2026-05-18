@@ -5,8 +5,13 @@
 #         ue0->gnb0, ue1->gnb0   uplink    (fan-in: the two UE uplinks SUM at the
 #                                           gNB RX -> interference, on the GPU)
 #
-# v1 channel is intentionally clean (0 dB, no noise) so the multi-UE plumbing
-# is proven before realistic per-UE path loss / noise floors are added.
+# v2 channel: realistic per-UE near/far asymmetry now that the multi-UE plumbing
+# is proven (v1 was a clean 0 dB pass-through). ue0 is the NEAR UE and ue1 the
+# FAR UE -- both its downlink and uplink carry more path loss and a lower SNR.
+# The two edges into a node still superpose on the GPU, so the gNB RX is the sum
+# of a strong (ue0) and a weak (ue1) uplink -- a near-far scenario. AWGN uses
+# `snr_db` (relative to each edge's post-path-loss signal) so the link budget is
+# scale-independent and both UEs stay attachable.
 #
 # Ports (broker REQ-connects tx, REP-binds rx):
 #   gnb0  tx 2000  rx 2001    ue0  tx 2101  rx 2100    ue1  tx 2103  rx 2102
@@ -34,18 +39,34 @@ devices:
 links:
   - from: gnb0
     to: ue0
-    model: link
+    model: near
   - from: gnb0
     to: ue1
-    model: link
+    model: far
   - from: ue0
     to: gnb0
-    model: link
+    model: near
   - from: ue1
     to: gnb0
-    model: link
+    model: far
 models:
-  link:
+  # Near UE (ue0): light path loss, a small phase offset, high SNR.
+  near:
     chain:
-      - type: gain
-        gain_db: 0
+      - type: path_loss
+        path_loss_db: 6
+      - type: phase
+        phase_rad: 0.15
+      - type: awgn
+        snr_db: 30
+  # Far UE (ue1): heavier path loss, a larger phase offset, degraded SNR --
+  # still comfortably decodable so the UE attaches, but visibly weaker than the
+  # near UE both on its own link and in the gNB-RX uplink superposition.
+  far:
+    chain:
+      - type: path_loss
+        path_loss_db: 16
+      - type: phase
+        phase_rad: 0.55
+      - type: awgn
+        snr_db: 15
