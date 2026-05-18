@@ -10,7 +10,7 @@ The current implementation is an initial GPU-first community scaffold:
 - Standalone broker CLI: `ocudu-gpu-channel`.
 - Benchmark CLI: `ocudu-gpu-channel-bench`.
 - Synthetic OCUDU-style ZMQ source/sink tools.
-- CUDA MVP backend for gain, path loss, fixed phase, and CFO. AWGN and delay models are rejected on CUDA until kernels exist.
+- CUDA backend for gain, path loss, fixed phase, CFO, and AWGN. Delay models are rejected on CUDA until kernels exist.
 - Explicit CPU reference backend for local tests, CPU/GPU comparison, and models not yet ported to CUDA.
 
 ## Build
@@ -101,16 +101,19 @@ The remote GPU path is intentionally user-space only:
 ./scripts/remote/bootstrap-user-tools.sh
 ./scripts/remote/probe.sh
 ./scripts/remote/build-and-bench-cuda-mvp.sh
+./scripts/remote/gpu-test-sequence.sh
 ```
 
 The bootstrap installs CMake, CUDA Toolkit 12.8.1, and ZeroMQ if needed under `~/ocudu-gpu-channel-workspace/tools/`, then writes `tools/env.sh` on the remote host. Source that file before remote CMake builds.
+
+`gpu-test-sequence.sh` is the locked-in GPU validation run: it rsyncs the working tree, then builds, runs `ctest`, and drives the CUDA broker through a clean-channel and an AWGN synthetic relay loop on the GPU.
 
 For OCUDU runtime interop, use the Docker gNB runbook and smoke helpers in [docs/ocudu-interop.md](docs/ocudu-interop.md). The first milestone proves OCUDU ZMQ sample flow through the CUDA broker; the second attempts srsUE attach and ping through the same broker path.
 
 ## Known Limits
 
 - CUDA is the target backend. CPU mode is a reference/baseline path and should not be used for GPU scale claims.
-- The CUDA MVP currently covers gain, path loss, phase, and CFO; AWGN and delay models are intentionally rejected on CUDA until kernels exist.
+- The CUDA backend currently covers gain, path loss, phase, CFO, and AWGN; delay models are intentionally rejected on CUDA until kernels exist.
 - The broker is a standalone external process, not an OCUDU patch.
 - Scale is reported as a measured envelope by topology, sample rate, model chain, CPU affinity, and backend. The project does not promise fixed multi-UE or multi-gNB counts before benchmark data exists.
 - Distributed IQ over Wi-Fi or VPN is not considered viable. See [docs/distributed.md](docs/distributed.md).

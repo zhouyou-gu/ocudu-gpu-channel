@@ -15,7 +15,7 @@ namespace {
 bool cuda_step_supported(ModelStepType type)
 {
   return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
-         type == ModelStepType::Cfo;
+         type == ModelStepType::Cfo || type == ModelStepType::Awgn;
 }
 
 } // namespace

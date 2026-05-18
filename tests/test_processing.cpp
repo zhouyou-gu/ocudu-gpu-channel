@@ -114,6 +114,55 @@ int main()
     cpu_reference.process_into(key, cuda_model, second_batch, cpu_out, 23040000);
     cuda_processor->process_into(key, cuda_model, second_batch, cuda_out, 23040000);
     require_near_buffer(cpu_out, cuda_out, "CUDA second batch should preserve CFO phase continuity");
+
+    // AWGN is stochastic, so it cannot be compared bit-for-bit. Verify it
+    // statistically: a zero input through an explicit-noise-power AWGN step
+    // yields pure noise whose mean power equals noise_power and whose mean is 0.
+    ocg::TopologyConfig awgn_config;
+    awgn_config.runtime.backend = ocg::Backend::Cuda;
+    awgn_config.runtime.batch_samples_auto = false;
+    awgn_config.runtime.batch_samples = 8192;
+    awgn_config.runtime.queue_samples = 65536;
+    awgn_config.devices = {
+        {.id = "gnb0", .role = ocg::DeviceRole::Gnb, .sample_rate_hz = 23040000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+        {.id = "ue0", .role = ocg::DeviceRole::Ue, .sample_rate_hz = 23040000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+    awgn_config.links = {{.from = "gnb0", .to = "ue0", .model = "awgn"},
+                         {.from = "ue0", .to = "gnb0", .model = "awgn"}};
+    ocg::ModelConfig awgn_model;
+    awgn_model.id = "awgn";
+    const double target_noise_power = 0.04;
+    awgn_model.chain.push_back({.type = ocg::ModelStepType::Awgn, .params = {{"noise_power", target_noise_power}}});
+    awgn_config.models.emplace(awgn_model.id, awgn_model);
+
+    auto awgn_processor = ocg::create_channel_processor(awgn_config);
+    const ocg::IqBuffer zeros(8192, ocg::IqSample{0.0F, 0.0F});
+    ocg::IqBuffer noisy(zeros.size());
+    awgn_processor->process_into("gnb0>ue0:awgn", awgn_model, zeros, noisy, 23040000);
+
+    double power_sum = 0.0;
+    double i_sum = 0.0;
+    double q_sum = 0.0;
+    for (const auto& sample : noisy) {
+      power_sum += ocg::power(sample);
+      i_sum += sample.i;
+      q_sum += sample.q;
+    }
+    const auto n = static_cast<double>(noisy.size());
+    require(std::fabs(power_sum / n - target_noise_power) < 0.1 * target_noise_power,
+            "CUDA AWGN mean power should match noise_power");
+    require(std::fabs(i_sum / n) < 0.02 && std::fabs(q_sum / n) < 0.02, "CUDA AWGN should be zero-mean");
+
+    // Second batch must draw fresh noise, not repeat the first.
+    ocg::IqBuffer noisy2(zeros.size());
+    awgn_processor->process_into("gnb0>ue0:awgn", awgn_model, zeros, noisy2, 23040000);
+    bool differs = false;
+    for (std::size_t s = 0; s != noisy.size(); ++s) {
+      if (noisy[s].i != noisy2[s].i || noisy[s].q != noisy2[s].q) {
+        differs = true;
+        break;
+      }
+    }
+    require(differs, "CUDA AWGN should produce a fresh noise stream each batch");
   }
 #endif
   return 0;

@@ -4,6 +4,8 @@
 #include <chrono>
 #include <cmath>
 #include <cuda_runtime.h>
+#include <curand_kernel.h>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -16,15 +18,22 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 
+// One GPU-executable channel step. Field meaning depends on `type`:
+//   Scale:    a = amplitude factor.
+//   Rotate:   a = start phase (rad), b = per-sample phase increment (rad).
+//   AddNoise: a = noise std-dev sigma; seed + counter drive the per-sample RNG.
 struct GpuStep {
   int type = 0;
   float a = 0.0F;
   float b = 0.0F;
+  unsigned int seed = 0;
+  unsigned long long counter = 0;
 };
 
 enum GpuStepType {
   Scale = 0,
-  Rotate = 1
+  Rotate = 1,
+  AddNoise = 2
 };
 
 GpuStep make_step(int type, float a, float b)
@@ -54,6 +63,15 @@ __global__ void apply_steps_kernel(const IqSample* input,
     if (step.type == Scale) {
       i *= step.a;
       q *= step.a;
+    } else if (step.type == AddNoise) {
+      // Counter-based Philox RNG: stateless and bit-reproducible regardless of
+      // thread scheduling. Each sample gets an independent substream from
+      // (seed, counter + idx); `counter` advances by the batch size every call.
+      curandStatePhilox4_32_10_t rng;
+      curand_init(static_cast<unsigned long long>(step.seed), step.counter + idx, 0ULL, &rng);
+      const float2 noise = curand_normal2(&rng);
+      i += step.a * noise.x;
+      q += step.a * noise.y;
     } else {
       const float phase = step.a + step.b * static_cast<float>(idx);
       float sin_value = 0.0F;
@@ -96,6 +114,8 @@ struct CudaLinkState {
   cudaEvent_t d2h_done = nullptr;
   std::vector<GpuStep> host_steps;
   std::vector<double> phase_rad;
+  std::vector<unsigned int> noise_seed;        // per-step AWGN RNG seed (set in prepare)
+  std::vector<unsigned long long> noise_counter; // per-step AWGN sample counter (advances each call)
 };
 
 void free_state(CudaLinkState& state)
@@ -166,6 +186,14 @@ public:
       state.step_capacity = steps;
       state.host_steps.resize(steps);
       state.phase_rad.assign(steps, 0.0);
+      state.noise_counter.assign(steps, 0ULL);
+      state.noise_seed.assign(steps, 0U);
+      for (std::size_t s = 0; s != steps; ++s) {
+        // Stable per-step seed so each AWGN step has an independent,
+        // run-to-run reproducible noise stream.
+        state.noise_seed[s] =
+            static_cast<unsigned int>(std::hash<std::string>{}(link_key(link) + ":awgn:" + std::to_string(s)));
+      }
 
       const std::size_t sample_bytes = samples * sizeof(IqSample);
       check(cudaHostAlloc(reinterpret_cast<void**>(&state.host_input), sample_bytes, cudaHostAllocDefault),
@@ -267,29 +295,68 @@ private:
                    std::size_t sample_count,
                    std::uint64_t sample_rate_hz)
   {
+    // Average IQ power is tracked analytically through the chain so an snr_db
+    // AWGN step can size its noise without a device-side reduction. Every
+    // GPU-supported step has a closed-form power transfer (Scale: x factor^2,
+    // Rotate: unchanged, AddNoise: + noise_power).
+    double running_power = 0.0;
+    const bool has_awgn = std::any_of(model.chain.begin(), model.chain.end(),
+                                      [](const ModelStep& s) { return s.type == ModelStepType::Awgn; });
+    if (has_awgn && sample_count != 0) {
+      double sum = 0.0;
+      for (std::size_t n = 0; n != sample_count; ++n) {
+        const double si = state.host_input[n].i;
+        const double sq = state.host_input[n].q;
+        sum += si * si + sq * sq;
+      }
+      running_power = sum / static_cast<double>(sample_count);
+    }
+
     for (std::size_t step_index = 0; step_index != model.chain.size(); ++step_index) {
       const auto& step = model.chain[step_index];
       auto& gpu_step = state.host_steps[step_index];
       switch (step.type) {
-        case ModelStepType::Gain:
-          gpu_step = make_step(Scale, static_cast<float>(std::pow(10.0, param_or(step, "gain_db", 0.0) / 20.0)), 0.0F);
+        case ModelStepType::Gain: {
+          const float factor = static_cast<float>(std::pow(10.0, param_or(step, "gain_db", 0.0) / 20.0));
+          gpu_step = make_step(Scale, factor, 0.0F);
+          running_power *= static_cast<double>(factor) * factor;
           break;
-        case ModelStepType::PathLoss:
-          gpu_step =
-              make_step(Scale, static_cast<float>(std::pow(10.0, -param_or(step, "path_loss_db", 0.0) / 20.0)), 0.0F);
+        }
+        case ModelStepType::PathLoss: {
+          const float factor = static_cast<float>(std::pow(10.0, -param_or(step, "path_loss_db", 0.0) / 20.0));
+          gpu_step = make_step(Scale, factor, 0.0F);
+          running_power *= static_cast<double>(factor) * factor;
           break;
+        }
         case ModelStepType::Phase:
         case ModelStepType::Cfo: {
           const double fixed_phase = param_or(step, "phase_rad", 0.0);
           const double cfo_hz = param_or(step, "cfo_hz", 0.0);
           const double phase_increment =
               sample_rate_hz == 0 ? 0.0 : 2.0 * kPi * cfo_hz / static_cast<double>(sample_rate_hz);
-          gpu_step =
-              make_step(Rotate, static_cast<float>(fixed_phase + state.phase_rad[step_index]), static_cast<float>(phase_increment));
-          state.phase_rad[step_index] = std::fmod(state.phase_rad[step_index] + phase_increment * sample_count, 2.0 * kPi);
+          gpu_step = make_step(Rotate, static_cast<float>(fixed_phase + state.phase_rad[step_index]),
+                               static_cast<float>(phase_increment));
+          state.phase_rad[step_index] =
+              std::fmod(state.phase_rad[step_index] + phase_increment * sample_count, 2.0 * kPi);
           break;
         }
-        case ModelStepType::Awgn:
+        case ModelStepType::Awgn: {
+          double noise_power = param_or(step, "noise_power", -1.0);
+          if (noise_power < 0.0) {
+            const double snr_db = param_or(step, "snr_db", 60.0);
+            noise_power = running_power / std::pow(10.0, snr_db / 10.0);
+          }
+          noise_power = std::max(0.0, noise_power);
+          GpuStep noise_step;
+          noise_step.type = AddNoise;
+          noise_step.a = static_cast<float>(std::sqrt(noise_power / 2.0)); // per-component sigma
+          noise_step.seed = state.noise_seed[step_index];
+          noise_step.counter = state.noise_counter[step_index];
+          gpu_step = noise_step;
+          state.noise_counter[step_index] += sample_count;
+          running_power += noise_power;
+          break;
+        }
         case ModelStepType::IntegerDelay:
         case ModelStepType::FractionalDelay:
           throw std::runtime_error("unsupported CUDA model step reached execution: " + to_string(step.type));

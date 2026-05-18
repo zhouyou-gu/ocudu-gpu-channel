@@ -156,13 +156,19 @@ models:
   require(rejected, "mixed sample-rate links should be rejected until resampling exists");
 
   config.runtime.backend = ocg::Backend::Cuda;
-  ocg::ModelConfig unsupported;
-  unsupported.id = "unsupported";
-  unsupported.chain.push_back({.type = ocg::ModelStepType::Awgn, .params = {{"snr_db", 30.0}}});
+  ocg::ModelConfig gpu_awgn;
+  gpu_awgn.id = "gpu_awgn";
+  gpu_awgn.chain.push_back({.type = ocg::ModelStepType::Awgn, .params = {{"snr_db", 30.0}}});
+  ocg::ModelConfig gpu_delay;
+  gpu_delay.id = "gpu_delay";
+  gpu_delay.chain.push_back({.type = ocg::ModelStepType::IntegerDelay, .params = {{"delay_samples", 4.0}}});
   config.models.clear();
-  config.models.emplace(unsupported.id, unsupported);
-  config.links = {{.from = "gnb0", .to = "ue0", .model = unsupported.id}};
-  require(!ocg::validate_cuda_support(config).empty(), "CUDA should reject unsupported AWGN model step");
+  config.models.emplace(gpu_awgn.id, gpu_awgn);
+  config.models.emplace(gpu_delay.id, gpu_delay);
+  config.links = {{.from = "gnb0", .to = "ue0", .model = gpu_awgn.id}};
+  require(ocg::validate_cuda_support(config).empty(), "CUDA should accept the AWGN model step");
+  config.links = {{.from = "gnb0", .to = "ue0", .model = gpu_delay.id}};
+  require(!ocg::validate_cuda_support(config).empty(), "CUDA should reject the integer-delay model step");
 
   std::remove(path);
   std::remove(bad_path);

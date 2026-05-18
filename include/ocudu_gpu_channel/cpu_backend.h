@@ -13,7 +13,7 @@
 // product target (the CUDA backend is); it exists for local development on
 // machines without a GPU, as the correctness reference the GPU backend is
 // tested against, and as the fallback for model steps not yet ported to CUDA
-// (AWGN, integer and fractional delay).
+// (integer and fractional delay).
 
 namespace ocg {
 

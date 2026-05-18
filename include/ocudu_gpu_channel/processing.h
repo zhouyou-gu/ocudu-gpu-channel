@@ -46,8 +46,8 @@ public:
   virtual const char* backend_name() const = 0;
 };
 
-// Returns the model steps in `config` the CUDA backend cannot run yet (AWGN and
-// delay); empty when the topology is fully GPU-supported.
+// Returns the model steps in `config` the CUDA backend cannot run yet (integer
+// and fractional delay); empty when the topology is fully GPU-supported.
 std::vector<std::string> validate_cuda_support(const TopologyConfig& config);
 
 // Builds the processor for config.runtime.backend (Backend::Cuda by default).
