@@ -211,6 +211,79 @@ int main()
     ocg::IqBuffer superposed(8);
     sp_processor->process_superposition("ue0", edges, nullptr, 23040000, superposed);
     require_near_buffer(reference, superposed, "CUDA superposition should equal the CPU edge sum");
+
+    // Integer/fractional delay: a chain-leading sample delay runs on the CUDA
+    // backend (applied host-side at staging) and must match the CPU reference
+    // bit-for-bit, including cross-batch delay-line continuity.
+    ocg::TopologyConfig delay_config;
+    delay_config.runtime.backend = ocg::Backend::Cuda;
+    delay_config.runtime.batch_samples_auto = false;
+    delay_config.runtime.batch_samples = 8;
+    delay_config.runtime.queue_samples = 64;
+    delay_config.devices = {
+        {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+        {.id = "ue0", .role = "ue", .sample_rate_hz = 23040000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+    delay_config.links = {{.from = "gnb0", .to = "ue0", .model = "delay_chain"}};
+    ocg::ModelConfig delay_chain;
+    delay_chain.id = "delay_chain";
+    // Leading fractional delay, then a per-sample step -- exercises the no-op
+    // device delay step followed by a real step.
+    delay_chain.chain.push_back({.type = ocg::ModelStepType::FractionalDelay, .params = {{"delay_samples", 2.75}}});
+    delay_chain.chain.push_back({.type = ocg::ModelStepType::Gain, .params = {{"gain_db", -3.0}}});
+    delay_config.models.emplace(delay_chain.id, delay_chain);
+
+    ocg::CpuChannelProcessor delay_reference;
+    delay_reference.prepare(delay_config);
+    auto delay_processor = ocg::create_channel_processor(delay_config);
+    const std::string delay_key = "gnb0>ue0:delay_chain";
+    ocg::IqBuffer delay_cpu(8);
+    ocg::IqBuffer delay_cuda(8);
+
+    delay_reference.process_into(delay_key, delay_chain, first_batch, delay_cpu, 23040000);
+    delay_processor->process_into(delay_key, delay_chain, first_batch, delay_cuda, 23040000);
+    require_near_buffer(delay_cpu, delay_cuda, "CUDA leading delay should match the CPU reference");
+
+    delay_reference.process_into(delay_key, delay_chain, second_batch, delay_cpu, 23040000);
+    delay_processor->process_into(delay_key, delay_chain, second_batch, delay_cuda, 23040000);
+    require_near_buffer(delay_cpu, delay_cuda, "CUDA delay should carry its history across batches");
+
+    // The delay path also holds inside the superposition kernel: one delayed
+    // edge plus one plain edge must still equal the CPU reference sum.
+    ocg::TopologyConfig spd_config;
+    spd_config.runtime.backend = ocg::Backend::Cuda;
+    spd_config.runtime.batch_samples_auto = false;
+    spd_config.runtime.batch_samples = 8;
+    spd_config.runtime.queue_samples = 64;
+    spd_config.devices = {
+        {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000, .tx_endpoint = "t0", .rx_endpoint = "r0"},
+        {.id = "gnb1", .role = "gnb", .sample_rate_hz = 23040000, .tx_endpoint = "t1", .rx_endpoint = "r1"},
+        {.id = "ue0", .role = "ue", .sample_rate_hz = 23040000, .tx_endpoint = "t2", .rx_endpoint = "r2"}};
+    spd_config.links = {{.from = "gnb0", .to = "ue0", .model = "delayed_edge"},
+                        {.from = "gnb1", .to = "ue0", .model = "edge_a"}};
+    ocg::ModelConfig delayed_edge;
+    delayed_edge.id = "delayed_edge";
+    delayed_edge.chain.push_back({.type = ocg::ModelStepType::IntegerDelay, .params = {{"delay_samples", 3.0}}});
+    delayed_edge.chain.push_back({.type = ocg::ModelStepType::PathLoss, .params = {{"path_loss_db", 6.0}}});
+    spd_config.models.emplace("delayed_edge", delayed_edge);
+    spd_config.models.emplace("edge_a", edge_a);
+
+    auto spd_processor = ocg::create_channel_processor(spd_config);
+    ocg::CpuChannelProcessor spd_reference;
+    spd_reference.prepare(spd_config);
+    ocg::IqBuffer spd_ref_a(8);
+    ocg::IqBuffer spd_ref_b(8);
+    spd_reference.process_into("gnb0>ue0:delayed_edge", delayed_edge, in_a, spd_ref_a, 23040000);
+    spd_reference.process_into("gnb1>ue0:edge_a", edge_a, in_b, spd_ref_b, 23040000);
+    ocg::IqBuffer spd_reference_sum(8);
+    for (std::size_t s = 0; s != 8; ++s) {
+      spd_reference_sum[s] = spd_ref_a[s] + spd_ref_b[s];
+    }
+    std::vector<ocg::SuperpositionInput> spd_edges = {
+        {.link_key = "gnb0>ue0:delayed_edge", .model = &delayed_edge, .samples = in_a},
+        {.link_key = "gnb1>ue0:edge_a", .model = &edge_a, .samples = in_b}};
+    ocg::IqBuffer spd_superposed(8);
+    spd_processor->process_superposition("ue0", spd_edges, nullptr, 23040000, spd_superposed);
+    require_near_buffer(spd_reference_sum, spd_superposed, "CUDA superposition with a delayed edge should match CPU");
   }
 #endif
   return 0;

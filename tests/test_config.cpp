@@ -159,16 +159,26 @@ models:
   ocg::ModelConfig gpu_awgn;
   gpu_awgn.id = "gpu_awgn";
   gpu_awgn.chain.push_back({.type = ocg::ModelStepType::Awgn, .params = {{"snr_db", 30.0}}});
-  ocg::ModelConfig gpu_delay;
-  gpu_delay.id = "gpu_delay";
-  gpu_delay.chain.push_back({.type = ocg::ModelStepType::IntegerDelay, .params = {{"delay_samples", 4.0}}});
+  // A chain-leading sample delay is GPU-supported (applied host-side at staging).
+  ocg::ModelConfig gpu_lead_delay;
+  gpu_lead_delay.id = "gpu_lead_delay";
+  gpu_lead_delay.chain.push_back({.type = ocg::ModelStepType::IntegerDelay, .params = {{"delay_samples", 4.0}}});
+  gpu_lead_delay.chain.push_back({.type = ocg::ModelStepType::Gain, .params = {{"gain_db", -3.0}}});
+  // A delay that does not lead the chain is not GPU-supported.
+  ocg::ModelConfig gpu_mid_delay;
+  gpu_mid_delay.id = "gpu_mid_delay";
+  gpu_mid_delay.chain.push_back({.type = ocg::ModelStepType::Gain, .params = {{"gain_db", -3.0}}});
+  gpu_mid_delay.chain.push_back({.type = ocg::ModelStepType::FractionalDelay, .params = {{"delay_samples", 4.5}}});
   config.models.clear();
   config.models.emplace(gpu_awgn.id, gpu_awgn);
-  config.models.emplace(gpu_delay.id, gpu_delay);
+  config.models.emplace(gpu_lead_delay.id, gpu_lead_delay);
+  config.models.emplace(gpu_mid_delay.id, gpu_mid_delay);
   config.links = {{.from = "gnb0", .to = "ue0", .model = gpu_awgn.id}};
   require(ocg::validate_cuda_support(config).empty(), "CUDA should accept the AWGN model step");
-  config.links = {{.from = "gnb0", .to = "ue0", .model = gpu_delay.id}};
-  require(!ocg::validate_cuda_support(config).empty(), "CUDA should reject the integer-delay model step");
+  config.links = {{.from = "gnb0", .to = "ue0", .model = gpu_lead_delay.id}};
+  require(ocg::validate_cuda_support(config).empty(), "CUDA should accept a chain-leading sample delay");
+  config.links = {{.from = "gnb0", .to = "ue0", .model = gpu_mid_delay.id}};
+  require(!ocg::validate_cuda_support(config).empty(), "CUDA should reject a non-leading sample delay");
 
   std::remove(path);
   std::remove(bad_path);

@@ -1,4 +1,5 @@
 #include "ocudu_gpu_channel/cpu_backend.h"
+#include "ocudu_gpu_channel/delay.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -137,37 +138,8 @@ void CpuChannelProcessor::process_into(const std::string& link_key_value,
         const auto integer_delay = static_cast<std::size_t>(std::max(0.0, std::floor(requested_delay)));
         const double fraction =
             step.type == ModelStepType::FractionalDelay ? requested_delay - std::floor(requested_delay) : 0.0;
-        const std::size_t history_size = integer_delay + 2;
-        if (step_state.delay_line.size() < history_size) {
-          step_state.delay_line.insert(step_state.delay_line.begin(),
-                                       history_size - step_state.delay_line.size(), {});
-        }
-
-        auto sample_at = [&](std::ptrdiff_t index) {
-          if (index >= 0) {
-            return current[static_cast<std::size_t>(index)];
-          }
-          return step_state.delay_line[static_cast<std::size_t>(
-              static_cast<std::ptrdiff_t>(step_state.delay_line.size()) + index)];
-        };
-
-        for (std::size_t n = 0; n != current.size(); ++n) {
-          const auto delayed_index = static_cast<std::ptrdiff_t>(n) - static_cast<std::ptrdiff_t>(integer_delay);
-          const IqSample sample0 = sample_at(delayed_index);
-          const IqSample sample1 = sample_at(delayed_index - 1);
-          next[n].i = static_cast<float>((1.0 - fraction) * sample0.i + fraction * sample1.i);
-          next[n].q = static_cast<float>((1.0 - fraction) * sample0.q + fraction * sample1.q);
-        }
-
-        if (current.size() >= history_size) {
-          step_state.delay_line.assign(current.end() - static_cast<std::ptrdiff_t>(history_size), current.end());
-        } else {
-          const std::size_t keep_old = history_size - current.size();
-          std::move(step_state.delay_line.end() - static_cast<std::ptrdiff_t>(keep_old), step_state.delay_line.end(),
-                    step_state.delay_line.begin());
-          std::copy(current.begin(), current.end(),
-                    step_state.delay_line.begin() + static_cast<std::ptrdiff_t>(keep_old));
-        }
+        apply_sample_delay(current.data(), next.data(), current.size(), integer_delay, fraction,
+                           step_state.delay_line);
         break;
       }
       case ModelStepType::Phase:

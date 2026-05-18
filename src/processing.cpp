@@ -12,25 +12,65 @@
 namespace ocg {
 namespace {
 
+// Per-sample steps the GPU runs unconditionally, anywhere in a chain.
 bool cuda_step_supported(ModelStepType type)
 {
   return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
          type == ModelStepType::Cfo || type == ModelStepType::Awgn;
 }
 
+bool is_sample_delay(ModelStepType type)
+{
+  return type == ModelStepType::IntegerDelay || type == ModelStepType::FractionalDelay;
+}
+
 } // namespace
 
 std::vector<std::string> validate_cuda_support(const TopologyConfig& config)
 {
+  // The CUDA backend applies a propagation delay host-side while staging, so it
+  // needs the raw link input -- it can run a sample-delay step only when that
+  // step leads the chain (a non-leading delay would need a mid-chain
+  // intermediate the per-sample kernel never materialises). A leading delay is
+  // the physically natural order anyway: the signal propagates, then the
+  // receiver-side effects (CFO, noise) apply.
   std::vector<std::string> errors;
   for (const auto& link : config.links) {
     const auto* model = find_model(config, link.model);
     if (model == nullptr) {
       continue;
     }
-    for (const auto& step : model->chain) {
+    for (std::size_t s = 0; s != model->chain.size(); ++s) {
+      const auto& step = model->chain[s];
+      if (is_sample_delay(step.type)) {
+        if (s != 0) {
+          errors.emplace_back("CUDA backend supports model " + model->id + " step " + to_string(step.type) +
+                              " only as the first step of a chain");
+        }
+        continue;
+      }
       if (!cuda_step_supported(step.type)) {
         errors.emplace_back("CUDA backend does not support model " + model->id + " step " + to_string(step.type));
+      }
+    }
+  }
+
+  // Receiver models run on the summed signal with no per-link input, so a
+  // sample delay there is meaningless and is never applied -- reject it.
+  for (const auto& device : config.devices) {
+    if (device.rx_model.empty()) {
+      continue;
+    }
+    const auto* rx = find_model(config, device.rx_model);
+    if (rx == nullptr) {
+      continue;
+    }
+    for (const auto& step : rx->chain) {
+      if (is_sample_delay(step.type)) {
+        errors.emplace_back("CUDA backend does not support a delay step in receiver model " + rx->id);
+      } else if (!cuda_step_supported(step.type)) {
+        errors.emplace_back("CUDA backend does not support receiver model " + rx->id + " step " +
+                            to_string(step.type));
       }
     }
   }

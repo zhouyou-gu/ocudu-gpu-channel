@@ -1,4 +1,5 @@
 #include "ocudu_gpu_channel/cuda_backend.h"
+#include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/processing.h"
 #include <algorithm>
 #include <chrono>
@@ -54,6 +55,14 @@ struct LinkModelState {
   std::vector<double> phase_rad;
   std::vector<unsigned int> noise_seed;        // per-step AWGN RNG seed
   std::vector<unsigned long long> noise_counter; // per-step AWGN sample counter
+  // Chain-leading propagation delay. The CUDA kernel is strictly per-sample, so
+  // a delay -- which needs neighbouring and previous-batch samples -- is applied
+  // host-side while staging (see apply_leading_delay / delay.h) and is a no-op
+  // on the device. delay_line carries the previous batch's tail.
+  bool has_delay = false;
+  std::size_t delay_int = 0;
+  double delay_frac = 0.0;
+  std::vector<IqSample> delay_line;
 };
 
 void init_model_state(LinkModelState& state, std::size_t steps, const std::string& seed_prefix)
@@ -162,6 +171,40 @@ double param_or(const ModelStep& step, const std::string& name, double fallback)
 {
   auto it = step.params.find(name);
   return it == step.params.end() ? fallback : it->second;
+}
+
+// Records a chain-leading sample-delay step on the model state. validate_cuda_
+// support() has already guaranteed any delay step is a chain's first step, so
+// only chain.front() can be one.
+void configure_delay(LinkModelState& state, const ModelConfig& model)
+{
+  state.has_delay = false;
+  state.delay_int = 0;
+  state.delay_frac = 0.0;
+  state.delay_line.clear();
+  if (model.chain.empty()) {
+    return;
+  }
+  const auto& first = model.chain.front();
+  if (first.type != ModelStepType::IntegerDelay && first.type != ModelStepType::FractionalDelay) {
+    return;
+  }
+  const double requested = param_or(first, "delay_samples", 0.0);
+  state.has_delay = true;
+  state.delay_int = static_cast<std::size_t>(std::max(0.0, std::floor(requested)));
+  state.delay_frac = first.type == ModelStepType::FractionalDelay ? requested - std::floor(requested) : 0.0;
+}
+
+// Stages one link's `count` input samples into `out`, applying the chain-
+// leading propagation delay (or a plain copy when the link has none). The
+// device kernel then runs the rest of the chain per-sample.
+void apply_leading_delay(LinkModelState& state, const IqSample* in, IqSample* out, std::size_t count)
+{
+  if (state.has_delay) {
+    apply_sample_delay(in, out, count, state.delay_int, state.delay_frac, state.delay_line);
+  } else {
+    std::copy(in, in + count, out);
+  }
 }
 
 // One link's broker-side CUDA state: its model-chain state plus the per-call
@@ -340,6 +383,7 @@ public:
       free_state(state);
       state.capacity = resolve_batch_samples(config.runtime, destination->sample_rate_hz);
       init_model_state(state.model, model->chain.size(), link_key(link));
+      configure_delay(state.model, *model);
     }
 
     // Per-destination superposition state: one entry per node that is the
@@ -427,7 +471,7 @@ public:
     ensure_link_device(state);
 
     const auto total_start = std::chrono::steady_clock::now();
-    std::copy(input.begin(), input.end(), state.host_input);
+    apply_leading_delay(state.model, input.data(), state.host_input, input.size());
     build_steps(state.model, model, state.host_input, input.size(), sample_rate_hz);
 
     const std::size_t sample_bytes = input.size() * sizeof(IqSample);
@@ -503,7 +547,7 @@ public:
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
       IqSample* slot = sp.host_staged + k * count;
-      std::copy(edge.samples.begin(), edge.samples.end(), slot);
+      apply_leading_delay(ls_it->second.model, edge.samples.data(), slot, count);
       build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
       const int nsteps = static_cast<int>(edge.model->chain.size());
       sp.host_step_meta[k] = total_steps;                          // offset
@@ -666,7 +710,10 @@ private:
         }
         case ModelStepType::IntegerDelay:
         case ModelStepType::FractionalDelay:
-          throw std::runtime_error("unsupported CUDA model step reached execution: " + to_string(step.type));
+          // apply_leading_delay() already delayed the staged input host-side;
+          // on the device the delay is a no-op pass-through.
+          gpu_step = make_step(Scale, 1.0F, 0.0F);
+          break;
       }
     }
   }
