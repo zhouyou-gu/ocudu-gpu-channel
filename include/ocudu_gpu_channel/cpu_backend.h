@@ -27,6 +27,12 @@ public:
                     std::span<IqSample> output,
                     std::uint64_t sample_rate_hz) override;
 
+  void process_superposition(const std::string& dst_key,
+                             const std::vector<SuperpositionInput>& inputs,
+                             const ModelConfig* rx_model,
+                             std::uint64_t sample_rate_hz,
+                             std::span<IqSample> output) override;
+
   ProcessorTimings last_timings() const override { return {}; }
   const char* backend_name() const override { return "cpu"; }
 

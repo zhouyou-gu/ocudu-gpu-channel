@@ -120,13 +120,16 @@ void apply_device(DeviceConfig& device, const std::string& key, const std::strin
   if (key == "id") {
     device.id = value;
   } else if (key == "role") {
-    device.role = parse_device_role(value);
+    // Free-form label only; the emulator treats every node identically.
+    device.role = value;
   } else if (key == "sample_rate_hz") {
     device.sample_rate_hz = parse_u64(value, key);
   } else if (key == "tx_endpoint") {
     device.tx_endpoint = value;
   } else if (key == "rx_endpoint") {
     device.rx_endpoint = value;
+  } else if (key == "rx_model") {
+    device.rx_model = value;
   } else {
     throw std::runtime_error("unknown device key: " + key);
   }
@@ -364,6 +367,9 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     if (device.rx_endpoint.empty()) {
       errors.emplace_back("device " + device.id + " rx_endpoint is required");
     }
+    if (!device.rx_model.empty() && find_model(config, device.rx_model) == nullptr) {
+      errors.emplace_back("device " + device.id + " rx_model does not exist: " + device.rx_model);
+    }
   }
 
   for (const auto& link : config.links) {
@@ -430,11 +436,6 @@ std::string to_string(Backend backend)
   return backend == Backend::Cuda ? "cuda" : "cpu";
 }
 
-std::string to_string(DeviceRole role)
-{
-  return role == DeviceRole::Gnb ? "gnb" : "ue";
-}
-
 std::string to_string(ModelStepType type)
 {
   switch (type) {
@@ -465,17 +466,6 @@ Backend parse_backend(const std::string& value)
     return Backend::Cuda;
   }
   throw std::runtime_error("unsupported backend: " + value);
-}
-
-DeviceRole parse_device_role(const std::string& value)
-{
-  if (value == "gnb") {
-    return DeviceRole::Gnb;
-  }
-  if (value == "ue") {
-    return DeviceRole::Ue;
-  }
-  throw std::runtime_error("unsupported device role: " + value);
 }
 
 ModelStepType parse_model_step_type(const std::string& value)

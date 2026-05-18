@@ -64,6 +64,19 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
     const std::size_t count = resolve_batch_samples(config.runtime, destination->sample_rate_hz);
     ensure_link_state(link_key(link), *model, count);
   }
+  // Receiver-model state, keyed "<node>>rx", so process_superposition can apply
+  // a node's noise floor without a concurrent map insert.
+  for (const auto& device : config.devices) {
+    if (device.rx_model.empty()) {
+      continue;
+    }
+    const auto* model = find_model(config, device.rx_model);
+    if (model == nullptr) {
+      continue;
+    }
+    const std::size_t count = resolve_batch_samples(config.runtime, device.sample_rate_hz);
+    ensure_link_state(device.id + ">rx", *model, count);
+  }
 }
 
 void CpuChannelProcessor::process_into(const std::string& link_key_value,
@@ -187,6 +200,39 @@ IqBuffer CpuChannelProcessor::process(const std::string& link_key_value,
   IqBuffer output(input.size());
   process_into(link_key_value, model, input, output, sample_rate_hz);
   return output;
+}
+
+void CpuChannelProcessor::process_superposition(const std::string& dst_key,
+                                                const std::vector<SuperpositionInput>& inputs,
+                                                const ModelConfig* rx_model,
+                                                std::uint64_t sample_rate_hz,
+                                                std::span<IqSample> output)
+{
+  // Reference superposition: shape each incoming edge through its own model,
+  // then sum. The CUDA backend fuses this into one kernel; here it stays a
+  // plain loop so it can serve as the correctness reference.
+  std::fill(output.begin(), output.end(), IqSample{});
+  // Reused across calls on this thread (the broker runs one server thread per
+  // destination node), so a serve does not allocate.
+  thread_local IqBuffer scratch;
+  if (scratch.size() < output.size()) {
+    scratch.resize(output.size());
+  }
+  const std::span<IqSample> shaped(scratch.data(), output.size());
+  for (const auto& edge : inputs) {
+    if (edge.model == nullptr || edge.samples.size() != output.size()) {
+      throw std::runtime_error("CPU superposition input is malformed");
+    }
+    process_into(edge.link_key, *edge.model, edge.samples, shaped, sample_rate_hz);
+    for (std::size_t s = 0; s != output.size(); ++s) {
+      output[s] += scratch[s];
+    }
+  }
+  // Receiver model (noise floor) applied once to the summed signal.
+  if (rx_model != nullptr) {
+    const std::span<const IqSample> summed(output.data(), output.size());
+    process_into(dst_key + ">rx", *rx_model, summed, output, sample_rate_hz);
+  }
 }
 
 } // namespace ocg

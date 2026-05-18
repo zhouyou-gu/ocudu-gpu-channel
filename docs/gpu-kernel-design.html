@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ocudu-gpu-channel — GPU Kernel Design</title>
+<style>
+  :root {
+    --bg:#0f1420; --panel:#1a2233; --ink:#e7ecf5; --muted:#9aa7bd;
+    --edge:#2c3850; --accent:#5db1ff; --warm:#ffb454; --good:#6fd08c;
+    --noise:#c98bff;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.65 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap { max-width:1060px; margin:0 auto; padding:40px 28px 80px; }
+  h1 { font-size:30px; margin:0 0 6px; }
+  h2 { font-size:21px; margin:42px 0 10px; border-bottom:1px solid var(--edge); padding-bottom:6px; }
+  h3 { font-size:16px; margin:26px 0 8px; color:var(--accent); }
+  p { color:#cdd6e6; }
+  code { font-family:"SF Mono",Menlo,Consolas,monospace; background:#0b101a;
+    border:1px solid var(--edge); border-radius:4px; padding:1px 5px; font-size:13px; }
+  .sub { color:var(--muted); margin-top:0; }
+  .panel { background:var(--panel); border:1px solid var(--edge); border-radius:10px;
+    padding:18px 20px; margin:16px 0; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:14px; }
+  th,td { border:1px solid var(--edge); padding:7px 10px; text-align:left; }
+  th { background:#0b101a; color:var(--muted); font-weight:600; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:10px;
+    background:#0b101a; border:1px solid var(--edge); color:var(--muted); }
+  figure { margin:18px 0; }
+  figcaption { color:var(--muted); font-size:13px; margin-top:8px; text-align:center; }
+  svg { display:block; margin:0 auto; max-width:100%; height:auto; }
+  .key { font-size:13px; color:var(--muted); }
+  .key b { color:var(--ink); }
+  .mono { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; }
+  .num { font-size:26px; font-weight:700; }
+  .numrow { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:14px 0; }
+  .numrow .panel { text-align:center; margin:0; }
+  .numrow .panel div:last-child { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>GPU Kernel Design — <span class="mono">ocudu-gpu-channel</span></h1>
+  <p class="sub">How the channel emulator maps wireless-channel math onto the GPU's
+  thread array to emulate the desired signal, interference, and crosstalk for a whole
+  topology in real time.</p>
+
+  <h2>1. Why a GPU fits channel emulation</h2>
+  <p>A channel emulator turns each transmitter's IQ stream into what a receiver hears.
+  Per output sample the math is <b>independent</b> of every other sample — a gain is a
+  multiply, a phase/CFO rotation is a <code>sincos</code> + complex multiply, AWGN is one
+  RNG draw. That is the textbook shape of a <b>SIMT</b> (single-instruction, multiple-thread)
+  workload: launch one GPU thread per sample and they all run the same chain at once.</p>
+  <p>OCUDU's ZMQ radio exchanges IQ in <b>23&nbsp;040-sample slots</b> (1&nbsp;ms at
+  23.04&nbsp;MS/s). The emulator processes one slot per link per millisecond — so the GPU
+  has a 1&nbsp;ms budget to shape and sum every edge of the graph.</p>
+
+  <h2>2. The two kernels</h2>
+  <table>
+    <tr><th>Kernel</th><th>Used by</th><th>Each thread does</th></tr>
+    <tr>
+      <td class="mono">apply_steps_kernel</td>
+      <td>single-link <code>process_into</code> (benchmark, tests)</td>
+      <td>shapes one output sample through one link's model chain</td>
+    </tr>
+    <tr>
+      <td class="mono">superpose_kernel</td>
+      <td>multi-link <code>process_superposition</code> (the broker)</td>
+      <td>computes one output sample of a node's RX = <b>sum over every incoming
+      edge</b> of that edge's channel-shaped input</td>
+    </tr>
+  </table>
+  <p><span class="tag">interference</span> <span class="tag">crosstalk</span> Both are
+  graph fan-in: a node's received signal is the superposition of every edge arriving at
+  it. <code>superpose_kernel</code> is where that summation runs — <b>on the GPU</b>.</p>
+
+  <!-- ============ DIAGRAM A : SIMT mapping ============ -->
+  <h2>3. Parallelism axis 1 — one thread per output sample</h2>
+  <figure>
+  <svg viewBox="0 0 1000 300" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+    <!-- batch strip -->
+    <text x="20" y="34" fill="#9aa7bd">one 1 ms slot — 23 040 IQ samples</text>
+    <g>
+      <!-- sample cells -->
+      <g fill="#1a2233" stroke="#2c3850">
+        <rect x="20"  y="44" width="48" height="34"/>
+        <rect x="68"  y="44" width="48" height="34"/>
+        <rect x="116" y="44" width="48" height="34"/>
+        <rect x="164" y="44" width="48" height="34"/>
+        <rect x="212" y="44" width="48" height="34"/>
+        <rect x="800" y="44" width="60" height="34"/>
+      </g>
+      <g fill="#e7ecf5" text-anchor="middle">
+        <text x="44"  y="65">s0</text>
+        <text x="92"  y="65">s1</text>
+        <text x="140" y="65">s2</text>
+        <text x="188" y="65">s3</text>
+        <text x="236" y="65">s4</text>
+        <text x="830" y="65">s23039</text>
+      </g>
+      <text x="300" y="65" fill="#9aa7bd">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
+    </g>
+    <!-- arrows down -->
+    <g stroke="#5db1ff" marker-end="url(#ar)">
+      <line x1="44"  y1="80" x2="44"  y2="128"/>
+      <line x1="92"  y1="80" x2="92"  y2="128"/>
+      <line x1="140" y1="80" x2="140" y2="128"/>
+      <line x1="188" y1="80" x2="188" y2="128"/>
+      <line x1="236" y1="80" x2="236" y2="128"/>
+      <line x1="830" y1="80" x2="830" y2="128"/>
+    </g>
+    <!-- thread cells -->
+    <text x="20" y="150" fill="#9aa7bd">GPU threads — one per sample, all running concurrently</text>
+    <g fill="#13391f" stroke="#6fd08c">
+      <rect x="20"  y="160" width="48" height="34"/>
+      <rect x="68"  y="160" width="48" height="34"/>
+      <rect x="116" y="160" width="48" height="34"/>
+      <rect x="164" y="160" width="48" height="34"/>
+      <rect x="212" y="160" width="48" height="34"/>
+      <rect x="800" y="160" width="60" height="34"/>
+    </g>
+    <g fill="#6fd08c" text-anchor="middle">
+      <text x="44"  y="181">t0</text>
+      <text x="92"  y="181">t1</text>
+      <text x="140" y="181">t2</text>
+      <text x="188" y="181">t3</text>
+      <text x="236" y="181">t4</text>
+      <text x="830" y="181">t23039</text>
+    </g>
+    <text x="300" y="181" fill="#9aa7bd">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
+    <!-- grid/block bracket -->
+    <g stroke="#ffb454" fill="none">
+      <rect x="16" y="210" width="244" height="40" rx="4"/>
+    </g>
+    <text x="138" y="235" fill="#ffb454" text-anchor="middle">block 0 — 256 threads</text>
+    <text x="290" y="235" fill="#9aa7bd">block 1 · · · block 89</text>
+    <text x="20" y="278" fill="#cdd6e6">
+      grid = ⌈23040 / 256⌉ = 90 blocks  ·  90 × 256 = 23 040 threads  ·  the SM array runs them in lock-step warps of 32
+    </text>
+  </svg>
+  <figcaption>Diagram A — the launch <span class="mono">&lt;&lt;&lt;90, 256&gt;&gt;&gt;</span>:
+  thread <span class="mono">idx</span> owns output sample <span class="mono">idx</span>.</figcaption>
+  </figure>
+
+  <!-- ============ DIAGRAM B : superpose_kernel ============ -->
+  <h2>4. Parallelism axis 2 — each thread sums the whole interference graph</h2>
+  <p>For a node with <span class="mono">N</span> incoming edges, the broker stages the
+  <span class="mono">N</span> source batches back to back and launches one
+  <code>superpose_kernel</code>. Thread <span class="mono">idx</span> walks all
+  <span class="mono">N</span> edges for its sample, shaping each through that edge's own
+  model chain, and accumulates — that accumulation <b>is</b> the interference.</p>
+  <figure>
+  <svg viewBox="0 0 1000 340" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+    <!-- staged edge buffers -->
+    <text x="20" y="26" fill="#9aa7bd">staged inputs — each incoming edge's 23 040-sample batch</text>
+    <g font-size="11">
+      <rect x="20" y="36" width="430" height="26" fill="#1a2233" stroke="#2c3850"/>
+      <text x="30" y="53" fill="#5db1ff">edge 0  ue0 → gnb0   [ s0 s1 s2 … ]</text>
+      <rect x="20" y="68" width="430" height="26" fill="#1a2233" stroke="#2c3850"/>
+      <text x="30" y="85" fill="#5db1ff">edge 1  ue1 → gnb0   [ s0 s1 s2 … ]</text>
+      <rect x="20" y="100" width="430" height="26" fill="#1a2233" stroke="#2c3850"/>
+      <text x="30" y="117" fill="#5db1ff">edge k  …            [ s0 s1 s2 … ]</text>
+    </g>
+    <!-- column idx highlight -->
+    <rect x="232" y="36" width="20" height="90" fill="none" stroke="#ffb454" stroke-dasharray="3 2"/>
+    <text x="242" y="146" fill="#ffb454" text-anchor="middle">sample idx</text>
+
+    <!-- thread box -->
+    <g>
+      <rect x="540" y="40" width="430" height="210" rx="8" fill="#13391f" stroke="#6fd08c"/>
+      <text x="560" y="64" fill="#6fd08c">thread idx   —   computes dst[idx]</text>
+      <text x="560" y="92"  fill="#e7ecf5">acc = (0, 0)</text>
+      <text x="560" y="116" fill="#cdd6e6">for k in 0 … N-1:</text>
+      <text x="582" y="140" fill="#5db1ff">s = staged[k·count + idx]</text>
+      <text x="582" y="164" fill="#c98bff">apply_chain(s, model_k)</text>
+      <text x="600" y="186" fill="#9aa7bd" font-size="11">gain ×a · rotate sincos · AWGN (Philox)</text>
+      <text x="582" y="210" fill="#ffb454">acc += s</text>
+      <text x="560" y="238" fill="#e7ecf5">dst[idx] = acc</text>
+    </g>
+    <!-- arrows from staged column to thread -->
+    <g stroke="#5db1ff" marker-end="url(#ar2)">
+      <line x1="252" y1="49"  x2="536" y2="120"/>
+      <line x1="252" y1="81"  x2="536" y2="135"/>
+      <line x1="252" y1="113" x2="536" y2="150"/>
+    </g>
+    <!-- output -->
+    <rect x="700" y="276" width="200" height="34" rx="4" fill="#1a2233" stroke="#ffb454"/>
+    <text x="800" y="297" fill="#ffb454" text-anchor="middle">dst[idx] = node RX sample</text>
+    <line x1="755" y1="250" x2="780" y2="272" stroke="#5db1ff" marker-end="url(#ar2)"/>
+    <text x="20" y="300" fill="#cdd6e6">desired + interference + crosstalk are the same operation:</text>
+    <text x="20" y="320" fill="#cdd6e6">every edge into the node is one term of the sum that thread idx accumulates.</text>
+  </svg>
+  <figcaption>Diagram B — <span class="mono">superpose_kernel</span>: 23 040 threads each
+  evaluate the full N-edge superposition for their own sample, in parallel.</figcaption>
+  </figure>
+  <p class="key"><b>Two parallel axes multiply:</b> 23 040 samples wide (one thread each) ×
+  N edges deep (the per-thread loop). The 3-node graph's 2-edge nodes are ≈46 000 complex
+  channel evaluations per launch — measured at <b>5–9 µs</b> on the RTX 5090, well inside
+  the 1 ms slot.</p>
+
+  <!-- ============ DIAGRAM C : pipeline ============ -->
+  <h2>5. The fused pipeline — one copy in, one kernel, one copy out</h2>
+  <figure>
+  <svg viewBox="0 0 1000 200" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="ar3" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
+      </marker>
+    </defs>
+    <!-- host -->
+    <rect x="30" y="50" width="230" height="100" rx="8" fill="#1a2233" stroke="#2c3850"/>
+    <text x="145" y="40" fill="#9aa7bd" text-anchor="middle">HOST (broker server thread)</text>
+    <text x="145" y="90" fill="#e7ecf5" text-anchor="middle">stage N edge batches</text>
+    <text x="145" y="112" fill="#9aa7bd" text-anchor="middle" font-size="11">into pinned memory</text>
+    <!-- device -->
+    <rect x="420" y="34" width="320" height="132" rx="8" fill="#13391f" stroke="#6fd08c"/>
+    <text x="580" y="24" fill="#6fd08c" text-anchor="middle">GPU (RTX 5090)</text>
+    <text x="580" y="78" fill="#e7ecf5" text-anchor="middle">superpose_kernel</text>
+    <text x="580" y="100" fill="#9aa7bd" text-anchor="middle" font-size="11">&lt;&lt;&lt;90 blocks, 256 threads&gt;&gt;&gt;</text>
+    <text x="580" y="134" fill="#ffb454" text-anchor="middle">23 040 threads · all edges summed</text>
+    <!-- host out -->
+    <rect x="780" y="50" width="190" height="100" rx="8" fill="#1a2233" stroke="#2c3850"/>
+    <text x="875" y="40" fill="#9aa7bd" text-anchor="middle">HOST</text>
+    <text x="875" y="100" fill="#ffb454" text-anchor="middle">node RX signal</text>
+    <text x="875" y="120" fill="#9aa7bd" text-anchor="middle" font-size="11">→ served to the radio</text>
+    <!-- arrows -->
+    <line x1="262" y1="100" x2="416" y2="100" stroke="#9aa7bd" marker-end="url(#ar3)"/>
+    <text x="338" y="92" fill="#5db1ff" text-anchor="middle" font-size="11">1 × H2D</text>
+    <line x1="742" y1="100" x2="776" y2="100" stroke="#9aa7bd" marker-end="url(#ar3)"/>
+    <text x="759" y="92" fill="#5db1ff" text-anchor="middle" font-size="11">1×D2H</text>
+    <text x="500" y="190" fill="#cdd6e6">
+      One batched host→device copy, one kernel launch, one device→host copy — no per-edge round-trips, the sum never leaves the GPU.
+    </text>
+  </svg>
+  <figcaption>Diagram C — the whole interference graph for one node, one slot:
+  staged once, summed on-device, returned once.</figcaption>
+  </figure>
+
+  <h2>6. Measured on the RTX 5090</h2>
+  <div class="numrow">
+    <div class="panel"><div class="num">23 040</div><div>threads / kernel launch</div></div>
+    <div class="panel"><div class="num">5–9 µs</div><div>superpose_kernel — measured</div></div>
+    <div class="panel"><div class="num">6 edges</div><div>3-node graph, summed on GPU</div></div>
+    <div class="panel"><div class="num">bit-exact</div><div>vs CPU reference sum</div></div>
+  </div>
+  <p>The 3-node graph (<code>topology.graph.cuda.yaml</code> — two UEs and a gNB, uplink
+  interference plus UE↔UE crosstalk) relays through the CUDA broker with every
+  data-integrity counter at zero; the measured node powers match the analytic
+  superposition to &lt;0.3 %. The broker's <code>event=gpu_timings</code> line reports
+  <span class="mono">superpose_kernel</span> at 5–9 µs — under 1 % of the 1 ms slot — so
+  the compute headroom scales to many more edges before the GPU is the bottleneck. (The
+  host↔device copies are the larger cost today; overlapping them across the per-node
+  streams is a later optimisation.)</p>
+
+  <p class="sub" style="margin-top:34px">ocudu-gpu-channel · GPU-accelerated wireless-channel
+  emulator for OCUDU Split-8 ZMQ SDR · kernels in <span class="mono">src/cuda_backend.cu</span></p>
+
+</div>
+</body>
+</html>

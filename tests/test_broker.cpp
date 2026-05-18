@@ -106,12 +106,12 @@ int main()
   config.runtime.queue_samples = 131072;
   config.devices = {
       {.id = "gnb0",
-       .role = ocg::DeviceRole::Gnb,
+       .role = "gnb",
        .sample_rate_hz = 23040000,
        .tx_endpoint = "tcp://127.0.0.1:25500",
        .rx_endpoint = "tcp://127.0.0.1:25501"},
       {.id = "ue0",
-       .role = ocg::DeviceRole::Ue,
+       .role = "ue",
        .sample_rate_hz = 23040000,
        .tx_endpoint = "tcp://127.0.0.1:25502",
        .rx_endpoint = "tcp://127.0.0.1:25503"}};

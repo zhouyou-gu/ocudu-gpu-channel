@@ -26,6 +26,14 @@ struct ProcessorTimings {
   double gpu_process_us = 0.0;
 };
 
+// One incoming edge of a superposition: the link's channel model and the
+// source node's current TX batch. `samples` is borrowed for the call only.
+struct SuperpositionInput {
+  std::string link_key;
+  const ModelConfig* model = nullptr;
+  std::span<const IqSample> samples;
+};
+
 class ChannelProcessor {
 public:
   virtual ~ChannelProcessor() = default;
@@ -41,6 +49,18 @@ public:
                             std::span<const IqSample> input,
                             std::span<IqSample> output,
                             std::uint64_t sample_rate_hz) = 0;
+
+  // Processes every incoming edge of destination node `dst_key` through its
+  // own channel model, sums them, and applies the node's optional receiver
+  // model `rx_model` (a thermal-noise floor) once to the sum -- writing the
+  // node's received signal (desired + interference + crosstalk + noise) into
+  // `output`. `rx_model` may be null. On the CUDA backend the per-edge
+  // shaping, the summation, and the receiver model all run on the GPU.
+  virtual void process_superposition(const std::string& dst_key,
+                                     const std::vector<SuperpositionInput>& inputs,
+                                     const ModelConfig* rx_model,
+                                     std::uint64_t sample_rate_hz,
+                                     std::span<IqSample> output) = 0;
 
   virtual ProcessorTimings last_timings() const = 0;
   virtual const char* backend_name() const = 0;

@@ -1,0 +1,81 @@
+# Channel emulation as a directed graph.
+#
+# Every node is the same kind of object -- a gNB and a UE differ only by config
+# (id, endpoints, sample rate, and the free-form `role` label). The emulator
+# never branches on `role`.
+#
+# Nodes:  gnb0, ue0, ue1
+# Edges:  gnb0->ue0, gnb0->ue1   desired downlink
+#         ue0->gnb0, ue1->gnb0   uplink (the two UE uplinks SUM at gnb0 RX -> interference)
+#         ue0->ue1,  ue1->ue0    device-to-device leakage (crosstalk)
+#
+# A node's received signal is the superposition of every edge arriving at it,
+# then its `rx_model` (a thermal-noise floor) applied once to the sum:
+#   gnb0 RX = noise_floor( channel(ue0->gnb0) + channel(ue1->gnb0) )   [uplink interference]
+#   ue1  RX = noise_floor( channel(gnb0->ue1) + channel(ue0->ue1) )    [desired + crosstalk]
+#   ue0  RX = noise_floor( channel(gnb0->ue0) + channel(ue1->ue0) )    [desired + crosstalk]
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:16000
+    rx_endpoint: tcp://*:16001
+    rx_model: noise_floor
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:16002
+    rx_endpoint: tcp://*:16003
+    rx_model: noise_floor
+  - id: ue1
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:16004
+    rx_endpoint: tcp://*:16005
+    rx_model: noise_floor
+links:
+  - from: gnb0
+    to: ue0
+    model: desired
+  - from: gnb0
+    to: ue1
+    model: desired
+  - from: ue0
+    to: gnb0
+    model: desired
+  - from: ue1
+    to: gnb0
+    model: desired
+  - from: ue0
+    to: ue1
+    model: crosstalk
+  - from: ue1
+    to: ue0
+    model: crosstalk
+models:
+  # Desired link: mild loss, a phase offset, and a small carrier offset.
+  desired:
+    chain:
+      - type: gain
+        gain_db: -3
+      - type: phase
+        phase_rad: 0.1
+      - type: cfo
+        cfo_hz: 150
+  # Crosstalk link: heavy path loss -- device-to-device leakage is weak.
+  crosstalk:
+    chain:
+      - type: path_loss
+        path_loss_db: 40
+      - type: phase
+        phase_rad: 0.7
+  # Receiver noise floor: one absolute-power AWGN applied after the sum.
+  noise_floor:
+    chain:
+      - type: awgn
+        noise_power: 0.01

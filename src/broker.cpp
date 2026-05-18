@@ -395,12 +395,25 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
       }
       IqBuffer rx_reply(dev.batch);
       std::vector<IqBuffer> inputs(incoming.size(), IqBuffer(dev.batch));
-      std::vector<IqBuffer> outputs(incoming.size(), IqBuffer(dev.batch));
+
+      // Fixed description of this node's incoming edges; the `samples` span is
+      // repointed at the freshly read ring data each serve. process_superposition
+      // shapes every edge through its model and sums them = the node's RX signal.
+      std::vector<SuperpositionInput> superposition(incoming.size());
+      for (std::size_t k = 0; k != incoming.size(); ++k) {
+        superposition[k].link_key = links[incoming[k]].key;
+        superposition[k].model = links[incoming[k]].model;
+      }
+
+      // Optional receiver model (thermal-noise floor) applied once to the sum.
+      const ModelConfig* rx_model =
+          dev.config->rx_model.empty() ? nullptr : find_model(config_, dev.config->rx_model);
 
       const std::uint64_t rate = std::max<std::uint64_t>(1, dev.config->sample_rate_hz);
       std::chrono::steady_clock::time_point throttle_anchor{};
       std::uint64_t served = 0;
       bool throttle_anchored = false;
+      bool epoch_set = false;
       const auto batch_duration =
           std::chrono::nanoseconds((dev.batch * 1000000000ULL) / std::max<std::uint64_t>(1, dev.config->sample_rate_hz));
       const auto starvation_deadline = batch_duration * 5;
@@ -418,8 +431,22 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           throw std::runtime_error(std::string("rx request failed: ") + zmq_strerror(err));
         }
 
+        // First serve: co-initialise every incoming edge's cursor to its
+        // source's live frontier in one pass, so the superposition sums the
+        // same virtual instant of every edge from a common epoch.
+        if (!epoch_set) {
+          for (std::size_t k = 0; k != incoming.size(); ++k) {
+            auto& link = links[incoming[k]];
+            Device& src = *devices[link.src_index];
+            std::lock_guard<std::mutex> lk(src.ring_mutex);
+            link.cursor.store(src.tx_ring.next_sequence());
+            link.cursor_init.store(true);
+          }
+          epoch_set = true;
+        }
+
         // A request was accepted; it must be answered with real processed IQ.
-        std::fill(rx_reply.begin(), rx_reply.end(), IqSample{});
+        // process_superposition() below fully overwrites rx_reply.
         bool aborted = false;
         for (std::size_t k = 0; k != incoming.size(); ++k) {
           auto& link = links[incoming[k]];
@@ -430,10 +457,6 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           while (!stop_requested.load() && !got) {
             {
               std::lock_guard<std::mutex> lk(src.ring_mutex);
-              if (!link.cursor_init.load()) {
-                link.cursor.store(src.tx_ring.earliest_sequence());
-                link.cursor_init.store(true);
-              }
               std::uint64_t cur = link.cursor.load();
               if (cur < src.tx_ring.earliest_sequence()) {
                 cur = src.tx_ring.earliest_sequence();
@@ -459,18 +482,20 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             aborted = true; // stopping
             break;
           }
-          diag.state.store("process");
-          // No lock needed: prepare() preallocated every link's processor
-          // state, so concurrent process_into() calls touch disjoint state.
-          processor_->process_into(link.key, *link.model, inputs[k], outputs[k], dev.config->sample_rate_hz);
-          for (std::size_t s = 0; s != rx_reply.size(); ++s) {
-            rx_reply[s] += outputs[k][s];
-          }
+          superposition[k].samples = std::span<const IqSample>(inputs[k].data(), inputs[k].size());
           link.cursor.fetch_add(inputs[k].size());
         }
         if (aborted) {
           break;
         }
+
+        // Superpose every incoming edge into the node's RX signal. On the CUDA
+        // backend the per-edge channel shaping and the summation run on the GPU.
+        // No lock needed: prepare() preallocated this node's processor state, so
+        // concurrent process_superposition() calls touch disjoint state.
+        diag.state.store("process");
+        processor_->process_superposition(dev.config->id, superposition, rx_model, dev.config->sample_rate_hz,
+                                          rx_reply);
 
         // Throttle: cap the serve cadence at the device sample rate so the
         // lock-step radio runs at real time, not faster.
@@ -532,6 +557,10 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
                 << " idle=" << s.idle_waits.load() << " data_spin=" << s.blocked_iters.load()
                 << " last=" << s.last_samples.load() << "]\n";
     }
+    // Channel-processor GPU timings (zero on the CPU backend).
+    const ProcessorTimings t = processor_->last_timings();
+    std::cout << "event=gpu_timings t=" << elapsed_s << " h2d_us=" << t.h2d_us << " kernel_us=" << t.kernel_us
+              << " d2h_us=" << t.d2h_us << "\n";
     std::cout.flush();
   };
 

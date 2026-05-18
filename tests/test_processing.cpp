@@ -42,8 +42,8 @@ int main()
   config.runtime.batch_samples_auto = false;
   config.runtime.batch_samples = 4;
   config.devices = {
-      {.id = "gnb0", .role = ocg::DeviceRole::Gnb, .sample_rate_hz = 1000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
-      {.id = "ue0", .role = ocg::DeviceRole::Ue, .sample_rate_hz = 1000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+      {.id = "gnb0", .role = "gnb", .sample_rate_hz = 1000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+      {.id = "ue0", .role = "ue", .sample_rate_hz = 1000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
   config.links = {{.from = "gnb0", .to = "ue0", .model = "gain2"}, {.from = "ue0", .to = "gnb0", .model = "gain2"}};
   ocg::ModelConfig model;
   model.id = "gain2";
@@ -83,8 +83,8 @@ int main()
     cuda_config.runtime.batch_samples = 8;
     cuda_config.runtime.queue_samples = 64;
     cuda_config.devices = {
-        {.id = "gnb0", .role = ocg::DeviceRole::Gnb, .sample_rate_hz = 23040000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
-        {.id = "ue0", .role = ocg::DeviceRole::Ue, .sample_rate_hz = 23040000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+        {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+        {.id = "ue0", .role = "ue", .sample_rate_hz = 23040000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
     cuda_config.links = {{.from = "gnb0", .to = "ue0", .model = "cuda_mvp"}};
 
     ocg::ModelConfig cuda_model;
@@ -124,8 +124,8 @@ int main()
     awgn_config.runtime.batch_samples = 8192;
     awgn_config.runtime.queue_samples = 65536;
     awgn_config.devices = {
-        {.id = "gnb0", .role = ocg::DeviceRole::Gnb, .sample_rate_hz = 23040000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
-        {.id = "ue0", .role = ocg::DeviceRole::Ue, .sample_rate_hz = 23040000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+        {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+        {.id = "ue0", .role = "ue", .sample_rate_hz = 23040000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
     awgn_config.links = {{.from = "gnb0", .to = "ue0", .model = "awgn"},
                          {.from = "ue0", .to = "gnb0", .model = "awgn"}};
     ocg::ModelConfig awgn_model;
@@ -163,6 +163,54 @@ int main()
       }
     }
     require(differs, "CUDA AWGN should produce a fresh noise stream each batch");
+
+    // Superposition: process_superposition over two edges into one node must
+    // equal the CPU reference sum of the two per-edge channel chains.
+    ocg::TopologyConfig sp_config;
+    sp_config.runtime.backend = ocg::Backend::Cuda;
+    sp_config.runtime.batch_samples_auto = false;
+    sp_config.runtime.batch_samples = 8;
+    sp_config.runtime.queue_samples = 64;
+    sp_config.devices = {
+        {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000, .tx_endpoint = "t0", .rx_endpoint = "r0"},
+        {.id = "gnb1", .role = "gnb", .sample_rate_hz = 23040000, .tx_endpoint = "t1", .rx_endpoint = "r1"},
+        {.id = "ue0", .role = "ue", .sample_rate_hz = 23040000, .tx_endpoint = "t2", .rx_endpoint = "r2"}};
+    sp_config.links = {{.from = "gnb0", .to = "ue0", .model = "edge_a"},
+                       {.from = "gnb1", .to = "ue0", .model = "edge_b"}};
+    ocg::ModelConfig edge_a;
+    edge_a.id = "edge_a";
+    edge_a.chain.push_back({.type = ocg::ModelStepType::Gain, .params = {{"gain_db", -3.0}}});
+    edge_a.chain.push_back({.type = ocg::ModelStepType::Phase, .params = {{"phase_rad", 0.2}}});
+    ocg::ModelConfig edge_b;
+    edge_b.id = "edge_b";
+    edge_b.chain.push_back({.type = ocg::ModelStepType::PathLoss, .params = {{"path_loss_db", 6.0}}});
+    edge_b.chain.push_back({.type = ocg::ModelStepType::Cfo, .params = {{"cfo_hz", 300.0}}});
+    sp_config.models.emplace("edge_a", edge_a);
+    sp_config.models.emplace("edge_b", edge_b);
+
+    auto sp_processor = ocg::create_channel_processor(sp_config);
+    ocg::CpuChannelProcessor sp_reference;
+    sp_reference.prepare(sp_config);
+
+    const ocg::IqBuffer in_a = {{0.30F, -0.10F}, {0.45F, 0.25F}, {-0.20F, 0.60F}, {0.15F, -0.55F},
+                                {0.70F, 0.05F},  {-0.35F, 0.40F}, {0.50F, -0.30F}, {-0.65F, 0.20F}};
+    const ocg::IqBuffer in_b = {{-0.25F, 0.35F}, {0.55F, -0.45F}, {0.10F, 0.80F}, {-0.60F, -0.15F},
+                                {0.40F, 0.50F},  {0.20F, -0.70F}, {-0.30F, 0.25F}, {0.65F, -0.05F}};
+    ocg::IqBuffer ref_a(8);
+    ocg::IqBuffer ref_b(8);
+    sp_reference.process_into("gnb0>ue0:edge_a", edge_a, in_a, ref_a, 23040000);
+    sp_reference.process_into("gnb1>ue0:edge_b", edge_b, in_b, ref_b, 23040000);
+    ocg::IqBuffer reference(8);
+    for (std::size_t s = 0; s != 8; ++s) {
+      reference[s] = ref_a[s] + ref_b[s];
+    }
+
+    std::vector<ocg::SuperpositionInput> edges = {
+        {.link_key = "gnb0>ue0:edge_a", .model = &edge_a, .samples = in_a},
+        {.link_key = "gnb1>ue0:edge_b", .model = &edge_b, .samples = in_b}};
+    ocg::IqBuffer superposed(8);
+    sp_processor->process_superposition("ue0", edges, nullptr, 23040000, superposed);
+    require_near_buffer(reference, superposed, "CUDA superposition should equal the CPU edge sum");
   }
 #endif
   return 0;
