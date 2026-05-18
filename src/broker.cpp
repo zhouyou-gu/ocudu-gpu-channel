@@ -149,7 +149,7 @@ bool send_request(void* socket)
   return true;
 }
 
-bool send_samples(void* socket, const IqBuffer& samples)
+bool send_samples(void* socket, std::span<const IqSample> samples)
 {
   const auto nbytes = samples.size() * sizeof(IqSample);
   const int sent = zmq_send(socket, samples.data(), nbytes, 0);
@@ -432,30 +432,44 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         }
 
         // First serve: co-initialise every incoming edge's cursor to its
-        // source's live frontier in one pass, so the superposition sums the
-        // same virtual instant of every edge from a common epoch.
+        // source's earliest buffered sample in one pass. No ring discards
+        // anything before its first consumer co-initialises, so this is each
+        // ring's true start (sequence 0) -- the superposition still sums every
+        // edge from a common epoch. Co-initialising to the live frontier
+        // instead would drop whatever head-start IQ the lock-step radios had
+        // already buffered; in a multi-device topology that head-start is the
+        // radios' only timing slack, and dropping it dead-locks the relay.
         if (!epoch_set) {
           for (std::size_t k = 0; k != incoming.size(); ++k) {
             auto& link = links[incoming[k]];
             Device& src = *devices[link.src_index];
             std::lock_guard<std::mutex> lk(src.ring_mutex);
-            link.cursor.store(src.tx_ring.next_sequence());
+            link.cursor.store(src.tx_ring.earliest_sequence());
             link.cursor_init.store(true);
           }
           epoch_set = true;
         }
 
         // A request was accepted; it must be answered with real processed IQ.
-        // process_superposition() below fully overwrites rx_reply.
-        bool aborted = false;
-        for (std::size_t k = 0; k != incoming.size(); ++k) {
-          auto& link = links[incoming[k]];
-          Device& src = *devices[link.src_index];
-          bool got = false;
+        //
+        // Variable-size relay: serve the largest window simultaneously available
+        // on EVERY incoming edge, capped at the device batch, instead of blocking
+        // until each edge holds a full fixed batch. A fixed-batch serve strands
+        // the partial final chunk every lock-step radio leaves on its ring; in a
+        // multi-device fan-in/fan-out topology no radio can advance to refill it,
+        // so the whole relay dead-locks. Relaying whatever common amount is ready
+        // keeps every radio fed and the pipeline moving.
+        std::size_t serve = 0;
+        if (incoming.empty()) {
+          serve = dev.batch; // no edges -> a full batch of zero-fill
+        } else {
           const auto wait_start = std::chrono::steady_clock::now();
           bool starvation_counted = false;
-          while (!stop_requested.load() && !got) {
-            {
+          while (!stop_requested.load()) {
+            std::size_t common = dev.batch;
+            for (std::size_t k = 0; k != incoming.size(); ++k) {
+              auto& link = links[incoming[k]];
+              Device& src = *devices[link.src_index];
               std::lock_guard<std::mutex> lk(src.ring_mutex);
               std::uint64_t cur = link.cursor.load();
               if (cur < src.tx_ring.earliest_sequence()) {
@@ -463,39 +477,52 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
                 link.cursor.store(cur);
                 stats.tx_sequence_gaps.fetch_add(1);
               }
-              if (src.tx_ring.read(cur, inputs[k])) {
-                got = true;
-              }
+              const std::uint64_t avail = src.tx_ring.next_sequence() - cur;
+              common = std::min<std::size_t>(common, static_cast<std::size_t>(avail));
             }
-            if (!got) {
-              diag.state.store("wait_data");
-              diag.blocked_iters.fetch_add(1);
-              if (served > 0 && !starvation_counted &&
-                  std::chrono::steady_clock::now() - wait_start > starvation_deadline) {
-                stats.rx_starvations.fetch_add(1);
-                starvation_counted = true;
-              }
-              std::this_thread::sleep_for(std::chrono::microseconds(50));
+            if (common > 0) {
+              serve = common;
+              break;
             }
+            diag.state.store("wait_data");
+            diag.blocked_iters.fetch_add(1);
+            if (served > 0 && !starvation_counted &&
+                std::chrono::steady_clock::now() - wait_start > starvation_deadline) {
+              stats.rx_starvations.fetch_add(1);
+              starvation_counted = true;
+            }
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
           }
-          if (!got) {
-            aborted = true; // stopping
-            break;
-          }
-          superposition[k].samples = std::span<const IqSample>(inputs[k].data(), inputs[k].size());
-          link.cursor.fetch_add(inputs[k].size());
         }
-        if (aborted) {
-          break;
+        if (serve == 0) {
+          break; // stop requested while waiting for edge data
+        }
+
+        // Read the common serve window from every incoming edge. The window was
+        // sized against each ring's live frontier above and a node's cursor is
+        // advanced only here, so the ring cannot have shifted under the read.
+        for (std::size_t k = 0; k != incoming.size(); ++k) {
+          auto& link = links[incoming[k]];
+          Device& src = *devices[link.src_index];
+          const std::span<IqSample> window(inputs[k].data(), serve);
+          {
+            std::lock_guard<std::mutex> lk(src.ring_mutex);
+            if (!src.tx_ring.read(link.cursor.load(), window)) {
+              throw std::runtime_error("broker serve window vanished from ring: " + link.key);
+            }
+          }
+          superposition[k].samples = std::span<const IqSample>(window.data(), window.size());
+          link.cursor.fetch_add(serve);
         }
 
         // Superpose every incoming edge into the node's RX signal. On the CUDA
         // backend the per-edge channel shaping and the summation run on the GPU.
         // No lock needed: prepare() preallocated this node's processor state, so
         // concurrent process_superposition() calls touch disjoint state.
+        const std::span<IqSample> reply(rx_reply.data(), serve);
         diag.state.store("process");
         processor_->process_superposition(dev.config->id, superposition, rx_model, dev.config->sample_rate_hz,
-                                          rx_reply);
+                                          reply);
 
         // Throttle: cap the serve cadence at the device sample rate so the
         // lock-step radio runs at real time, not faster.
@@ -509,17 +536,17 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         }
 
         diag.state.store("send");
-        while (!stop_requested.load() && !send_samples(dev.rx_rep.get(), rx_reply)) {
+        while (!stop_requested.load() && !send_samples(dev.rx_rep.get(), reply)) {
           // send timed out; retry so the REP socket stays in a valid state
         }
-        served += rx_reply.size();
+        served += serve;
         // Re-base the throttle origin every ~1 s of served IQ so the
         // (served * 1e9) product cannot overflow on a long-running relay.
         if (served >= rate) {
           throttle_anchor += std::chrono::nanoseconds((served * 1000000000ULL) / rate);
           served = 0;
         }
-        diag.last_samples.store(rx_reply.size());
+        diag.last_samples.store(serve);
         diag.progress.fetch_add(1);
         stats.rx_requests.fetch_add(1);
       }

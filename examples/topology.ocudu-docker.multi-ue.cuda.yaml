@@ -1,0 +1,51 @@
+# Multi-UE OCUDU interop topology: one gNB, two UEs, through the CUDA broker.
+#
+# Nodes:  gnb0, ue0, ue1
+# Edges:  gnb0->ue0, gnb0->ue1   downlink  (fan-out: one gNB TX, multi-reader ring)
+#         ue0->gnb0, ue1->gnb0   uplink    (fan-in: the two UE uplinks SUM at the
+#                                           gNB RX -> interference, on the GPU)
+#
+# v1 channel is intentionally clean (0 dB, no noise) so the multi-UE plumbing
+# is proven before realistic per-UE path loss / noise floors are added.
+#
+# Ports (broker REQ-connects tx, REP-binds rx):
+#   gnb0  tx 2000  rx 2001    ue0  tx 2101  rx 2100    ue1  tx 2103  rx 2102
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://*:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://*:2100
+  - id: ue1
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://*:2102
+links:
+  - from: gnb0
+    to: ue0
+    model: link
+  - from: gnb0
+    to: ue1
+    model: link
+  - from: ue0
+    to: gnb0
+    model: link
+  - from: ue1
+    to: gnb0
+    model: link
+models:
+  link:
+    chain:
+      - type: gain
+        gain_db: 0
