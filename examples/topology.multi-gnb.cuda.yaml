@@ -1,0 +1,93 @@
+# Multi-gNB OCUDU interop topology: two co-channel cells, through the CUDA broker.
+#
+# Milestone C -- many-to-many. Two gNBs (two cells) each serve one UE, and each
+# gNB's transmission also leaks into the other cell: inter-cell interference.
+#
+# Nodes:  gnb0, gnb1 (cells), ue0 (in cell 0), ue1 (in cell 1)
+# Edges (8):
+#   gnb0->ue0, gnb1->ue1   desired downlink   (each UE's serving cell)
+#   gnb0->ue1, gnb1->ue0   downlink interference (the other cell leaks in)
+#   ue0->gnb0, ue1->gnb1   desired uplink
+#   ue0->gnb1, ue1->gnb0   uplink interference   (the other UE leaks in)
+#
+# A node's received signal is the GPU superposition of every edge arriving at
+# it, so each UE RX = serving downlink + the other cell's interference, and each
+# gNB RX = its UE's uplink + the other UE's interfering uplink. The `intercell`
+# model carries 20 dB more path loss than `serving`, so each UE still has a
+# clear ~14 dB margin to camp on its own cell while the interferer is present.
+#
+# Ports (broker REQ-connects tx, REP-binds rx):
+#   gnb0 tx 3000 rx 3001   gnb1 tx 3002 rx 3003
+#   ue0  tx 3101 rx 3100   ue1  tx 3103 rx 3102
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3000
+    rx_endpoint: tcp://*:3001
+  - id: gnb1
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3002
+    rx_endpoint: tcp://*:3003
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3101
+    rx_endpoint: tcp://*:3100
+  - id: ue1
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3103
+    rx_endpoint: tcp://*:3102
+links:
+  - from: gnb0
+    to: ue0
+    model: serving
+  - from: gnb1
+    to: ue1
+    model: serving
+  - from: gnb0
+    to: ue1
+    model: intercell
+  - from: gnb1
+    to: ue0
+    model: intercell
+  - from: ue0
+    to: gnb0
+    model: serving
+  - from: ue1
+    to: gnb1
+    model: serving
+  - from: ue0
+    to: gnb1
+    model: intercell
+  - from: ue1
+    to: gnb0
+    model: intercell
+models:
+  # In-cell link: light path loss, a phase offset, a small carrier offset, and
+  # a receiver-noise term sized relative to the served signal.
+  serving:
+    chain:
+      - type: path_loss
+        path_loss_db: 6
+      - type: phase
+        phase_rad: 0.1
+      - type: cfo
+        cfo_hz: 100
+      - type: awgn
+        snr_db: 25
+  # Inter-cell link: heavy path loss -- the other cell is far, so its leakage
+  # is a weak co-channel interferer rather than a competing serving cell.
+  intercell:
+    chain:
+      - type: path_loss
+        path_loss_db: 20
+      - type: phase
+        phase_rad: 0.5

@@ -2,15 +2,17 @@
 # Locked-in GPU validation sequence for the RTX workstation.
 #
 # Runs, in order, on the remote GPU host:
-#   [1/5] CUDA release build
-#   [2/5] ctest (config, processing incl. the CUDA AWGN check, ring, broker)
-#   [3/5] synthetic CUDA relay loop  -- clean 0 dB channel, must relay IQ both
+#   [1/6] CUDA release build
+#   [2/6] ctest (config, processing incl. the CUDA AWGN/delay checks, ring, broker)
+#   [3/6] synthetic CUDA relay loop  -- clean 0 dB channel, must relay IQ both
 #         ways with zero data-integrity counters
-#   [4/5] synthetic CUDA relay loop  -- AWGN channel, sink power must equal
+#   [4/6] synthetic CUDA relay loop  -- AWGN channel, sink power must equal
 #         signal power + noise_power
-#   [5/5] synthetic CUDA 3-node interference graph -- the two UE uplinks must
+#   [5/6] synthetic CUDA 3-node interference graph -- the two UE uplinks must
 #         superpose at the gNB RX (gnb0 RX power ~= 2x a desired uplink),
 #         exercising the GPU superposition kernel and the multi-device broker
+#   [6/6] synthetic CUDA 2-cell multi-gNB graph -- four nodes, eight links;
+#         every RX is its serving link plus the other cell's interference
 #
 # It rsyncs the local working tree first, so it validates uncommitted code.
 # The OCUDU Docker gNB/srsUE attach paths are separate, heavier tests
@@ -66,7 +68,7 @@ mkdir -p "${cuda_build}"
 
 fail() { echo "GPU TEST SEQUENCE FAILED: $1" >&2; exit 1; }
 
-echo "== [1/5] CUDA release build =="
+echo "== [1/6] CUDA release build =="
 cmake -S "${project_root}" -B "${cuda_build}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DOCUDU_GPU_CHANNEL_ENABLE_CUDA=ON \
@@ -77,7 +79,7 @@ cmake --build "${cuda_build}" -j"$(nproc)" >/tmp/gpu-seq-build.log 2>&1 \
   || { tail -25 /tmp/gpu-seq-build.log; fail "cmake build"; }
 echo "    build OK"
 
-echo "== [2/5] unit tests =="
+echo "== [2/6] unit tests =="
 ctest --test-dir "${cuda_build}" --output-on-failure >/tmp/gpu-seq-ctest.log 2>&1 \
   || { tail -25 /tmp/gpu-seq-ctest.log; fail "ctest"; }
 grep -E "tests passed" /tmp/gpu-seq-ctest.log | sed 's/^/    /'
@@ -202,21 +204,70 @@ run_graph_check() {
   echo "    ${label}: pulls=${pulls} gnb0_rx=${ap_gnb} ue0_rx=${ap_ue0} ue1_rx=${ap_ue1} -- counters clean"
 }
 
-echo "== [3/5] synthetic CUDA relay loop -- clean 0 dB channel =="
+run_multi_gnb_check() {
+  # Drives the CUDA broker on the 2-cell multi-gNB graph: gnb0/gnb1 plus one UE
+  # each, every RX a superposition of its serving link and the other cell's
+  # interference. $1 is the topology file.
+  local label="2-cell multi-gNB" topo="$1"
+  for p in 3000 3001 3002 3003 3100 3101 3102 3103; do
+    if ss -ltn 2>/dev/null | grep -q ":${p}\b"; then fail "${label}: port ${p} busy"; fi
+  done
+  local dir; dir="$(mktemp -d)"
+  # One synthetic source per device TX, one synthetic sink per device RX.
+  "${cuda_build}/ocudu-zmq-source" --endpoint 'tcp://*:3000' --batch-samples 23040 --duration 6s >"${dir}/s_gnb0" 2>&1 &
+  "${cuda_build}/ocudu-zmq-source" --endpoint 'tcp://*:3002' --batch-samples 23040 --duration 6s >"${dir}/s_gnb1" 2>&1 &
+  "${cuda_build}/ocudu-zmq-source" --endpoint 'tcp://*:3101' --batch-samples 23040 --duration 6s >"${dir}/s_ue0" 2>&1 &
+  "${cuda_build}/ocudu-zmq-source" --endpoint 'tcp://*:3103' --batch-samples 23040 --duration 6s >"${dir}/s_ue1" 2>&1 &
+  "${cuda_build}/ocudu-gpu-channel" --config "${topo}" --duration 6s >"${dir}/broker" 2>&1 &
+  sleep 1
+  "${cuda_build}/ocudu-zmq-sink" --endpoint 'tcp://127.0.0.1:3001' --duration 5s >"${dir}/k_gnb0" 2>&1 &
+  "${cuda_build}/ocudu-zmq-sink" --endpoint 'tcp://127.0.0.1:3003' --duration 5s >"${dir}/k_gnb1" 2>&1 &
+  "${cuda_build}/ocudu-zmq-sink" --endpoint 'tcp://127.0.0.1:3100' --duration 5s >"${dir}/k_ue0" 2>&1 &
+  "${cuda_build}/ocudu-zmq-sink" --endpoint 'tcp://127.0.0.1:3102' --duration 5s >"${dir}/k_ue1" 2>&1 &
+  wait
+
+  local stop; stop="$(grep event=stop "${dir}/broker" || true)"
+  [[ -n "${stop}" ]] || { cat "${dir}/broker"; fail "${label}: broker did not finish"; }
+  local ovf gap zmq pulls
+  ovf="$(counter_of tx_queue_overflows "${stop}")"
+  gap="$(counter_of tx_sequence_gaps "${stop}")"
+  zmq="$(counter_of zmq_errors "${stop}")"
+  pulls="$(counter_of tx_pulls "${stop}")"
+  [[ "${ovf:-1}" == 0 && "${gap:-1}" == 0 && "${zmq:-1}" == 0 ]] \
+    || fail "${label}: broker data-integrity counter nonzero -- ${stop}"
+  [[ "${pulls:-0}" -gt 0 ]] || fail "${label}: broker relayed no IQ"
+
+  # Every RX = serving link (path loss 6 dB -> 0.251) + the other cell's
+  # interference (path loss 20 dB -> 0.010) + serving AWGN (snr 25 dB ->
+  # 0.0008). The serving CFO sweeps the cross term out of the mean power, so
+  # each RX averages ~= 0.262 regardless of node.
+  local ap
+  for who in gnb0 gnb1 ue0 ue1; do
+    ap="$(power_of "${dir}/k_${who}")"
+    check_power "${label} ${who} RX" "${ap}" 0.262 0.06
+    echo "    ${label}: ${who}_rx=${ap}"
+  done
+  echo "    ${label}: pulls=${pulls} -- counters clean"
+}
+
+echo "== [3/6] synthetic CUDA relay loop -- clean 0 dB channel =="
 clean_topo="$(mktemp --suffix=.yaml)"
 write_topology "${clean_topo}" "      - type: gain
         gain_db: 0"
 run_relay_check "clean relay" "${clean_topo}" 1.0 0.05
 
-echo "== [4/5] synthetic CUDA relay loop -- AWGN channel (noise_power 0.25) =="
+echo "== [4/6] synthetic CUDA relay loop -- AWGN channel (noise_power 0.25) =="
 awgn_topo="$(mktemp --suffix=.yaml)"
 write_topology "${awgn_topo}" "      - type: awgn
         noise_power: 0.25"
 # Unit-power tone + AWGN noise_power 0.25 -> sink avg_power ~= 1.25.
 run_relay_check "AWGN relay" "${awgn_topo}" 1.25 0.05
 
-echo "== [5/5] synthetic CUDA 3-node interference graph =="
+echo "== [5/6] synthetic CUDA 3-node interference graph =="
 run_graph_check "${project_root}/examples/topology.graph.cuda.yaml"
+
+echo "== [6/6] synthetic CUDA 2-cell multi-gNB graph =="
+run_multi_gnb_check "${project_root}/examples/topology.multi-gnb.cuda.yaml"
 
 echo "GPU TEST SEQUENCE PASSED"
 REMOTE
