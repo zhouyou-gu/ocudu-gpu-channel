@@ -5,6 +5,7 @@
 /build-*/
 /out/
 /cmake-build-*/
+/Testing/
 
 # Generated run artifacts.
 /results/

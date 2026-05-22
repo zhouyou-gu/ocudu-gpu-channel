@@ -1,0 +1,88 @@
+# 3GPP TR 38.901 §7.7.2 TDL-C profile -- NLOS, 24 taps.
+#
+# Source: Sionna `tr38901/tdl/TDL-C.json` (Apache-2.0). Normalized delays and
+# tap powers verbatim from TR 38.901 Table 7.7.2-3; delays scaled to samples
+# at the project's 23.04 MS/s reference rate and 100 ns desired delay spread:
+#   delay_samples = normalized · 100 ns · 23.04 MS/s = normalized · 2.304
+# Doppler: f_d_max = 100 Hz (≈30 km/h at 3.5 GHz, vehicular).
+# Spectrum: classical Jakes' (TR 38.901 default).
+# Single bidirectional gNB↔UE link applies TDL-C in both directions.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17400
+    rx_endpoint: tcp://*:17401
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17501
+    rx_endpoint: tcp://*:17500
+links:
+  - from: gnb0
+    to: ue0
+    model: tdl_c
+  - from: ue0
+    to: gnb0
+    model: tdl_c
+models:
+  tdl_c:
+    chain:
+      - type: tdl
+        fading:
+          f_d_max_hz: 100.0
+          spectrum: jakes
+        taps:
+          - delay_samples: 0.000000
+            gain_db: -4.4
+          - delay_samples: 0.483610
+            gain_db: -1.2
+          - delay_samples: 0.511258
+            gain_db: -3.5
+          - delay_samples: 0.536602
+            gain_db: -5.2
+          - delay_samples: 0.501350
+            gain_db: -2.5
+          - delay_samples: 1.466726
+            gain_db: 0.0
+          - delay_samples: 1.485619
+            gain_db: -2.2
+          - delay_samples: 1.511424
+            gain_db: -3.9
+          - delay_samples: 1.516954
+            gain_db: -7.4
+          - delay_samples: 1.828224
+            gain_db: -7.1
+          - delay_samples: 1.892275
+            gain_db: -10.7
+          - delay_samples: 2.151014
+            gain_db: -11.1
+          - delay_samples: 2.830464
+            gain_db: -5.1
+          - delay_samples: 3.014323
+            gain_db: -6.8
+          - delay_samples: 5.000602
+            gain_db: -8.7
+          - delay_samples: 6.244992
+            gain_db: -13.2
+          - delay_samples: 9.812506
+            gain_db: -13.9
+          - delay_samples: 10.601491
+            gain_db: -13.9
+          - delay_samples: 12.649421
+            gain_db: -15.8
+          - delay_samples: 12.920141
+            gain_db: -17.1
+          - delay_samples: 14.530176
+            gain_db: -16.0
+          - delay_samples: 15.292570
+            gain_db: -15.7
+          - delay_samples: 16.226381
+            gain_db: -21.6
+          - delay_samples: 19.934899
+            gain_db: -22.8

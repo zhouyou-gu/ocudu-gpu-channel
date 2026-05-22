@@ -2,17 +2,21 @@
 # Locked-in GPU validation sequence for the RTX workstation.
 #
 # Runs, in order, on the remote GPU host:
-#   [1/6] CUDA release build
-#   [2/6] ctest (config, processing incl. the CUDA AWGN/delay checks, ring, broker)
-#   [3/6] synthetic CUDA relay loop  -- clean 0 dB channel, must relay IQ both
+#   [1/7] CUDA release build
+#   [2/7] ctest (config, processing incl. the CUDA AWGN/delay checks, ring, broker)
+#   [3/7] synthetic CUDA relay loop  -- clean 0 dB channel, must relay IQ both
 #         ways with zero data-integrity counters
-#   [4/6] synthetic CUDA relay loop  -- AWGN channel, sink power must equal
+#   [4/7] synthetic CUDA relay loop  -- AWGN channel, sink power must equal
 #         signal power + noise_power
-#   [5/6] synthetic CUDA 3-node interference graph -- the two UE uplinks must
+#   [5/7] synthetic CUDA 3-node interference graph -- the two UE uplinks must
 #         superpose at the gNB RX (gnb0 RX power ~= 2x a desired uplink),
 #         exercising the GPU superposition kernel and the multi-device broker
-#   [6/6] synthetic CUDA 2-cell multi-gNB graph -- four nodes, eight links;
+#   [6/7] synthetic CUDA 2-cell multi-gNB graph -- four nodes, eight links;
 #         every RX is its serving link plus the other cell's interference
+#   [7/7] synthetic CUDA TDL-A profile relay -- TR 38.901 §7.7.2 NLOS 23-tap
+#         multipath with Jakes fading on a bidirectional gNB↔UE pair; broker
+#         counters must stay clean and the sink avg_power must match the sum
+#         of tap powers (≈0.50 for the published TDL-A profile)
 #
 # It rsyncs the local working tree first, so it validates uncommitted code.
 # The OCUDU Docker gNB/srsUE attach paths are separate, heavier tests
@@ -69,7 +73,7 @@ mkdir -p "${cuda_build}"
 
 fail() { echo "GPU TEST SEQUENCE FAILED: $1" >&2; exit 1; }
 
-echo "== [1/6] CUDA release build =="
+echo "== [1/7] CUDA release build =="
 cmake -S "${project_root}" -B "${cuda_build}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DOCUDU_GPU_CHANNEL_ENABLE_CUDA=ON \
@@ -80,7 +84,7 @@ cmake --build "${cuda_build}" -j"$(nproc)" >/tmp/gpu-seq-build.log 2>&1 \
   || { tail -25 /tmp/gpu-seq-build.log; fail "cmake build"; }
 echo "    build OK"
 
-echo "== [2/6] unit tests =="
+echo "== [2/7] unit tests =="
 ctest --test-dir "${cuda_build}" --output-on-failure >/tmp/gpu-seq-ctest.log 2>&1 \
   || { tail -25 /tmp/gpu-seq-ctest.log; fail "ctest"; }
 grep -E "tests passed" /tmp/gpu-seq-ctest.log | sed 's/^/    /'
@@ -251,7 +255,7 @@ run_multi_gnb_check() {
   echo "    ${label}: pulls=${pulls} -- counters clean"
 }
 
-echo "== [3/6] synthetic CUDA relay loop -- clean 0 dB channel =="
+echo "== [3/7] synthetic CUDA relay loop -- clean 0 dB channel =="
 clean_topo="$(mktemp --suffix=.yaml)"
 write_topology "${clean_topo}" "      - type: tdl
         taps:
@@ -260,18 +264,33 @@ write_topology "${clean_topo}" "      - type: tdl
             phase_rad: 0.0"
 run_relay_check "clean relay" "${clean_topo}" 1.0 0.05
 
-echo "== [4/6] synthetic CUDA relay loop -- AWGN channel (noise_power 0.25) =="
+echo "== [4/7] synthetic CUDA relay loop -- AWGN channel (noise_power 0.25) =="
 awgn_topo="$(mktemp --suffix=.yaml)"
 write_topology "${awgn_topo}" "      - type: awgn
         noise_power: 0.25"
 # Unit-power tone + AWGN noise_power 0.25 -> sink avg_power ~= 1.25.
 run_relay_check "AWGN relay" "${awgn_topo}" 1.25 0.05
 
-echo "== [5/6] synthetic CUDA 3-node interference graph =="
+echo "== [5/7] synthetic CUDA 3-node interference graph =="
 run_graph_check "${project_root}/examples/topology.graph.cuda.yaml"
 
-echo "== [6/6] synthetic CUDA 2-cell multi-gNB graph =="
+echo "== [6/7] synthetic CUDA 2-cell multi-gNB graph =="
 run_multi_gnb_check "${project_root}/examples/topology.multi-gnb.cuda.yaml"
+
+echo "== [7/7] synthetic CUDA TDL-A profile relay (TR 38.901 §7.7.2, 23-tap NLOS, Jakes 100 Hz) =="
+# Sum of TDL-A tap linear powers ≈ 3.468 -- the expected sink avg_power for a
+# unit-power input is the sum of the tap powers (uncorrelated Rayleigh taps,
+# WSSUS). The 0.5 tolerance is generous on top of the ~14% margin so the
+# averaged statistic over a 5 s integration is robust to fading variance.
+tdl_a_topo="$(mktemp --suffix=.yaml)"
+# Reuse the example YAML's chain; rewrite endpoints to the test's 15000-range
+# ports so it can run through the same run_relay_check helper.
+sed -e 's|tcp://127.0.0.1:17000|tcp://127.0.0.1:15000|' \
+    -e 's|tcp://\*:17001|tcp://*:15001|' \
+    -e 's|tcp://127.0.0.1:17101|tcp://127.0.0.1:15101|' \
+    -e 's|tcp://\*:17100|tcp://*:15100|' \
+    "${project_root}/examples/topology.tdl-a.cuda.yaml" > "${tdl_a_topo}"
+run_relay_check "TDL-A profile" "${tdl_a_topo}" 3.468 0.5
 
 echo "GPU TEST SEQUENCE PASSED"
 REMOTE

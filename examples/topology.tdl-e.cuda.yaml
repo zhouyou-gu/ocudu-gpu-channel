@@ -1,0 +1,83 @@
+# 3GPP TR 38.901 §7.7.2 TDL-E profile -- LOS (K_1 = 22 dB), 13 taps.
+#
+# Source: Sionna `tr38901/tdl/TDL-E.json` (Apache-2.0). Normalized delays and
+# tap powers verbatim from TR 38.901 Table 7.7.2-5; delays scaled to samples
+# at the project's 23.04 MS/s reference rate and 100 ns desired delay spread:
+#   delay_samples = normalized · 100 ns · 23.04 MS/s = normalized · 2.304
+# Doppler: f_d_max = 100 Hz (≈30 km/h at 3.5 GHz, vehicular).
+# Spectrum: classical Jakes' for the Rayleigh component (TR 38.901 default).
+#
+# LOS handling: TR 38.901 publishes two zero-delay entries -- LOS specular at
+# -0.03 dB and the co-located Rayleigh scatter at -22.03 dB -- whose 22 dB
+# ratio is the cluster's Rician K-factor. The kernel composes both inside one
+# tap via `g(t) = sqrt(K/(K+1))·specular + sqrt(1/(K+1))·rayleigh`, so the
+# YAML carries a single tap with is_los=true, los_k_db=22.0, gain_db=0.0
+# (combined power, normalized; the K factor recovers the published -0.03 dB
+# and -22.03 dB components). los_angle_rad=0 places the LOS ray co-axial
+# with the motion direction (maximum positive Doppler).
+#
+# Cluster split: TR 38.901's published TDL-E has two scatterer clusters at
+# normalized delay 0.5440 (-18.1 dB and -22.9 dB) -- intended for spatial
+# channel modeling with distinct angles of arrival. The TDL form has no
+# per-tap angles, so the two are combined into a single tap with power
+# 10·log10(10^(-1.81) + 10^(-2.29)) ≈ -16.86 dB (12 remaining NLOS taps).
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17800
+    rx_endpoint: tcp://*:17801
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17901
+    rx_endpoint: tcp://*:17900
+links:
+  - from: gnb0
+    to: ue0
+    model: tdl_e
+  - from: ue0
+    to: gnb0
+    model: tdl_e
+models:
+  tdl_e:
+    chain:
+      - type: tdl
+        fading:
+          f_d_max_hz: 100.0
+          spectrum: jakes
+        taps:
+          - delay_samples: 0.000000
+            gain_db: 0.0
+            is_los: true
+            los_k_db: 22.0
+            los_angle_rad: 0.0
+          - delay_samples: 1.182643
+            gain_db: -15.8
+          - delay_samples: 1.253376
+            gain_db: -16.86
+          - delay_samples: 1.297152
+            gain_db: -19.8
+          - delay_samples: 1.638605
+            gain_db: -22.4
+          - delay_samples: 4.398797
+            gain_db: -18.6
+          - delay_samples: 4.445107
+            gain_db: -20.8
+          - delay_samples: 4.513306
+            gain_db: -22.6
+          - delay_samples: 6.088550
+            gain_db: -22.3
+          - delay_samples: 8.556134
+            gain_db: -25.6
+          - delay_samples: 12.562330
+            gain_db: -20.2
+          - delay_samples: 27.655834
+            gain_db: -29.8
+          - delay_samples: 47.581978
+            gain_db: -29.2

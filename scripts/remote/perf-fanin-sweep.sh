@@ -99,6 +99,13 @@ CONFIGS=(
   "m-to-n 16 2 m-to-n_M16_N2"
   "m-to-n 8 4 m-to-n_M8_N4"
   "m-to-n 16 4 m-to-n_M16_N4"
+  # CDL-shaped measurements: TR 38.901 §7.7.2 TDL-A (23 taps + Jakes fading)
+  # applied to every edge. The two-row pair compares per-edge kernel cost
+  # (1-edge baseline) against an 8-UE fan-in (16 edges) under realistic
+  # multipath, so the performance section can quote kernel µs under the same
+  # channel any real OCUDU deployment would see -- not the 1-tap cuda_mvp.
+  "static-tdl-a 1 2 tdl-a_E2"
+  "static-tdl-a 8 16 tdl-a_E16"
 )
 
 # ---- Per-config: bench + nvidia-smi snapshot during ----
@@ -119,8 +126,18 @@ for cfg in "${CONFIGS[@]}"; do
   # Generate YAML
   if [[ "${mode}" == "one-to-n" ]]; then
     python3 "${project_root}/scripts/gen_topology.py" one-to-n "${N}" "${yaml}"
-  else
+  elif [[ "${mode}" == "m-to-n" ]]; then
     python3 "${project_root}/scripts/gen_topology.py" m-to-n "${M}" "${N}" "${yaml}"
+  elif [[ "${mode}" == "static-tdl-a" ]]; then
+    # Static TDL-A example -- 1-edge (M=1 -> demo YAML) or 8-edge fan-in.
+    if [[ "${M}" == "1" ]]; then
+      cp "${project_root}/examples/topology.tdl-a.cuda.yaml" "${yaml}"
+    else
+      cp "${project_root}/examples/topology.perf-tdl-a-fanin-8.cuda.yaml" "${yaml}"
+    fi
+  else
+    echo "    unknown mode '${mode}' for ${label}" >&2
+    continue
   fi
 
   echo "== [bench] ${label} =="

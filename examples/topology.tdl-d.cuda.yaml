@@ -1,0 +1,77 @@
+# 3GPP TR 38.901 §7.7.2 TDL-D profile -- LOS (K_1 = 13.3 dB), 13 taps.
+#
+# Source: Sionna `tr38901/tdl/TDL-D.json` (Apache-2.0). Normalized delays and
+# tap powers verbatim from TR 38.901 Table 7.7.2-4; delays scaled to samples
+# at the project's 23.04 MS/s reference rate and 100 ns desired delay spread:
+#   delay_samples = normalized · 100 ns · 23.04 MS/s = normalized · 2.304
+# Doppler: f_d_max = 100 Hz (≈30 km/h at 3.5 GHz, vehicular).
+# Spectrum: classical Jakes' for the Rayleigh component (TR 38.901 default).
+#
+# LOS handling: TR 38.901 publishes two zero-delay entries for TDL-D -- the
+# LOS specular at -0.2 dB and the co-located Rayleigh scatter at -13.5 dB --
+# whose 13.3 dB ratio is the cluster's Rician K-factor. The kernel composes
+# both inside one tap via `g(t) = sqrt(K/(K+1))·specular + sqrt(1/(K+1))·rayleigh`,
+# so the YAML carries a single tap with is_los=true, los_k_db=13.3,
+# gain_db=0.0 (combined power, normalized; the K factor recovers the published
+# -0.2 dB and -13.5 dB components). los_angle_rad=0 places the LOS ray
+# co-axial with the motion direction (maximum positive Doppler).
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17600
+    rx_endpoint: tcp://*:17601
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17701
+    rx_endpoint: tcp://*:17700
+links:
+  - from: gnb0
+    to: ue0
+    model: tdl_d
+  - from: ue0
+    to: gnb0
+    model: tdl_d
+models:
+  tdl_d:
+    chain:
+      - type: tdl
+        fading:
+          f_d_max_hz: 100.0
+          spectrum: jakes
+        taps:
+          - delay_samples: 0.000000
+            gain_db: 0.0
+            is_los: true
+            los_k_db: 13.3
+            los_angle_rad: 0.0
+          - delay_samples: 0.080640
+            gain_db: -18.8
+          - delay_samples: 1.410048
+            gain_db: -21.0
+          - delay_samples: 3.140352
+            gain_db: -22.8
+          - delay_samples: 3.237120
+            gain_db: -17.9
+          - delay_samples: 4.156416
+            gain_db: -20.1
+          - delay_samples: 5.981184
+            gain_db: -21.9
+          - delay_samples: 4.089600
+            gain_db: -22.9
+          - delay_samples: 9.312768
+            gain_db: -27.8
+          - delay_samples: 18.286848
+            gain_db: -23.6
+          - delay_samples: 21.712896
+            gain_db: -24.8
+          - delay_samples: 22.367232
+            gain_db: -30.0
+          - delay_samples: 28.857600
+            gain_db: -27.7

@@ -24,15 +24,15 @@ What's proven end-to-end on an RTX 5090 against the OCUDU + srsUE stack:
   interferer; both UEs attach to their own cell.
 
 **Supported chain steps today:** `tdl` (tapped delay line — covers
-scalar gain, integer or fractional sample delay, and full multi-tap
-multipath via the same step), `path_loss`, `phase`, `cfo`, `awgn` — CUDA
-and CPU, bit-exact. The earlier single-purpose `gain`, `integer_delay`,
-and `fractional_delay` steps were subsumed by `tdl` in Phase 1.3.
+scalar gain, integer or fractional sample delay, full multi-tap multipath,
+and per-tap Doppler-shaped fading with optional Rician LOS specular via the
+same step), `path_loss`, `phase`, `cfo`, `awgn` — CUDA and CPU, bit-exact.
+The 3GPP TR 38.901 §7.7.2 TDL-A through TDL-E profiles ship as
+[`examples/topology.tdl-{a..e}.cuda.yaml`](examples/).
 
-**Next:** multi-tap channels with Doppler-spread fading via a unified `tdl`
-chain step (3GPP TR 38.901 §7.7.2 TDL profiles — TDL-A through TDL-E). Full
-CDL with per-cluster angles, polarisation, and antenna array response is
-queued for a later milestone. See
+**Next:** full CDL (TR 38.901 §7.7.1) with per-cluster angles, polarisation,
+and antenna array response, once a real MIMO / beamforming use case
+surfaces. See
 [technical reference §19](docs/ocudu-gpu-channel-doc.html#scope) for the
 architecture and decisions.
 
@@ -42,7 +42,7 @@ Adjacent tools cover offline link-level simulation, offline channel-impulse-resp
 
 | Tool | Category | Stack | Channel models | In-loop with live radio stacks? |
 |---|---|---|---|---|
-| **ocudu-gpu-channel** | Real-time GPU emulator | C++ / CUDA + ZMQ | Gain, path-loss, phase, CFO, AWGN, delay; fading + Doppler planned | **Yes** — OCUDU / srsRAN via ZMQ on a 1 ms slot budget |
+| **ocudu-gpu-channel** | Real-time GPU emulator | C++ / CUDA + ZMQ | Multi-tap delay, path-loss, phase, CFO, AWGN, Jakes fading + Rician LOS (TR 38.901 §7.7.2 TDL-A..E) | **Yes** — OCUDU / srsRAN via ZMQ on a 1 ms slot budget |
 | [OAI rfsimulator](https://github.com/OPENAIRINTERFACE/openairinterface5g/blob/develop/radio/rfsimulator/README.md) | In-loop CPU simulator | C | AWGN + OAI Raytracing Channel Emulator | Yes — only inside the OAI 5G stack, CPU-bound |
 | [GNU Radio](https://www.gnuradio.org/) | SDR flowgraph toolkit | C++ / Python | Composable `channels.*` blocks (DIY) | Yes — bring your own SDR or virtual sink |
 | [Keysight PROPSIM](https://www.keysight.com/us/en/products/channel-emulators/propsim-platforms.html) / [Spirent Vertex](https://www.spirent.com/products/vertex-channel-emulator) | Commercial RF hardware emulator | Proprietary firmware | 3GPP CDL/TDL, MIMO, full fading at RF | Yes — RF↔RF, commercial pricing |
@@ -68,7 +68,7 @@ Note: srsRAN's own ZMQ driver is a raw IQ pipe with no channel impairments — o
 - **CPU reference backend** — same step set, used by tests and local development.
 - Example topologies in [`examples/`](examples/): single-link MVP, 3-node
   interference + crosstalk graph, 2-cell / 4-node multi-gNB, multi-UE OCUDU
-  Docker, 16-edge stress.
+  Docker, 16-edge stress, and TR 38.901 §7.7.2 TDL-A through TDL-E profiles.
 
 ## Quick start — local synthetic loop
 

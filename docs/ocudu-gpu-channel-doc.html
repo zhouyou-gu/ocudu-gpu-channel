@@ -1879,7 +1879,51 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   Gaussian and Flat spectra are reserved in the
   <code>FadingSpectrum</code> enum (so YAMLs can already declare them) but
   their generator math is not implemented; the kernel throws on
-  encountering them — a Phase 1.5 / 1.6 drop-in.</p>
+  encountering them — a later-phase drop-in.</p>
+
+  <h4>TDL profile YAMLs (Phase 1.5, landed)</h4>
+
+  <p>The five canonical 3GPP TR 38.901 §7.7.2 profiles
+  (<b>TDL-A</b> through <b>TDL-E</b>) ship as ready-to-run example
+  topologies in
+  <code>examples/topology.tdl-{a,b,c,d,e}.cuda.yaml</code>. Each YAML is a
+  bidirectional gNB↔UE pair with the profile applied to both links.</p>
+
+  <p><b>Translation rule.</b> The published normalised delays are scaled
+  to samples at the project's 23.04 MS/s reference rate and a 100 ns
+  desired delay spread:
+  <span class="mono">delay_samples = normalised · 100 ns · 23.04 MS/s
+  = normalised · 2.304</span>. Tap powers are carried verbatim. The
+  Doppler default is <span class="mono">f<sub>d,max</sub> = 100 Hz</span>
+  (≈30 km/h at 3.5 GHz, vehicular) with the Jakes spectrum.</p>
+
+  <p><b>LOS profiles (TDL-D, TDL-E).</b> TR 38.901 publishes two
+  zero-delay entries on the first cluster — the LOS specular and the
+  co-located Rayleigh component — whose dB ratio is the cluster's
+  Rician K-factor. The kernel composes both inside one tap via
+  <span class="mono">g(t) = √(K/(K+1))·specular + √(1/(K+1))·rayleigh</span>,
+  so the YAML carries a single tap with
+  <code>is_los: true</code>, <code>los_k_db</code> set to the published
+  ratio (13.3 dB for TDL-D, 22 dB for TDL-E), and
+  <code>los_angle_rad: 0</code> (LOS co-axial with motion, maximum
+  positive Doppler). TDL-E additionally combines two co-delay scatterer
+  clusters at normalised 0.5440 — TR 38.901 separates them for spatial
+  modelling, but the TDL form has no per-tap angles, so their linear
+  powers are summed into one tap (−16.86 dB combined).</p>
+
+  <p><b>Perf measurement.</b> <code>scripts/remote/perf-fanin-sweep.sh</code>
+  picks up two CDL-shaped configs at the end of its existing
+  one-to-N / M-to-N grid: a 1-edge TDL-A baseline (the demo YAML above)
+  and an 8-UE fan-in TDL-A
+  (<code>examples/topology.perf-tdl-a-fanin-8.cuda.yaml</code> — 1 gNB +
+  8 UEs, TDL-A on all 16 edges). The pair shows how the multi-tap
+  convolution + Jakes generator scales with fan-in under realistic
+  multipath, instead of only the single-tap <code>cuda_mvp</code> path.</p>
+
+  <p>Source of the published numbers: Sionna
+  (<code>references/code/sionna/src/sionna/phy/channel/tr38901/models/TDL-{A..E}.json</code>,
+  Apache-2.0), which itself transcribes TR 38.901 Tables 7.7.2-1
+  through 7.7.2-5.</p>
 
   <h4>What this replaced (Phase 1.3, landed)</h4>
 
