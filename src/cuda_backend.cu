@@ -50,13 +50,11 @@ GpuStep make_step(int type, float a, float b)
 // GPU steps plus the per-step CFO phase and AWGN counters that persist across
 // batches. build_steps() operates on this; it owns no device memory.
 //
-// The chain-leading propagation work -- either an integer/fractional delay or
-// a tdl multi-tap convolution -- runs HOST-SIDE during staging, not in the
-// per-sample CUDA kernel, because both operations need samples outside the
-// current thread's index. The same `delay_line` ring carries the previous
-// batch's tail for both, sized at prepare time to whichever operation is
-// active. tdl additionally caches the per-tap windowed-sinc coefficient sets
-// in `tdl_polyphase`; tap data itself is NOT cached here -- the staging path
+// The chain-leading propagation step (tdl, multi-tap convolution) runs HOST-
+// SIDE during staging, not in the per-sample CUDA kernel, because the kernel
+// reads only the current sample. `delay_line` carries the previous batch's
+// tail across calls; `tdl_polyphase` caches the per-tap windowed-sinc
+// coefficient sets. Tap data itself is NOT cached here -- the staging path
 // reads `step.taps` live from the owning ModelConfig (single source of truth,
 // no duplication between CPU and CUDA backends).
 struct LinkModelState {
@@ -65,14 +63,12 @@ struct LinkModelState {
   std::vector<double> phase_rad;
   std::vector<unsigned int> noise_seed;          // per-step AWGN RNG seed
   std::vector<unsigned long long> noise_counter; // per-step AWGN sample counter
-  // Chain-leading propagation: at most one of has_delay / has_tdl is true.
-  bool has_delay = false;
-  std::size_t delay_int = 0;
-  double delay_frac = 0.0;
-  std::vector<IqSample> delay_line;
+  // Chain-leading propagation (tdl). Populated when the link's chain leads
+  // with a tdl step; otherwise has_tdl is false and stage_link just copies.
   bool has_tdl = false;
   const std::vector<TapSpec>* tdl_taps = nullptr;  // borrowed view into ModelConfig::chain[0].taps
   std::vector<std::array<float, kTdlFracFilterTaps>> tdl_polyphase;
+  std::vector<IqSample> delay_line;
 };
 
 void init_model_state(LinkModelState& state, std::size_t steps, const std::string& seed_prefix)
@@ -189,25 +185,14 @@ double param_or(const ModelStep& step, const std::string& name, double fallback)
 // chain.front() can be one. At most one of has_delay / has_tdl ends true.
 void configure_leading_propagation(LinkModelState& state, const ModelConfig& model)
 {
-  state.has_delay = false;
-  state.delay_int = 0;
-  state.delay_frac = 0.0;
-  state.delay_line.clear();
   state.has_tdl = false;
   state.tdl_taps = nullptr;
   state.tdl_polyphase.clear();
+  state.delay_line.clear();
   if (model.chain.empty()) {
     return;
   }
   const auto& first = model.chain.front();
-  if (first.type == ModelStepType::IntegerDelay || first.type == ModelStepType::FractionalDelay) {
-    const double requested = param_or(first, "delay_samples", 0.0);
-    state.has_delay = true;
-    state.delay_int = static_cast<std::size_t>(std::max(0.0, std::floor(requested)));
-    state.delay_frac =
-        first.type == ModelStepType::FractionalDelay ? requested - std::floor(requested) : 0.0;
-    return;
-  }
   if (first.type == ModelStepType::Tdl) {
     state.has_tdl = true;
     state.tdl_taps = &first.taps;  // borrow the live ModelConfig tap list -- not copied
@@ -216,17 +201,15 @@ void configure_leading_propagation(LinkModelState& state, const ModelConfig& mod
 }
 
 // Stages one link's `count` input samples into `out`, applying the chain-
-// leading propagation step (legacy delay, tdl multi-tap convolution, or a
-// plain copy when the link's chain has no leading propagation). The device
-// kernel then runs the rest of the chain per-sample.
+// leading propagation step (tdl multi-tap convolution) host-side, or a plain
+// copy when the link's chain has no leading propagation. The device kernel
+// then runs the rest of the chain per-sample.
 void stage_link(LinkModelState& state, const IqSample* in, IqSample* out, std::size_t count)
 {
   if (state.has_tdl) {
     // tdl_taps borrowed from ModelConfig; the staging path is bit-identical to
     // the CPU backend because both call apply_tdl_step from delay.h.
     apply_tdl_step(in, out, count, *state.tdl_taps, state.tdl_polyphase, state.delay_line);
-  } else if (state.has_delay) {
-    apply_sample_delay(in, out, count, state.delay_int, state.delay_frac, state.delay_line);
   } else {
     std::copy(in, in + count, out);
   }
@@ -566,12 +549,6 @@ private:
       const auto& step = model.chain[step_index];
       auto& gpu_step = ms.host_steps[step_index];
       switch (step.type) {
-        case ModelStepType::Gain: {
-          const float factor = static_cast<float>(std::pow(10.0, param_or(step, "gain_db", 0.0) / 20.0));
-          gpu_step = make_step(Scale, factor, 0.0F);
-          running_power *= static_cast<double>(factor) * factor;
-          break;
-        }
         case ModelStepType::PathLoss: {
           const float factor = static_cast<float>(std::pow(10.0, -param_or(step, "path_loss_db", 0.0) / 20.0));
           gpu_step = make_step(Scale, factor, 0.0F);
@@ -606,13 +583,10 @@ private:
           running_power += noise_power;
           break;
         }
-        case ModelStepType::IntegerDelay:
-        case ModelStepType::FractionalDelay:
         case ModelStepType::Tdl:
-          // Leading propagation (integer/fractional delay OR tdl multi-tap
-          // convolution) ran host-side in stage_link() before the H2D copy;
-          // on the device this step is a no-op pass-through. configure_
-          // leading_propagation() set up the per-link state at prepare time.
+          // Leading tdl ran host-side in stage_link() before the H2D copy; on
+          // the device this step is a no-op pass-through. configure_leading_
+          // propagation() set up the per-link state at prepare time.
           gpu_step = make_step(Scale, 1.0F, 0.0F);
           break;
       }

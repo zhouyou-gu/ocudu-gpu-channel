@@ -12,36 +12,34 @@
 namespace ocg {
 namespace {
 
-// Per-sample steps the GPU runs unconditionally, anywhere in a chain. Leading-
-// propagation steps (sample delay, tdl) live outside this set -- they ran
-// host-side during staging and are emitted as a no-op pass-through GpuStep on
-// the device side.
+// Per-sample steps the GPU runs unconditionally, anywhere in a chain. The
+// leading-propagation step (`tdl`) lives outside this set -- it ran host-side
+// during staging and is emitted as a no-op pass-through GpuStep on the device
+// side.
 bool cuda_step_supported(ModelStepType type)
 {
-  return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
+  return type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
          type == ModelStepType::Cfo || type == ModelStepType::Awgn;
 }
 
-// Steps the CPU backend's chain loop knows how to execute. `tdl` is now
-// included (Phase 1.1 landed the reference kernel via the shared
-// `apply_tdl_step` helper in delay.h).
+// Steps the CPU backend's chain loop knows how to execute. `tdl` covers what
+// the old gain / integer_delay / fractional_delay steps used to express, as a
+// single-tap tdl with the corresponding delay and complex gain folded in.
 bool cpu_step_supported(ModelStepType type)
 {
-  return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
+  return type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
          type == ModelStepType::Cfo || type == ModelStepType::Awgn ||
-         type == ModelStepType::IntegerDelay || type == ModelStepType::FractionalDelay ||
          type == ModelStepType::Tdl;
 }
 
-// Steps that must lead the chain on the CUDA backend because the per-sample
-// kernel cannot materialise them inline. They run host-side during staging
-// (legacy delay via apply_sample_delay; tdl via apply_tdl_step) and then
-// pass-through on the device.
+// The step that must lead the chain on the CUDA backend because the per-sample
+// kernel cannot materialise it inline. It runs host-side during staging
+// (apply_tdl_step in delay.h) and is a no-op pass-through on the device.
+// Phase 1.3 collapsed the previous three-way list (integer_delay,
+// fractional_delay, tdl) down to just tdl.
 bool is_leading_propagation(ModelStepType type)
 {
-  return type == ModelStepType::IntegerDelay ||
-         type == ModelStepType::FractionalDelay ||
-         type == ModelStepType::Tdl;
+  return type == ModelStepType::Tdl;
 }
 
 } // namespace

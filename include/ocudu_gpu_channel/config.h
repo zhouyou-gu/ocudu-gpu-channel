@@ -15,11 +15,8 @@ enum class Backend {
 };
 
 enum class ModelStepType {
-  Gain,
   PathLoss,
   Awgn,
-  IntegerDelay,
-  FractionalDelay,
   Phase,
   Cfo,
   Tdl
@@ -91,7 +88,7 @@ struct LinkConfig {
 };
 
 struct ModelStep {
-  ModelStepType type = ModelStepType::Gain;
+  ModelStepType type = ModelStepType::Tdl;
   std::map<std::string, double> params;
   // Used only by `tdl` steps; empty for every other step type. Populated by the
   // YAML parser when a `taps:` block list is present under the step.

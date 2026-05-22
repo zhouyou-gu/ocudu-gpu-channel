@@ -118,13 +118,6 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
     StepState& step_state = state.steps[step_index];
 
     switch (step.type) {
-      case ModelStepType::Gain: {
-        const float factor = static_cast<float>(std::pow(10.0, param_or(step, "gain_db", 0.0) / 20.0));
-        for (std::size_t i = 0; i != current.size(); ++i) {
-          next[i] = scale(current[i], factor);
-        }
-        break;
-      }
       case ModelStepType::PathLoss: {
         const float factor = static_cast<float>(std::pow(10.0, -param_or(step, "path_loss_db", 0.0) / 20.0));
         for (std::size_t i = 0; i != current.size(); ++i) {
@@ -144,16 +137,6 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
           next[i] = {current[i].i + step_state.noise(step_state.rng, params),
                      current[i].q + step_state.noise(step_state.rng, params)};
         }
-        break;
-      }
-      case ModelStepType::IntegerDelay:
-      case ModelStepType::FractionalDelay: {
-        const double requested_delay = param_or(step, "delay_samples", 0.0);
-        const auto integer_delay = static_cast<std::size_t>(std::max(0.0, std::floor(requested_delay)));
-        const double fraction =
-            step.type == ModelStepType::FractionalDelay ? requested_delay - std::floor(requested_delay) : 0.0;
-        apply_sample_delay(current.data(), next.data(), current.size(), integer_delay, fraction,
-                           step_state.delay_line);
         break;
       }
       case ModelStepType::Phase:

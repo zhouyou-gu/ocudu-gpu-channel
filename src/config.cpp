@@ -182,15 +182,10 @@ void apply_tap(TapSpec& tap, const std::string& key, const std::string& value)
 bool is_allowed_param(ModelStepType type, const std::string& key)
 {
   switch (type) {
-    case ModelStepType::Gain:
-      return key == "gain_db";
     case ModelStepType::PathLoss:
       return key == "path_loss_db";
     case ModelStepType::Awgn:
       return key == "snr_db" || key == "noise_power";
-    case ModelStepType::IntegerDelay:
-    case ModelStepType::FractionalDelay:
-      return key == "delay_samples";
     case ModelStepType::Phase:
       return key == "phase_rad";
     case ModelStepType::Cfo:
@@ -605,26 +600,10 @@ void fold_link_leading_delays(TopologyConfig& config)
         tap.delay_samples += total_delay;
       }
       clone.chain.front().taps_declared = true;
-    } else if (!clone.chain.empty() &&
-               (clone.chain.front().type == ModelStepType::IntegerDelay ||
-                clone.chain.front().type == ModelStepType::FractionalDelay)) {
-      // Legacy compose path -- kept until the Gain/IntegerDelay/FractionalDelay
-      // enum values are deleted (commit C of the Phase 1.3 sequence). YAMLs in
-      // the repo are migrated off this path by commit B.
-      auto& first = clone.chain.front();
-      auto existing_it = first.params.find("delay_samples");
-      const double existing = existing_it == first.params.end() ? 0.0 : existing_it->second;
-      const double combined = existing + total_delay;
-      first.params["delay_samples"] = combined;
-      const double combined_frac = combined - std::floor(combined);
-      if (combined_frac > 0.0) {
-        first.type = ModelStepType::FractionalDelay;
-      }
     } else {
-      // No leading propagation step in the source chain: prepend a single-tap
-      // tdl with the composed delay and unit gain. This is the new canonical
-      // form -- a leading tdl plays the role the legacy integer/fractional
-      // delay step used to.
+      // No leading tdl in the source chain: prepend a single-tap tdl with the
+      // composed delay and unit gain. tdl is now the only canonical leading-
+      // propagation step (Phase 1.3 removed integer_delay and fractional_delay).
       ModelStep step;
       step.type = ModelStepType::Tdl;
       step.taps.push_back(
@@ -646,16 +625,10 @@ std::string to_string(Backend backend)
 std::string to_string(ModelStepType type)
 {
   switch (type) {
-    case ModelStepType::Gain:
-      return "gain";
     case ModelStepType::PathLoss:
       return "path_loss";
     case ModelStepType::Awgn:
       return "awgn";
-    case ModelStepType::IntegerDelay:
-      return "integer_delay";
-    case ModelStepType::FractionalDelay:
-      return "fractional_delay";
     case ModelStepType::Phase:
       return "phase";
     case ModelStepType::Cfo:
@@ -679,20 +652,11 @@ Backend parse_backend(const std::string& value)
 
 ModelStepType parse_model_step_type(const std::string& value)
 {
-  if (value == "gain") {
-    return ModelStepType::Gain;
-  }
   if (value == "path_loss") {
     return ModelStepType::PathLoss;
   }
   if (value == "awgn") {
     return ModelStepType::Awgn;
-  }
-  if (value == "integer_delay") {
-    return ModelStepType::IntegerDelay;
-  }
-  if (value == "fractional_delay") {
-    return ModelStepType::FractionalDelay;
   }
   if (value == "phase") {
     return ModelStepType::Phase;
