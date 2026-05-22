@@ -23,8 +23,11 @@ What's proven end-to-end on an RTX 5090 against the OCUDU + srsUE stack:
   gNB's RX is the GPU superposition of its serving UE plus the other cell's
   interferer; both UEs attach to their own cell.
 
-**Supported chain steps today:** `gain`, `path_loss`, `phase`, `cfo`, `awgn`,
-`integer_delay`, `fractional_delay` — CUDA and CPU, bit-exact.
+**Supported chain steps today:** `tdl` (tapped delay line — covers
+scalar gain, integer or fractional sample delay, and full multi-tap
+multipath via the same step), `path_loss`, `phase`, `cfo`, `awgn` — CUDA
+and CPU, bit-exact. The earlier single-purpose `gain`, `integer_delay`,
+and `fractional_delay` steps were subsumed by `tdl` in Phase 1.3.
 
 **Next:** multi-tap channels with Doppler-spread fading via a unified `tdl`
 chain step (3GPP TR 38.901 §7.7.2 TDL profiles — TDL-A through TDL-E). Full

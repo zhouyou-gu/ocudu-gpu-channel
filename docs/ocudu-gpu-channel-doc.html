@@ -298,7 +298,7 @@
     <tr><th>Term</th><th>Meaning</th></tr>
     <tr><td class="mono">node</td><td>a device in the graph (a gNB or a UE); the broker serves one RX signal per node, per slot</td></tr>
     <tr><td class="mono">link / edge</td><td>a directed channel from one node to another, configured under <code>links:</code> in the YAML topology with a named <code>model</code></td></tr>
-    <tr><td class="mono">model</td><td>a chain of channel steps (gain, phase, CFO, AWGN, delay) applied per-edge under <code>models:</code> in the YAML</td></tr>
+    <tr><td class="mono">model</td><td>a chain of channel steps (tdl, path_loss, phase, CFO, AWGN) applied per-edge under <code>models:</code> in the YAML</td></tr>
     <tr><td class="mono">rx_model</td><td>an optional second model applied <b>once to the summed RX</b> of a node — typically a thermal-noise floor</td></tr>
     <tr><td class="mono">gNB / UE</td><td>5G base station (gNodeB) / user equipment; both are just "nodes" to the emulator</td></tr>
     <tr><td class="mono">OCUDU</td><td>the Split-8 ZMQ SDR runtime that exchanges IQ slots with the broker over <code>tcp://</code></td></tr>
@@ -342,7 +342,7 @@
   <table>
     <tr><th>Field</th><th>Used by</th><th>Meaning</th></tr>
     <tr><td class="mono">step.type</td><td>all branches</td><td><code>Scale</code> | <code>Phase</code> | <code>AddNoise</code> — selects which branch runs (integer / fractional delay step types are configured but handled host-side, not in the per-sample kernel chain)</td></tr>
-    <tr><td class="mono">step.a</td><td>all</td><td>scalar: gain factor (Scale), base phase (Phase), noise amplitude (AddNoise)</td></tr>
+    <tr><td class="mono">step.a</td><td>all</td><td>scalar: amplitude factor (Scale — used for path_loss and as the no-op pass-through for a chain-leading tdl), base phase (Phase), noise amplitude (AddNoise)</td></tr>
     <tr><td class="mono">step.b</td><td>Phase</td><td>phase increment per sample, in radians; <code>b = 2π·f<sub>cfo</sub>/f<sub>s</sub></code> for CFO; <code>b = 0</code> for a static phase rotation</td></tr>
     <tr><td class="mono">step.seed · step.counter</td><td>AddNoise</td><td>Philox4_32_10 state — the RNG is keyed on <code>(seed, counter + idx)</code>; <code>counter</code> advances by <span class="mono">count</span> every call</td></tr>
   </table>
@@ -353,7 +353,7 @@
     <tr><td class="mono">apply_chain()</td><td><code>__device__</code> function that walks one chain on (i, q) in registers; called inside both kernels</td></tr>
     <tr><td class="mono">apply_steps_kernel</td><td>single-link kernel; also runs in-place as the <code>rx_model</code> pass after <code>superpose_kernel</code></td></tr>
     <tr><td class="mono">superpose_kernel</td><td>multi-edge superposition kernel — one thread per output sample, walks every edge, sums into <code>dst[idx]</code></td></tr>
-    <tr><td class="mono">apply_leading_delay()</td><td>host-side helper that applies the chain's leading integer / fractional propagation delay before staging</td></tr>
+    <tr><td class="mono">stage_link()</td><td>host-side helper that runs the chain-leading <code>tdl</code> step (multi-tap convolution via <code>apply_tdl_step</code> in <code>delay.h</code>) before the H2D copy, or a plain copy when the link's chain has no leading propagation step</td></tr>
     <tr><td class="mono">process_superposition</td><td>the sole CPU / CUDA processor entry point; called by the broker for N-edge fan-in and by the benchmark / tests for the N=1 single-edge case (an earlier <code>process_into</code> API was unified away — see §21.1)</td></tr>
     <tr><td class="mono">serve</td><td>one broker iteration for a destination node: read inputs from each source's ring, stage them, run the kernel, send the result over ZMQ</td></tr>
     <tr><td class="mono">cursor</td><td>per-link <code>std::atomic&lt;uint64_t&gt;</code> pointing into its source's IQ ring; co-initialised across edges so superposition aligns every edge's same virtual instant</td></tr>
@@ -458,7 +458,7 @@
     <!-- legend -->
     <g font-size="11">
       <line x1="20" y1="365" x2="40" y2="365" stroke="#6fd08c" stroke-width="1.6"/>
-      <text x="46" y="369" fill="#9aa7bd">desired (gain + phase + CFO)</text>
+      <text x="46" y="369" fill="#9aa7bd">desired (tdl + phase + CFO)</text>
       <line x1="290" y1="365" x2="310" y2="365" stroke="#c98bff" stroke-width="1.6" stroke-dasharray="5 3"/>
       <text x="316" y="369" fill="#9aa7bd">crosstalk (path-loss + phase)</text>
       <text x="540" y="369" fill="#ffb454">+ rx_model per node</text>
@@ -480,7 +480,7 @@ links:      [ { from: gnb0, to: ue0,  model: desired   },   # downlink
               { from: ue1,  to: gnb0, model: desired   },
               { from: ue0,  to: ue1,  model: crosstalk },   # leakage
               { from: ue1,  to: ue0,  model: crosstalk } ]
-models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
+models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
             crosstalk:   [ path_loss 40 dB · phase 0.7 rad ]
             noise_floor: [ awgn noise_power 0.01 ]</code></pre>
 
@@ -626,12 +626,14 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
     <li><b>Read</b> the common window from each source ring at its cursor — N separate
         per-edge sample arrays, each <code>serve</code> samples long, all representing
         the same source-time slice.</li>
-    <li><b>Apply per-link leading delay</b> (host-side) — for any edge whose chain
-        starts with <code>integer_delay</code> / <code>fractional_delay</code>,
-        <code>apply_leading_delay()</code> shifts that edge's samples back in time using
-        the per-link <code>delay_line</code> ring for cross-slot history. The shifted
-        samples replace the raw read. <b>Detail in <a href="#staged">section 7</a> top
-        prose + <a href="#channels">section 8</a> delay row.</b></li>
+    <li><b>Apply per-link leading propagation</b> (host-side) — for any edge whose chain
+        starts with a <code>tdl</code> step, <code>stage_link()</code> runs that step's
+        multi-tap convolution (via the shared <code>apply_tdl_step</code> in
+        <code>delay.h</code>) using the per-link <code>delay_line</code> ring for cross-
+        slot history. The convolved samples replace the raw read. Edges without a
+        leading tdl just get a plain copy at this stage. <b>Detail in
+        <a href="#staged">section 7</a> top prose + <a href="#channels">section 8</a>
+        tdl row.</b></li>
     <li><b>Stage</b> — pack the N per-edge arrays back-to-back into the pinned
         <code>host_staged</code> buffer for one H2D copy. <b>Detail in
         <a href="#staged">section 7</a> + Diagram J.</b></li>
@@ -653,10 +655,10 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
         same virtual time slice on every serve, so the kernel's
         <code>staged[k·count + idx]</code> for different <code>k</code> always represents
         the same instant in source time.</li>
-    <li><b>Per-link propagation delay</b> — chain-leading
-        <code>integer_delay</code> / <code>fractional_delay</code> steps shift an edge
-        back in time, with continuity preserved across slot boundaries via a host-side
-        <code>delay_line</code>.</li>
+    <li><b>Per-link propagation delay</b> — a chain-leading <code>tdl</code> step
+        shifts an edge back in time (and optionally splits it across multipath taps),
+        with continuity preserved across slot boundaries via a host-side
+        <code>delay_line</code> ring.</li>
     <li><b>Wall-clock throttle</b> — the server thread sleeps to pace serves at exactly
         the sample rate, so virtual time = real time.</li>
   </ol>
@@ -835,7 +837,7 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
   <!-- ============ DIAGRAM M : how per-link delay shifts each source at the RX ============ -->
   <figure>
   <svg viewBox="0 0 1000 330" font-family="SF Mono,Menlo,monospace" font-size="12">
-    <text x="500" y="22" fill="#9aa7bd" text-anchor="middle">Per-link integer_delay shifts each source's contribution at the receiver</text>
+    <text x="500" y="22" fill="#9aa7bd" text-anchor="middle">Per-link leading tdl step shifts each source's contribution at the receiver</text>
     <text x="500" y="36" fill="#9aa7bd" text-anchor="middle" font-size="10">d_k encodes both physical propagation distance AND constant TX timing offset — composed into one per-link knob</text>
 
     <!-- virtual time idx ruler -->
@@ -938,12 +940,14 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
     <text x="20" y="230" fill="#ffb454" font-size="12">Where d_k comes from (summed per link):</text>
     <text x="40" y="252" fill="#cdd6e6" font-size="11">·  <tspan fill="#ffb454">propagation delay</tspan>  —  per-link geometry, YAML: propagation_delay_samples on the link</text>
     <text x="40" y="270" fill="#cdd6e6" font-size="11">·  <tspan fill="#ffb454">tx timing offset</tspan>  —  per-device constant lag, YAML: tx_timing_offset_samples on the device</text>
-    <text x="40" y="288" fill="#cdd6e6" font-size="11">·  <tspan fill="#9aa7bd">explicit chain step</tspan>  —  integer_delay / fractional_delay as the chain's first step (see section 8)</text>
+    <text x="40" y="288" fill="#cdd6e6" font-size="11">·  <tspan fill="#9aa7bd">explicit chain step</tspan>  —  tdl as the chain's first step (single-tap with delay_samples = d_k; see section 8)</text>
     <text x="20" y="316" fill="#9aa7bd" font-size="10">Dashed cells = the delay_line tail kept on the host across slot boundaries so even the earliest idx in a slot has a defined delayed lookup.</text>
   </svg>
   <figcaption>Diagram M — the same virtual time index <span class="mono">idx</span> reaches
   different source-sequence positions on different edges, because each edge applies its
-  own <code>integer_delay</code> d<sub>k</sub>. At idx = 7 the receiver integrates
+  own leading <code>tdl</code> with delay d<sub>k</sub> (for the single-tap case the
+  diagram illustrates; multi-tap simply produces several echoes at d<sub>k</sub>, d<sub>k</sub>+τ₁, …
+  in parallel). At idx = 7 the receiver integrates
   <span class="mono">src 0</span>'s sample 5 (= 7 − d<sub>0</sub>) and
   <span class="mono">src 1</span>'s sample 2 (= 7 − d<sub>1</sub>). d<sub>k</sub>
   composes propagation distance and constant TX offset into one per-link knob — the
@@ -970,12 +974,13 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
         <code>tx_timing_offset_samples</code> on the <b>device</b> — applies
         uniformly to every outgoing link.</li>
   </ul>
-  <p class="key">At load time, <code>fold_link_leading_delays()</code> sums these
-  two knobs with whatever explicit <code>integer_delay</code> /
-  <code>fractional_delay</code> the link's model already has, then merges or
-  prepends the total as the chain's leading step. d<sub>k</sub> for an edge is
-  the sum of all three sources — see <a href="#channels">section 8</a> for the
-  YAML recipes.</p>
+  <p class="key">At load time, <code>fold_link_leading_delays()</code> composes
+  these two knobs with whatever leading <code>tdl</code> step the link's model
+  already has: if the chain leads with a <code>tdl</code>, every tap's
+  <code>delay_samples</code> is shifted by the summed offset (preserving multi-
+  tap multipath); otherwise a single-tap <code>tdl</code> is prepended with the
+  offset as its tap delay. d<sub>k</sub> for an edge is the sum of all three
+  sources — see <a href="#channels">section 8</a> for the YAML recipes.</p>
 
   <p class="key"><b>What is not modeled at this layer:</b> any time-varying offset
   (clock drift, slot misalignment that grows over time, sample-rate mismatch between
@@ -1000,10 +1005,10 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
   guaranteed that the <span class="mono">N</span> per-edge sample arrays are
   <b>time-aligned</b> — every edge's sample at index <span class="mono">idx</span>
   represents the same source-time instant, and every array has the same length
-  <span class="mono">serve</span>. (If a per-link <code>integer_delay</code> /
-  <code>fractional_delay</code> applies, <code>apply_leading_delay()</code> has already
-  shifted that edge's samples back in time using its host-side <code>delay_line</code>
-  ring.) <b>Staging is purely a packing step</b> — it takes those
+  <span class="mono">serve</span>. (If a per-link leading <code>tdl</code> step
+  applies, <code>stage_link()</code> has already run that step's multi-tap
+  convolution host-side using the per-link <code>delay_line</code> ring for
+  cross-slot history.) <b>Staging is purely a packing step</b> — it takes those
   <span class="mono">N</span> aligned, delay-applied arrays and concatenates them
   back-to-back into one pinned buffer (<code>host_staged</code>) so a <b>single</b>
   <code>cudaMemcpyAsync</code> ships the whole block. The kernel then addresses any
@@ -1072,12 +1077,11 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
   <code>tests/test_processing.cpp</code>). YAML keys per step type:</p>
   <table>
     <tr><th>Step type</th><th>YAML keys</th><th>Effect</th></tr>
-    <tr><td><code>gain</code></td><td><code>gain_db</code></td><td>scalar multiply on (i, q) — built into <code>step.a</code> = <code>10^(gain_db/20)</code></td></tr>
-    <tr><td><code>path_loss</code></td><td><code>path_loss_db</code></td><td>same Scale branch, sign-flipped — attenuation</td></tr>
+    <tr><td><code>tdl</code></td><td><code>taps:</code> block of <code>{delay_samples, gain_db, phase_rad}</code></td><td>Tapped delay line — the chain-leading propagation step. Each tap shifts the signal by <code>delay_samples</code> (integer or fractional, resolved by the shared 8-tap Hamming-windowed sinc in <code>delay.h</code>) and applies its complex tap weight <code>10<sup>gain_db/20</sup>·exp(j·phase_rad)</code>; the kernel sums every tap into one output sample. Applied <b>host-side</b> in <code>stage_link()</code> because the convolution reads samples outside the current thread's index; cross-slot history lives in a per-link <code>delay_line</code> ring. A single tap with <code>delay_samples = 0</code> is the static-gain case (subsumes the old <code>gain</code> step); a single tap with non-zero delay subsumes the old <code>integer_delay</code> / <code>fractional_delay</code> steps. The chain-leading constraint is enforced by <code>validate_cuda_support</code>; a non-leading <code>tdl</code> is rejected on the CUDA path (CPU accepts it anywhere). The <code>delay_line</code> ring on the host carries the previous batch's tail across the boundary so even the earliest sample in a slot has defined history.</td></tr>
+    <tr><td><code>path_loss</code></td><td><code>path_loss_db</code></td><td>Scale branch, sign-flipped vs. gain — attenuation. <code>step.a</code> = <code>10<sup>−path_loss_db/20</sup></code>.</td></tr>
     <tr><td><code>phase</code></td><td><code>phase_rad</code></td><td>static phase rotation — <code>step.a</code> = phase, <code>step.b</code> = 0</td></tr>
     <tr><td><code>cfo</code></td><td><code>cfo_hz</code></td><td>linear phase drift = carrier frequency offset — <code>step.b</code> = <code>2π·f<sub>cfo</sub>/f<sub>s</sub></code></td></tr>
     <tr><td><code>awgn</code></td><td><code>noise_power</code> <i>or</i> <code>snr_db</code></td><td>complex Gaussian noise via counter-based Philox. Absolute mode: per-component σ = √(noise_power/2); SNR mode: noise scaled to <code>running_power / 10^(SNR/10)</code></td></tr>
-    <tr><td><code>integer_delay</code> · <code>fractional_delay</code></td><td><code>delay_samples</code></td><td>Raw chain-leading sample delay, applied <b>host-side</b> in <code>apply_leading_delay()</code>; continuous across slots via a <code>delay_line</code> ring. This step is the underlying mechanism the two higher-level knobs (<code>propagation_delay_samples</code> on a link, <code>tx_timing_offset_samples</code> on a device — see the "Three named knobs" table below) fold into; use it directly only when neither of those scopes fits. <b>Why host-side?</b> Delay reads <code>input[n − d]</code> — for small <code>n</code>, that index is in the <i>previous</i> slot, which the per-sample device kernel never sees (it gets one slot at a time). The per-link <code>delay_line</code> ring on the host carries the previous batch's tail across the boundary so the lookup stays defined.</td></tr>
   </table>
   <p class="key"><b>Three named knobs for the chain-leading delay.</b> Two
   physically distinct effects compose into the same chain-leading delay step
@@ -1106,27 +1110,29 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
     <tr>
       <td><b>Explicit chain step</b></td>
       <td>per-link (via model)</td>
-      <td><code>integer_delay</code> / <code>fractional_delay</code> as the
-          chain's first step</td>
+      <td>A leading <code>tdl</code> step in the model's chain</td>
       <td>The raw mechanism. Use directly when neither of the above scopes
-          fits — e.g., the model genuinely needs a leading delay distinct from
-          link geometry.</td>
+          fits — e.g., a model that explicitly needs a multi-tap delay
+          profile beyond a single propagation offset.</td>
     </tr>
   </table>
-  <p class="key"><b>Composition rules.</b> All three are summed for each link.
-  If the chain already has a leading <code>integer_delay</code> /
-  <code>fractional_delay</code>, the sum is merged into its
-  <code>delay_samples</code>; otherwise a leading step is prepended. A fractional
-  total promotes the leading step to <code>fractional_delay</code>. Negative
+  <p class="key"><b>Composition rules.</b> All three are summed per link.
+  If the model's chain already leads with a <code>tdl</code> step,
+  <code>fold_link_leading_delays()</code> shifts every tap's
+  <code>delay_samples</code> by the composed offset (preserving multi-tap
+  multipath structure); otherwise a single-tap <code>tdl</code> with the
+  composed offset is prepended. Fractional totals are carried through directly
+  by the polyphase-sinc resolution in <code>apply_tdl_step</code>. Negative
   values for either named knob are rejected at load time. The per-link
   <code>delay_line</code> ring fills on the first serve and the composed offset
   becomes constant for the run.</p>
   <p class="key"><b>Worked example.</b> A device with
   <code>tx_timing_offset_samples: 2</code> and a link from it carrying
   <code>propagation_delay_samples: 4</code> on top of a base model whose chain
-  starts with <code>integer_delay 1</code> ends up with a synthesized leading
-  <code>integer_delay 7</code> = (2 + 4 + 1). At idx = 7 the receiver sees the
-  source's sample 0. For a runnable variant of this composition see
+  starts with <code>tdl{(1.0, 0 dB, 0)}</code> ends up with a synthesized leading
+  <code>tdl{(7.0, 0 dB, 0)}</code> — the tap delay shifts from 1 to
+  1 + (2 + 4) = 7. At idx = 7 the receiver sees the source's sample 0. For a
+  runnable variant of this composition see
   <code>examples/topology.ocudu-docker.tx-offset.cuda.yaml</code> — the same
   single-cell OCUDU topology with a 4-sample <code>tx_timing_offset_samples</code>
   on gNB plus a 3-sample <code>propagation_delay_samples</code> on the uplink
@@ -1357,7 +1363,7 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
       <text x="582" y="140" fill="#5db1ff">s = staged[k·count + idx]</text>
       <text x="582" y="164" fill="#c98bff">apply_chain(s, steps + step_meta[k],</text>
       <text x="652" y="180" fill="#c98bff">step_meta[N+k], idx)</text>
-      <text x="600" y="200" fill="#9aa7bd" font-size="11">gain ·  rotate sincos  ·  AWGN (Philox)</text>
+      <text x="600" y="200" fill="#9aa7bd" font-size="11">scale ·  rotate sincos  ·  AWGN (Philox)</text>
       <text x="582" y="222" fill="#ffb454">acc += s</text>
       <text x="560" y="244" fill="#e7ecf5">dst[idx] = acc</text>
     </g>
@@ -1389,8 +1395,10 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
   <code>GpuStep</code> structs built host-side from the YAML model; every iteration
   switches on <code>step.type</code> to apply one of three operations, each mutating the
   same (i, q) state in place. The same machinery serves every model in the topology —
-  "desired" is gain + phase + CFO, "crosstalk" is path-loss + phase, the receiver
-  <code>noise_floor</code> is a single AWGN step.</p>
+  "desired" is tdl + phase + CFO (the leading tdl ran host-side in
+  <code>stage_link</code>, so on the device it is a no-op pass-through, leaving phase
+  and CFO as the actual per-sample work); "crosstalk" is path-loss + phase; the
+  receiver <code>noise_floor</code> is a single AWGN step.</p>
   <figure>
   <svg viewBox="0 0 1000 410" font-family="SF Mono,Menlo,monospace" font-size="12">
     <defs>
@@ -1405,7 +1413,7 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
     <text x="500" y="112" fill="#ffb454" text-anchor="middle">apply_chain():  for step_idx in 0 … step_count − 1:  switch (steps[step_idx].type)</text>
     <rect x="30" y="130" width="305" height="190" rx="6" fill="#1a2233" stroke="#6fd08c"/>
     <text x="182" y="150" fill="#6fd08c" text-anchor="middle">Scale</text>
-    <text x="182" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">gain · path-loss</text>
+    <text x="182" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">path-loss · tdl no-op</text>
     <line x1="50" y1="180" x2="315" y2="180" stroke="#2c3850"/>
     <text x="50" y="206" fill="#e7ecf5">i ← step.a · i</text>
     <text x="50" y="226" fill="#e7ecf5">q ← step.a · q</text>
@@ -1560,7 +1568,7 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
     </defs>
     <rect x="20" y="46" width="230" height="160" rx="8" fill="#1a2233" stroke="#2c3850"/>
     <text x="135" y="36" fill="#9aa7bd" text-anchor="middle">HOST · broker (pre-launch)</text>
-    <text x="135" y="78" fill="#e7ecf5" text-anchor="middle" font-size="12">apply_leading_delay</text>
+    <text x="135" y="78" fill="#e7ecf5" text-anchor="middle" font-size="12">stage_link</text>
     <text x="135" y="96" fill="#9aa7bd" text-anchor="middle" font-size="11">(integer + fractional)</text>
     <text x="135" y="124" fill="#e7ecf5" text-anchor="middle">stage N edge batches</text>
     <text x="135" y="140" fill="#9aa7bd" text-anchor="middle" font-size="11">into pinned host_staged</text>
@@ -1700,12 +1708,21 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
   <ul class="tight">
     <li>CUDA is the target backend; CPU is the correctness reference and local
         development path. Both are bit-exact for the supported step set.</li>
-    <li>Supported chain steps: <b>gain, path_loss, phase, CFO, AWGN,
-        integer_delay, fractional_delay</b>.</li>
-    <li>Per-link delay knobs that fold into the chain-leading delay at
-        config-load time: <code>device.tx_timing_offset_samples</code>
+    <li>Supported chain steps: <b>tdl, path_loss, phase, CFO, AWGN</b>.
+        <code>tdl</code> is the chain-leading propagation step (covers
+        scalar gain via a single tap at <code>delay_samples = 0</code>,
+        single-tap integer or fractional sample delay, and full multi-tap
+        multipath with the same step). The earlier <code>gain</code>,
+        <code>integer_delay</code>, and <code>fractional_delay</code> step
+        types were subsumed by <code>tdl</code> in Phase 1.3 and no longer
+        exist in the schema.</li>
+    <li>Per-link delay knobs that fold into a chain-leading <code>tdl</code>
+        at config-load time: <code>device.tx_timing_offset_samples</code>
         (per source) and <code>link.propagation_delay_samples</code>
-        (per edge). See <a href="#alignment">§6</a>.</li>
+        (per edge). The composed offset shifts every existing tap's
+        <code>delay_samples</code> if the chain already leads with a
+        <code>tdl</code>; otherwise a single-tap <code>tdl</code> with the
+        offset is prepended. See <a href="#alignment">§6</a>.</li>
     <li>Single processor entry point:
         <code>ChannelProcessor::process_superposition()</code> handles
         single-edge and N-edge fan-in uniformly. The previous
@@ -1755,10 +1772,12 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
 
   <p><b>Fractional delays from day one.</b> Tap delays are
   <span class="mono">double</span> samples; sub-sample offsets resolve via
-  a per-tap polyphase/sinc interpolation kernel, reusing the building blocks
-  already in <code>fractional_delay</code> today. This avoids snapping CDL
-  delays to the nearest integer sample (which would lose up to ~22 ns of
-  delay-spread fidelity at 23.04 MS/s).</p>
+  the shared <code>compute_windowed_sinc_taps</code> helper in
+  <code>delay.h</code> (8-tap Hamming-windowed sinc, DC-normalised) — the
+  same coefficient generator both backends call out of
+  <code>apply_tdl_step</code>. This avoids snapping CDL delays to the
+  nearest integer sample (which would lose up to ~22 ns of delay-spread
+  fidelity at 23.04 MS/s).</p>
 
   <p><b>What it buys.</b> Static frequency-selective channels — 3GPP
   TDL profiles (TR 38.901 §7.7.2 tables 7.7.2-1 through 7.7.2-5),
@@ -1840,10 +1859,12 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
   error sits well below any AWGN floor. The fading evaluation and the
   TDL convolution share a single kernel.</p>
 
-  <h4>What this replaces</h4>
+  <h4>What this replaced (Phase 1.3, landed)</h4>
 
-  <p>When <code>tdl</code> lands, it subsumes three existing single-tap
-  steps:</p>
+  <p><code>tdl</code> shipped in Phase 1.3 (commits
+  <code>9afb2de</code> → <code>aa006a9</code> on <code>main</code>) and
+  subsumed three earlier single-tap chain steps that no longer exist in
+  the schema:</p>
   <ul class="tight">
     <li><code>gain</code> → a one-tap <code>tdl</code> with
         <span class="mono">delay_samples = 0</span> and the chosen complex
@@ -1853,17 +1874,16 @@ models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
     <li><code>fractional_delay</code> → a one-tap <code>tdl</code> with the
         fractional delay and unit gain.</li>
   </ul>
-  <p>These three are removed in the same change set as <code>tdl</code>
-  lands; existing YAMLs and tests are rewritten in the same PR. The
-  per-link delay knobs
+  <p>All example YAMLs, all tests, and the perf-sweep scripts were
+  migrated to the <code>tdl</code> shape in the same Phase 1.3 sequence.
+  The per-link delay knobs
   (<code>device.tx_timing_offset_samples</code>,
-  <code>link.propagation_delay_samples</code>) keep their semantics but
-  fold into the chain-leading <code>tdl</code> step rather than into a
-  leading <code>integer_delay</code> / <code>fractional_delay</code>. See
-  <a href="#alignment">§6</a> — that section will be retargeted at the
-  same time. The <code>path_loss</code>, <code>phase</code>, <code>cfo</code>,
-  and <code>awgn</code> steps stay as separate steps because they are not
-  multipath operations.</p>
+  <code>link.propagation_delay_samples</code>) kept their semantics but
+  now fold into the chain-leading <code>tdl</code> step
+  (<a href="#alignment">§6</a> describes the composition rules). The
+  <code>path_loss</code>, <code>phase</code>, <code>cfo</code>, and
+  <code>awgn</code> steps were unchanged — they remain as separate per-
+  sample steps because they are not multipath operations.</p>
 
   <p class="key"><b>What about Doppler today?</b> Deterministic Doppler
   shift (no spread) is already supported via the existing <code>cfo</code>
