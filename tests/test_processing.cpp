@@ -1,7 +1,9 @@
 #include "ocudu_gpu_channel/backend.h"
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/cpu_backend.h"
+#include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/processing.h"
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -67,6 +69,30 @@ ocg::IqBuffer shape_link_buf(ocg::ChannelProcessor& proc,
 
 int main()
 {
+  // --- tdl prerequisite: windowed-sinc fractional-delay filter helper. ---
+  // Two assertions: (1) for frac == 0 the 8-tap filter collapses to a unit
+  // impulse at index 3 (DC-normalised; coefficient 1.0 at i=3, 0 elsewhere),
+  // so an integer-delay tap shares the fractional code path without a special
+  // case; (2) coefficients sum to 1 for any frac in [0, 1) so a constant input
+  // passes through unchanged.
+  {
+    std::array<float, ocg::kTdlFracFilterTaps> coeffs{};
+    ocg::compute_windowed_sinc_taps(0.0, coeffs);
+    require(std::fabs(coeffs[3] - 1.0F) < 1e-6F, "sinc(frac=0): coeff[3] must be 1");
+    for (int i = 0; i < ocg::kTdlFracFilterTaps; ++i) {
+      if (i == 3) continue;
+      require(std::fabs(coeffs[static_cast<std::size_t>(i)]) < 1e-6F,
+              "sinc(frac=0): non-center coeffs must be zero");
+    }
+    for (double frac : {0.1, 0.25, 0.5, 0.75, 0.9}) {
+      ocg::compute_windowed_sinc_taps(frac, coeffs);
+      double sum = 0.0;
+      for (float c : coeffs) sum += c;
+      require(std::fabs(sum - 1.0) < 1e-5,
+              "sinc coefficients must sum to 1 for any fractional offset");
+    }
+  }
+
   ocg::TopologyConfig config;
   config.runtime.batch_samples_auto = false;
   config.runtime.batch_samples = 4;
@@ -501,6 +527,198 @@ int main()
                compose_out, 1000);
     require_near_buffer(ref6_out, compose_out,
                         "device tx_timing_offset + link propagation_delay must compose into one leading delay");
+  }
+
+  // ---- tdl (Phase 1.1 CPU kernel): behaviour tests ----
+  // Helper: build a minimal 1-link topology and prepared CPU processor that
+  // runs `model` on a 1 MS/s loop between gnb0 and ue0. Each call returns a
+  // fresh processor so cross-slot history is isolated per test case.
+  auto make_tdl_processor = [](const ocg::ModelConfig& model, std::size_t batch)
+      -> std::unique_ptr<ocg::CpuChannelProcessor> {
+    ocg::TopologyConfig cfg;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = batch;
+    cfg.runtime.queue_samples = std::max<std::size_t>(614400, batch * 8);
+    cfg.devices = {{.id = "gnb0", .role = "gnb", .sample_rate_hz = 1000, .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+                   {.id = "ue0", .role = "ue", .sample_rate_hz = 1000, .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+    cfg.links = {{.from = "gnb0", .to = "ue0", .model = model.id},
+                 {.from = "ue0", .to = "gnb0", .model = model.id}};
+    cfg.models.emplace(model.id, model);
+    auto proc = std::make_unique<ocg::CpuChannelProcessor>();
+    proc->prepare(cfg);
+    return proc;
+  };
+
+  // (a) Single-tap tdl with tau=0, gain_db=0, phase_rad=0 must produce the
+  // input bit-for-bit. The polyphase coefficients collapse to an impulse at
+  // i=3 (sinc(0)=1, sinc(integer!=0)=0) and the complex gain is identity.
+  {
+    ocg::ModelConfig identity_model;
+    identity_model.id = "tdl_identity";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    identity_model.chain.push_back(step);
+
+    auto proc = make_tdl_processor(identity_model, 8);
+    const ocg::IqBuffer input = {{1.0F, 0.0F}, {0.0F, 1.0F}, {0.5F, -0.5F}, {-1.0F, 0.25F},
+                                 {0.75F, 0.75F}, {0.0F, 0.0F}, {-0.5F, -0.5F}, {1.0F, 1.0F}};
+    ocg::IqBuffer output(8);
+    shape_link(*proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = identity_model.id}),
+               identity_model, input, output, 1000);
+    require_near_buffer(input, output, "tdl(tau=0,gain=0,phase=0) must be identity");
+  }
+
+  // (b) Single-tap tdl(tau=4, gain_db=-3) must match the legacy
+  // [integer_delay 4, gain -3] chain at the float-tolerance level over two
+  // slots (verifies cross-slot delay-line behaviour and the impulse-at-i=3
+  // coefficient layout).
+  {
+    ocg::ModelConfig legacy_model;
+    legacy_model.id = "legacy_delay_gain";
+    legacy_model.chain.push_back({.type = ocg::ModelStepType::IntegerDelay, .params = {{"delay_samples", 4.0}}});
+    legacy_model.chain.push_back({.type = ocg::ModelStepType::Gain, .params = {{"gain_db", -3.0}}});
+
+    ocg::ModelConfig tdl_model;
+    tdl_model.id = "tdl_delay_gain";
+    ocg::ModelStep tdl_step;
+    tdl_step.type = ocg::ModelStepType::Tdl;
+    tdl_step.taps = {ocg::TapSpec{.delay_samples = 4.0, .gain_db = -3.0, .phase_rad = 0.0}};
+    tdl_step.taps_declared = true;
+    tdl_model.chain.push_back(tdl_step);
+
+    auto legacy_proc = make_tdl_processor(legacy_model, 8);
+    auto tdl_proc = make_tdl_processor(tdl_model, 8);
+
+    const ocg::IqBuffer slot0_in = {{1.0F, 0.0F}, {0.0F, 1.0F}, {0.5F, -0.5F}, {-1.0F, 0.25F},
+                                    {0.75F, 0.75F}, {0.0F, 0.0F}, {-0.5F, -0.5F}, {1.0F, 1.0F}};
+    const ocg::IqBuffer slot1_in = {{0.25F, 0.25F}, {-0.25F, 0.5F}, {0.5F, 0.5F}, {1.0F, -1.0F},
+                                    {0.0F, 0.0F}, {-0.5F, -0.5F}, {0.5F, 0.0F}, {0.0F, 0.5F}};
+    ocg::IqBuffer legacy_out0(8), tdl_out0(8), legacy_out1(8), tdl_out1(8);
+    shape_link(*legacy_proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = legacy_model.id}),
+               legacy_model, slot0_in, legacy_out0, 1000);
+    shape_link(*tdl_proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = tdl_model.id}),
+               tdl_model, slot0_in, tdl_out0, 1000);
+    require_near_buffer(legacy_out0, tdl_out0,
+                        "tdl(tau=4,gain=-3) slot 0 must match legacy [integer_delay 4, gain -3]");
+    shape_link(*legacy_proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = legacy_model.id}),
+               legacy_model, slot1_in, legacy_out1, 1000);
+    shape_link(*tdl_proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = tdl_model.id}),
+               tdl_model, slot1_in, tdl_out1, 1000);
+    require_near_buffer(legacy_out1, tdl_out1,
+                        "tdl(tau=4,gain=-3) slot 1 (cross-slot history) must match legacy");
+  }
+
+  // (c) 3-tap impulse response across two slots. An impulse at slot 0 sample
+  // 0 should reappear at the three tap offsets with the expected gains -- the
+  // tap with delay 12 lands in slot 1 (batch=8), exercising the cross-slot
+  // ring directly. Other tap delays (3 and 7) land within slot 0.
+  {
+    ocg::ModelConfig three_tap;
+    three_tap.id = "tdl_three_tap";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0},
+                 ocg::TapSpec{.delay_samples = 3.0, .gain_db = -6.0, .phase_rad = 0.0},
+                 ocg::TapSpec{.delay_samples = 12.0, .gain_db = -12.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    three_tap.chain.push_back(step);
+
+    auto proc = make_tdl_processor(three_tap, 8);
+    ocg::IqBuffer slot0_in(8, ocg::IqSample{0.0F, 0.0F});
+    slot0_in[0] = {1.0F, 0.0F};
+    const ocg::IqBuffer slot1_in(8, ocg::IqSample{0.0F, 0.0F});
+    ocg::IqBuffer slot0_out(8), slot1_out(8);
+    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = three_tap.id});
+    shape_link(*proc, "ue0", link, three_tap, slot0_in, slot0_out, 1000);
+    shape_link(*proc, "ue0", link, three_tap, slot1_in, slot1_out, 1000);
+
+    const float g3 = static_cast<float>(std::pow(10.0, -6.0 / 20.0));   // ~0.501
+    const float g12 = static_cast<float>(std::pow(10.0, -12.0 / 20.0)); // ~0.251
+    require(near(slot0_out[0].i, 1.0F) && near(slot0_out[0].q, 0.0F),
+            "tdl 3-tap: tau=0 impulse at slot 0 sample 0");
+    require(near(slot0_out[3].i, g3) && near(slot0_out[3].q, 0.0F),
+            "tdl 3-tap: tau=3 echo at slot 0 sample 3 with gain -6 dB");
+    // Slot 0 has no contribution from the tau=12 tap (it lands in slot 1).
+    require(near(slot0_out[7].i, 0.0F) && near(slot0_out[7].q, 0.0F),
+            "tdl 3-tap: tau=12 echo must not appear in slot 0");
+    // tau=12: impulse at global sample 0 -> echo at global sample 12, which is
+    // slot 1 local index 4 (slot 1 spans global 8..15).
+    require(near(slot1_out[4].i, g12) && near(slot1_out[4].q, 0.0F),
+            "tdl 3-tap: tau=12 echo at slot 1 sample 4 with gain -12 dB (cross-slot)");
+    for (std::size_t n = 0; n < slot1_out.size(); ++n) {
+      if (n == 4) continue;
+      require(near(slot1_out[n].i, 0.0F) && near(slot1_out[n].q, 0.0F),
+              "tdl 3-tap: slot 1 zero outside of tau=12 echo position");
+    }
+  }
+
+  // (d) Sinusoid passband: a complex sinusoid at f = fs/8 fed through
+  // tdl(tau=2.5, gain_db=0) should come out with the same magnitude (filter
+  // passband is flat at this frequency) and a phase shift of -2*pi*f*tau/fs.
+  // This is the bit-exact-with-legacy contract REPLACEMENT after we upgraded
+  // from 2-tap linear to 8-tap windowed sinc -- we cannot match legacy
+  // output any more, but we can prove the fractional delay is correct.
+  {
+    ocg::ModelConfig frac_model;
+    frac_model.id = "tdl_frac";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 2.5, .gain_db = 0.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    frac_model.chain.push_back(step);
+
+    constexpr std::size_t batch = 64;
+    auto proc = make_tdl_processor(frac_model, batch);
+
+    // Complex tone at f = fs/8 over two slots so the filter's startup
+    // transient (first ~kTdlFracFilterTaps samples) is fully past by the
+    // time we measure.
+    constexpr double tau = 2.5;
+    constexpr double f_rel = 1.0 / 8.0; // cycles per sample
+    constexpr double two_pi = 2.0 * std::numbers::pi;
+    ocg::IqBuffer slot0_in(batch), slot1_in(batch);
+    for (std::size_t n = 0; n < batch; ++n) {
+      const double t0 = static_cast<double>(n);
+      const double t1 = static_cast<double>(batch + n);
+      slot0_in[n] = {static_cast<float>(std::cos(two_pi * f_rel * t0)),
+                     static_cast<float>(std::sin(two_pi * f_rel * t0))};
+      slot1_in[n] = {static_cast<float>(std::cos(two_pi * f_rel * t1)),
+                     static_cast<float>(std::sin(two_pi * f_rel * t1))};
+    }
+    ocg::IqBuffer slot0_out(batch), slot1_out(batch);
+    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = frac_model.id});
+    shape_link(*proc, "ue0", link, frac_model, slot0_in, slot0_out, 1000);
+    shape_link(*proc, "ue0", link, frac_model, slot1_in, slot1_out, 1000);
+
+    // Measure on slot 1 well past the filter transient (n >= 16 of slot 1).
+    double sum_err_mag = 0.0;
+    double sum_phase_err = 0.0;
+    std::size_t n_meas = 0;
+    for (std::size_t n = 16; n < batch; ++n) {
+      const double global_n = static_cast<double>(batch + n);
+      // Expected: cos/sin(2*pi*f*(global_n - tau)).
+      const double exp_arg = two_pi * f_rel * (global_n - tau);
+      const float exp_i = static_cast<float>(std::cos(exp_arg));
+      const float exp_q = static_cast<float>(std::sin(exp_arg));
+      const float got_i = slot1_out[n].i;
+      const float got_q = slot1_out[n].q;
+      const double got_mag = std::sqrt(got_i * got_i + got_q * got_q);
+      sum_err_mag += std::fabs(got_mag - 1.0);
+      // Phase error: dot the expected and got unit-magnitude vectors;
+      // dot product == cos(phase_error).
+      const double dot = exp_i * got_i + exp_q * got_q;
+      const double phase_err = std::acos(std::clamp(dot / std::max(got_mag, 1e-9), -1.0, 1.0));
+      sum_phase_err += phase_err;
+      ++n_meas;
+    }
+    const double mean_mag_err = sum_err_mag / static_cast<double>(n_meas);
+    const double mean_phase_err = sum_phase_err / static_cast<double>(n_meas);
+    require(mean_mag_err < 0.02,
+            "tdl(tau=2.5) at f=fs/8: passband magnitude error < 2% (windowed sinc passband)");
+    require(mean_phase_err < 0.02,
+            "tdl(tau=2.5) at f=fs/8: phase delay matches tau=2.5 within 0.02 rad");
   }
 
   return 0;

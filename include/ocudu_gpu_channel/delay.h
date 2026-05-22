@@ -2,10 +2,63 @@
 
 #include "ocudu_gpu_channel/iq.h"
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <vector>
 
 namespace ocg {
+
+// Length of the windowed-sinc fractional-delay filter used by the `tdl` chain
+// step. Eight taps with a Hamming window is the standard SDR convention --
+// flat to ~0.05 dB across the passband at 23.04 MS/s for our use case, with a
+// per-output-sample cost (8 complex multiply-adds) that does not dominate the
+// per-tap loop at the tap counts the validator allows (<= 64). Kept as an
+// odd-named constant so future Phase 1.x work can lift it without touching
+// every call site.
+constexpr int kTdlFracFilterTaps = 8;
+
+// Builds an 8-tap Hamming-windowed sinc filter that resolves a fractional
+// sample offset `frac` in [0, 1). The filter is convolved against input
+// samples around the integer-aligned read position so that
+//   y[n] = sum_{i=0..7} out[i] * x[(n - tau_int) + 3 - i]
+// yields x evaluated at time (n - tau_int - frac). For frac == 0 the
+// coefficients collapse to a unit impulse at i == 3 (sinc(integer) = 0
+// elsewhere, sinc(0) = 1), so an integer-only delay falls out of this same
+// filter without a separate code path. Coefficients are DC-normalised so a
+// constant input passes through unchanged.
+inline void compute_windowed_sinc_taps(double frac,
+                                       std::array<float, kTdlFracFilterTaps>& out)
+{
+  constexpr int N = kTdlFracFilterTaps;
+  constexpr int K = N / 2;
+  constexpr double pi = std::numbers::pi;
+
+  double sum = 0.0;
+  for (int i = 0; i < N; ++i) {
+    const double x = static_cast<double>(i - (K - 1)) - frac;
+    double sinc_x;
+    if (std::fabs(x) < 1e-12) {
+      sinc_x = 1.0;
+    } else {
+      const double pix = pi * x;
+      sinc_x = std::sin(pix) / pix;
+    }
+    // Hamming window over the 8-tap aperture, centred on (N - 1) / 2 = 3.5.
+    const double window =
+        0.54 - 0.46 * std::cos(2.0 * pi * static_cast<double>(i) / static_cast<double>(N - 1));
+    const double coeff = sinc_x * window;
+    out[static_cast<std::size_t>(i)] = static_cast<float>(coeff);
+    sum += coeff;
+  }
+  if (std::fabs(sum) > 1e-12) {
+    const float inv_sum = static_cast<float>(1.0 / sum);
+    for (auto& c : out) {
+      c *= inv_sum;
+    }
+  }
+}
 
 // Applies an integer/fractional sample delay to `count` input samples, writing
 // `count` delayed samples to `out`. Output sample n is the linear interpolation

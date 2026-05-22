@@ -29,6 +29,37 @@ double estimate_average_power(std::span<const IqSample> input)
 
 } // namespace
 
+// One-shot setup for a Tdl step's per-link runtime state. Copies the YAML tap
+// list into StepState, precomputes each tap's 8-tap Hamming-windowed sinc
+// coefficients from its fractional offset, and sizes the shared delay_line
+// ring large enough to feed the highest-delay tap from the previous slot's
+// tail. Polyphase coefficients are computed for every tap (including the
+// integer-only ones) so the kernel runs an identical inner loop for all
+// taps -- sinc(frac=0) collapses to a unit impulse at index 3, so an
+// integer-delay tap walks the same filter without a special case.
+void CpuChannelProcessor::prepare_tdl_step(StepState& state, const ModelStep& step)
+{
+  state.tdl_taps = step.taps;
+  state.tdl_polyphase.assign(step.taps.size(),
+                             std::array<float, kTdlFracFilterTaps>{});
+  double max_tau = 0.0;
+  for (std::size_t k = 0; k != step.taps.size(); ++k) {
+    const double tau = step.taps[k].delay_samples;
+    max_tau = std::max(max_tau, tau);
+    const double frac = tau - std::floor(tau);
+    compute_windowed_sinc_taps(frac, state.tdl_polyphase[k]);
+  }
+  // History reach: the filter for the largest-tau tap reads back to
+  // (n - floor(tau)) + 3 - (kTdlFracFilterTaps - 1) = n - floor(tau) - 4.
+  // For n = 0, that's an index of -(floor(max_tau) + 4) into the previous slot.
+  const std::size_t ring_size =
+      static_cast<std::size_t>(std::ceil(max_tau)) +
+      static_cast<std::size_t>(kTdlFracFilterTaps);
+  if (state.delay_line.size() < ring_size) {
+    state.delay_line.assign(ring_size, IqSample{0.0F, 0.0F});
+  }
+}
+
 CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std::string& key,
                                                                        const ModelConfig& model,
                                                                        std::size_t sample_count)
@@ -50,6 +81,9 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     state.steps.assign(model.chain.size(), StepState{});
     for (std::size_t i = 0; i != state.steps.size(); ++i) {
       state.steps[i].rng.seed(static_cast<unsigned>(std::hash<std::string>{}(key + ":" + std::to_string(i))));
+      if (model.chain[i].type == ModelStepType::Tdl) {
+        prepare_tdl_step(state.steps[i], model.chain[i]);
+      }
     }
   }
   return state;
@@ -158,8 +192,84 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
         }
         break;
       }
-      case ModelStepType::Tdl:
-        throw std::runtime_error("tdl chain step is not yet implemented on the CPU backend");
+      case ModelStepType::Tdl: {
+        // Multi-tap convolution: y[n] = sum_k a_k * x[n - tau_k], with a_k the
+        // complex tap weight (gain_db, phase_rad) and tau_k a possibly
+        // fractional delay resolved by the per-tap precomputed 8-tap windowed
+        // sinc filter. One shared `delay_line` ring carries enough previous-
+        // slot tail that even the largest-tau tap's filter reach is satisfied
+        // from valid data at the slot boundary.
+        //
+        // Loop order: per output sample, taps inside. The current slot's input
+        // span is walked front-to-back; the M tap-gain coefficients and the
+        // M polyphase coefficient sets stay in L1 for the whole inner sweep.
+        const auto& taps = step_state.tdl_taps;
+        const auto& polyphase = step_state.tdl_polyphase;
+        const auto& ring = step_state.delay_line;
+        const auto ring_size = static_cast<std::ptrdiff_t>(ring.size());
+        // Read input at a possibly-negative index. Non-negative -> current
+        // slot's input buffer; negative -> the corresponding tail of `ring`.
+        // Indices below -ring_size return zero (pre-stream history).
+        const auto read = [&](std::ptrdiff_t idx) -> IqSample {
+          if (idx >= 0) {
+            return current[static_cast<std::size_t>(idx)];
+          }
+          const std::ptrdiff_t ring_idx = ring_size + idx;
+          if (ring_idx < 0) {
+            return IqSample{0.0F, 0.0F};
+          }
+          return ring[static_cast<std::size_t>(ring_idx)];
+        };
+        for (std::size_t n = 0; n != current.size(); ++n) {
+          IqSample acc{0.0F, 0.0F};
+          for (std::size_t k = 0; k != taps.size(); ++k) {
+            const TapSpec& tap = taps[k];
+            const std::ptrdiff_t tau_int =
+                static_cast<std::ptrdiff_t>(std::floor(tap.delay_samples));
+            // 8-tap windowed-sinc convolution: y_k = sum_{i=0..7} h[i] * x[n - tau_int + 3 - i].
+            // For an integer-only tap the coefficients collapse to a unit
+            // impulse at i==3, so this branch handles every tap uniformly.
+            const auto& h = polyphase[k];
+            IqSample x{0.0F, 0.0F};
+            for (int i = 0; i < kTdlFracFilterTaps; ++i) {
+              const std::ptrdiff_t read_idx =
+                  static_cast<std::ptrdiff_t>(n) - tau_int + 3 - i;
+              const IqSample s = read(read_idx);
+              x.i += h[static_cast<std::size_t>(i)] * s.i;
+              x.q += h[static_cast<std::size_t>(i)] * s.q;
+            }
+            // Apply complex gain a_k = 10^(gain_db/20) * exp(j*phase_rad).
+            const float gain =
+                static_cast<float>(std::pow(10.0, tap.gain_db / 20.0));
+            const float cos_phi = static_cast<float>(std::cos(tap.phase_rad));
+            const float sin_phi = static_cast<float>(std::sin(tap.phase_rad));
+            const float rotated_i = x.i * cos_phi - x.q * sin_phi;
+            const float rotated_q = x.i * sin_phi + x.q * cos_phi;
+            acc.i += gain * rotated_i;
+            acc.q += gain * rotated_q;
+          }
+          next[n] = acc;
+        }
+        // Roll the ring forward: the new tail is the last `ring.size()` samples
+        // of the current slot's input. When the slot is shorter than the ring,
+        // shift the existing tail left by `current.size()` and append all of
+        // the current slot at the end.
+        std::vector<IqSample>& mutable_ring = step_state.delay_line;
+        const std::size_t dl_size = mutable_ring.size();
+        if (current.size() >= dl_size) {
+          std::copy(current.end() - static_cast<std::ptrdiff_t>(dl_size),
+                    current.end(), mutable_ring.begin());
+        } else {
+          const std::size_t keep_old = dl_size - current.size();
+          std::move(mutable_ring.begin() +
+                        static_cast<std::ptrdiff_t>(current.size()),
+                    mutable_ring.end(), mutable_ring.begin());
+          std::copy(current.begin(), current.end(),
+                    mutable_ring.begin() +
+                        static_cast<std::ptrdiff_t>(keep_old));
+        }
+        break;
+      }
     }
     std::swap(current, next);
   }
