@@ -341,7 +341,7 @@
   <h3>Chain step (<span class="mono">GpuStep</span>)</h3>
   <table>
     <tr><th>Field</th><th>Used by</th><th>Meaning</th></tr>
-    <tr><td class="mono">step.type</td><td>all branches</td><td><code>Scale</code> | <code>Phase</code> | <code>AddNoise</code> — selects which branch runs (integer / fractional delay step types are configured but handled host-side, not in the per-sample kernel chain)</td></tr>
+    <tr><td class="mono">step.type</td><td>all branches</td><td><code>Scale</code> | <code>Phase</code> | <code>AddNoise</code> — selects which branch runs (the <code>tdl</code> chain step is configured but handled host-side during staging, not in the per-sample kernel chain)</td></tr>
     <tr><td class="mono">step.a</td><td>all</td><td>scalar: amplitude factor (Scale — used for path_loss and as the no-op pass-through for a chain-leading tdl), base phase (Phase), noise amplitude (AddNoise)</td></tr>
     <tr><td class="mono">step.b</td><td>Phase</td><td>phase increment per sample, in radians; <code>b = 2π·f<sub>cfo</sub>/f<sub>s</sub></code> for CFO; <code>b = 0</code> for a static phase rotation</td></tr>
     <tr><td class="mono">step.seed · step.counter</td><td>AddNoise</td><td>Philox4_32_10 state — the RNG is keyed on <code>(seed, counter + idx)</code>; <code>counter</code> advances by <span class="mono">count</span> every call</td></tr>
@@ -1740,21 +1740,22 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         (<a href="#perf">§21</a>), not promised.</li>
   </ul>
 
-  <h3>Planned — realistic channel models (highest priority)</h3>
+  <h3>Realistic channel models (Phases 1.1 – 1.5, landed)</h3>
 
-  <p>The biggest gap between ocudu-gpu-channel and any commercial RF emulator
-  is the channel model itself: today we apply a single-tap chain, while real
-  wireless is multi-tap and time-varying. One new chain step closes that
+  <p>The biggest gap between ocudu-gpu-channel and any commercial RF
+  emulator used to be the channel model itself: a single-tap chain while
+  real wireless is multi-tap and time-varying. One chain step closed that
   gap.</p>
 
   <p>The step is <b><code>tdl</code></b> — a tapped delay line with per-tap
   complex gain and per-tap fractional delay. An optional
   <b><code>fading</code></b> sub-config makes each tap's gain time-varying
-  with a Doppler-shaped autocorrelation driven by a per-step max-Doppler
+  with a Doppler-shaped autocorrelation driven by a per-link max-Doppler
   frequency. <code>tdl</code> alone is static multipath; <code>tdl</code>
   with fading enabled implements the 3GPP <b>TR 38.901 §7.7.2 TDL</b>
   channel model (the simplified SISO variant used by all of TDL-A through
-  TDL-E).</p>
+  TDL-E). The five canonical profiles ship as
+  <code>examples/topology.tdl-{a..e}.cuda.yaml</code> (Phase 1.5).</p>
 
   <p class="key"><b>Scope of this step is TDL, not full CDL.</b> The
   Clustered Delay Line (CDL) models in TR 38.901 §7.7.1 add per-cluster

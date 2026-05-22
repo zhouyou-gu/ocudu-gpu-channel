@@ -145,7 +145,7 @@ The remote GPU path is user-space only — no root needed:
 ./scripts/remote/bootstrap-user-tools.sh        # CMake + CUDA 12.8.1 + ZeroMQ under ~/ocudu-gpu-channel-workspace/tools/
 ./scripts/remote/probe.sh                       # sanity-check the toolchain
 ./scripts/remote/build-and-bench-cuda-mvp.sh    # rsync, build, run the CUDA MVP benchmark
-./scripts/remote/gpu-test-sequence.sh           # full validation: build + ctest + relay sanity + interference graph + multi-gNB
+./scripts/remote/gpu-test-sequence.sh           # full 7-step validation: build + ctest + clean/AWGN relays + interference graph + 2-cell multi-gNB + TDL-A profile
 ```
 
 `gpu-test-sequence.sh` is the locked-in GPU validation run; it must pass before

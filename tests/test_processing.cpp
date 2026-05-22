@@ -850,6 +850,46 @@ int main()
       run_cpu_vs_cuda(m, {slot0, slot1},
                       "CUDA tdl(tau=2.5) sinusoid passband must match CPU bit-exactly");
     }
+
+    // (e) Fading parity: tdl with Jakes fading enabled must produce
+    // bit-identical output on CPU and CUDA across two slots. Both backends
+    // seed prepare_tdl_fading_state with hash("<link_key>:fading:0"), and the
+    // apply_tdl_step_fading helper in delay.h is the single source of truth
+    // for the kernel math -- this test guards the staging-path integration
+    // where the seed-derivation or the slot_start_samples accumulator could
+    // diverge between backends. Includes a non-LOS tap (Rayleigh-Jakes) and
+    // a LOS tap (Rician composition) to exercise both branches.
+    {
+      ocg::ModelConfig m;
+      m.id = "tdl_cuda_fading";
+      ocg::ModelStep step;
+      step.type = ocg::ModelStepType::Tdl;
+      step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0,
+                                .phase_rad = 0.0, .is_los = true,
+                                .los_k_db = 6.0, .los_angle_rad = 0.0},
+                   ocg::TapSpec{.delay_samples = 3.5, .gain_db = -3.0,
+                                .phase_rad = 0.0}};
+      step.taps_declared = true;
+      step.fading_enabled = true;
+      step.fading_f_d_max_hz = 50.0;
+      step.fading_grid_us = 100.0;
+      step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+      m.chain.push_back(step);
+      constexpr std::size_t batch = 64;
+      ocg::IqBuffer slot0(batch), slot1(batch);
+      constexpr double two_pi = 2.0 * std::numbers::pi;
+      constexpr double f_rel = 1.0 / 16.0;
+      for (std::size_t n = 0; n < batch; ++n) {
+        const double t0 = static_cast<double>(n);
+        const double t1 = static_cast<double>(batch + n);
+        slot0[n] = {static_cast<float>(std::cos(two_pi * f_rel * t0)),
+                    static_cast<float>(std::sin(two_pi * f_rel * t0))};
+        slot1[n] = {static_cast<float>(std::cos(two_pi * f_rel * t1)),
+                    static_cast<float>(std::sin(two_pi * f_rel * t1))};
+      }
+      run_cpu_vs_cuda(m, {slot0, slot1},
+                      "CUDA tdl fading (Jakes + LOS) must match CPU bit-exactly across slots");
+    }
   }
 #endif
 
@@ -991,6 +1031,82 @@ int main()
                                     static_cast<double>(out[n].q) * out[n].q);
       require(mag > 0.95 && mag < 1.05,
               "LOS K=40 dB: output magnitude on unit input must be ~1");
+    }
+  }
+
+  // (d) Jakes' autocorrelation matches the Bessel curve.
+  // For a single-tap Rayleigh-Jakes process g(t), the theoretical temporal
+  // autocorrelation is R_g(tau) = J_0(2*pi * f_d_max * tau) -- the classical
+  // result for an isotropic-scatterer Doppler spectrum. Feed DC into a unit-
+  // gain single-tap fading step so the output is y(n) = g(t_n) directly,
+  // then compare the empirical autocorrelation at a few lags against J_0.
+  //
+  // Sizing: 100 kHz sample rate, 100 Hz Doppler => fading cycle ~10 ms =
+  // 1000 samples; 800k samples = 8 s of data = ~800 fading cycles -- plenty
+  // to average out the M = 20 sub-ray draw noise. The tolerance 0.15 is well
+  // above the expected std dev (~0.03) at this sample count.
+  {
+    ocg::ModelConfig m;
+    m.id = "tdl_fading_autocorr";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0,
+                              .phase_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 100.0;
+    step.fading_grid_us = 100.0;
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+
+    constexpr std::uint64_t sample_rate_hz = 100000;
+    constexpr std::size_t batch = 4000;     // 40 ms per slot
+    constexpr std::size_t n_slots = 200;    // 8 s total => 800 fading cycles
+    auto proc = build_fading_processor(m, batch, sample_rate_hz);
+    ocg::IqBuffer dc_in(batch, ocg::IqSample{1.0F, 0.0F});
+    std::vector<float> series_i(batch * n_slots);
+    std::vector<float> series_q(batch * n_slots);
+    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id});
+    for (std::size_t s = 0; s < n_slots; ++s) {
+      ocg::IqBuffer slot_out(batch);
+      shape_link(*proc, "ue0", link, m, dc_in, slot_out, sample_rate_hz);
+      for (std::size_t n = 0; n < batch; ++n) {
+        series_i[s * batch + n] = slot_out[n].i;
+        series_q[s * batch + n] = slot_out[n].q;
+      }
+    }
+
+    // Empirical complex autocorrelation R_y(lag) =
+    //   <y(n) * conj(y(n+lag))>_n = <ii + qq>_n  (real part; imag avg ~0).
+    // Normalized by R_y(0) so the curve compares directly to J_0.
+    auto autocorr = [&](std::size_t lag) -> double {
+      const std::size_t N = series_i.size() - lag;
+      double sum = 0.0;
+      for (std::size_t n = 0; n < N; ++n) {
+        sum += static_cast<double>(series_i[n]) * series_i[n + lag];
+        sum += static_cast<double>(series_q[n]) * series_q[n + lag];
+      }
+      return sum / static_cast<double>(N);
+    };
+    const double r0 = autocorr(0);
+    require(r0 > 0.7 && r0 < 1.3,
+            "Bessel J_0 test: R_y(0) (= mean tap power) must be ~ 1");
+
+    // Pick three lags spanning the J_0 curve down to its first zero.
+    // J_0(2 pi f_d tau) at f_d = 100 Hz:
+    //   tau =  1 ms -> arg = 0.628 -> J_0 =  0.904
+    //   tau =  3 ms -> arg = 1.885 -> J_0 =  0.305
+    //   tau =  5 ms -> arg = pi    -> J_0 = -0.304
+    struct { std::size_t lag_samples; double expected; } lags[] = {
+        {100,  0.904},
+        {300,  0.305},
+        {500, -0.304},
+    };
+    for (const auto& l : lags) {
+      const double r = autocorr(l.lag_samples) / r0;
+      const double err = std::fabs(r - l.expected);
+      require(err < 0.15,
+              "Bessel J_0 test: empirical autocorrelation must match J_0(2*pi*f_d*tau) within 0.15");
     }
   }
 

@@ -63,16 +63,16 @@ public:
   virtual const char* backend_name() const = 0;
 };
 
-// Returns the model steps in `config` the CUDA backend cannot run yet; empty
-// when the topology is fully GPU-supported. The legacy gap was integer /
-// fractional delay (now CUDA-supported); the open gap is `tdl` until Phase 1.1
-// lands the multi-tap kernel.
+// Returns the model steps in `config` the CUDA backend cannot run; empty when
+// the topology is fully GPU-supported. Today every shipped step type
+// (path_loss, awgn, phase, cfo, tdl) is GPU-supported, but `tdl` must lead the
+// chain (it runs host-side during staging); a non-leading tdl is reported here.
 std::vector<std::string> validate_cuda_support(const TopologyConfig& config);
 
 // Same idea for the CPU backend: returns the model steps the CPU chain loop
-// has no handler for. Open gap is `tdl` until Phase 1.1 lands the reference
-// multi-tap implementation. Exposed so external builders of TopologyConfig can
-// check up front rather than discovering the gap on first slot.
+// has no handler for. Today the CPU loop handles every step type at any
+// position; this returns an empty vector for well-formed topologies. Exposed
+// so external builders of TopologyConfig can pre-check.
 std::vector<std::string> validate_cpu_support(const TopologyConfig& config);
 
 // Builds the processor for config.runtime.backend (Backend::Cuda by default).

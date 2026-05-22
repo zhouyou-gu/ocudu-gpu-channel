@@ -1434,6 +1434,58 @@ models:
   }
   require(rejected, "is_los on a tdl step without fading enabled must be rejected");
 
+  // (f) is_los with defaulted los_k_db (= 0 dB) is rejected -- a forgotten
+  // los_k_db field would otherwise silently produce a degenerate K=1 LOS tap
+  // (specular and Rayleigh equal-power). The TR 38.901 LOS profiles publish
+  // 13.3 dB / 22 dB; anything <=0 dB is a config bug.
+  const char* los_k_zero_path = "test_los_k_zero_topology.yaml";
+  {
+    std::ofstream f(los_k_zero_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+links:
+  - from: gnb0
+    to: ue0
+    model: los_k_zero
+  - from: ue0
+    to: gnb0
+    model: los_k_zero
+models:
+  los_k_zero:
+    chain:
+      - type: tdl
+        fading:
+          f_d_max_hz: 100.0
+          spectrum: jakes
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            is_los: true
+)yaml";
+  }
+  rejected = false;
+  try {
+    (void)ocg::load_config_file(los_k_zero_path);
+  } catch (const std::runtime_error&) {
+    rejected = true;
+  }
+  require(rejected, "is_los with defaulted los_k_db (= 0) must be rejected");
+
+  std::remove(los_k_zero_path);
   std::remove(path);
   std::remove(bad_path);
   std::remove(bad_number_path);

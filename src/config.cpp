@@ -608,6 +608,18 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
                                 " tdl tap is_los is set but the step has no fading sub-config;"
                                 " a Rician specular component needs fading enabled");
           }
+          if (tap.is_los && tap.los_k_db <= 0.0) {
+            // K-factor in dB: K (linear) = 10^(K_db/10). A LOS tap means the
+            // specular dominates the diffuse component, so K > 1 (K_db > 0).
+            // K_db = 0 (specular and Rayleigh equal-power) is a defaulted
+            // value, not a physically reasonable LOS spec; TR 38.901 publishes
+            // 13.3 dB for TDL-D and 22 dB for TDL-E. Reject so a forgotten
+            // los_k_db field doesn't silently degrade a profile.
+            errors.emplace_back("model " + model_id +
+                                " tdl tap is_los requires los_k_db > 0 dB (got " +
+                                std::to_string(tap.los_k_db) +
+                                "); TR 38.901 publishes 13.3 dB / 22 dB for the LOS profiles");
+          }
         }
         // Fading sub-config sanity: f_d_max_hz non-negative and bounded so a
         // YAML typo cannot blow up the coarse-grid sinusoid count; grid stride

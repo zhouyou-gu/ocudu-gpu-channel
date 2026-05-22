@@ -47,10 +47,10 @@ bool is_leading_propagation(ModelStepType type)
 std::vector<std::string> validate_cpu_support(const TopologyConfig& config)
 {
   // Symmetric to validate_cuda_support: refuse a topology whose chain references
-  // a step the CPU backend has no implementation for. Today the only such step
-  // is `tdl` (Phase 1.0 lands the schema, Phase 1.1 lands the kernel). Sample-
-  // delay steps are accepted at any position on CPU -- the CPU loop materialises
-  // intermediates between steps so a mid-chain delay is well-defined here.
+  // a step the CPU backend has no implementation for. Today the CPU loop
+  // handles every step type at any chain position, so this returns empty for
+  // any well-formed topology -- it stays defensive against a future step type
+  // that lands on CUDA before the CPU reference catches up.
   std::vector<std::string> errors;
   for (const auto& link : config.links) {
     const auto* model = find_model(config, link.model);
