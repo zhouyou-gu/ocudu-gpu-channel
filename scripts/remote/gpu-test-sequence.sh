@@ -253,8 +253,11 @@ run_multi_gnb_check() {
 
 echo "== [3/6] synthetic CUDA relay loop -- clean 0 dB channel =="
 clean_topo="$(mktemp --suffix=.yaml)"
-write_topology "${clean_topo}" "      - type: gain
-        gain_db: 0"
+write_topology "${clean_topo}" "      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0"
 run_relay_check "clean relay" "${clean_topo}" 1.0 0.05
 
 echo "== [4/6] synthetic CUDA relay loop -- AWGN channel (noise_power 0.25) =="
