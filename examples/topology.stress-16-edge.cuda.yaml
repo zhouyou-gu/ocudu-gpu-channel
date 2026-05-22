@@ -1,0 +1,116 @@
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+# Synthetic stress topology used by scripts/remote/perf-sweep.sh to extend the
+# latency-vs-link-count curve beyond the 8-edge multi-gNB topology.
+# One central "sink" node has 8 incoming and 8 outgoing edges (16 total per
+# slot, 8 of which are the fan-in superposed at the sink). Each "src_k" node
+# has one incoming and one outgoing edge to the sink. Endpoints are dummy
+# tcp loopback strings -- the bench / processor never opens the sockets.
+devices:
+  - id: sink
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4000
+    rx_endpoint: tcp://*:4001
+  - id: src0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4100
+    rx_endpoint: tcp://*:4101
+  - id: src1
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4102
+    rx_endpoint: tcp://*:4103
+  - id: src2
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4104
+    rx_endpoint: tcp://*:4105
+  - id: src3
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4106
+    rx_endpoint: tcp://*:4107
+  - id: src4
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4108
+    rx_endpoint: tcp://*:4109
+  - id: src5
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4110
+    rx_endpoint: tcp://*:4111
+  - id: src6
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4112
+    rx_endpoint: tcp://*:4113
+  - id: src7
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:4114
+    rx_endpoint: tcp://*:4115
+links:
+  - from: src0
+    to: sink
+    model: cuda_mvp
+  - from: src1
+    to: sink
+    model: cuda_mvp
+  - from: src2
+    to: sink
+    model: cuda_mvp
+  - from: src3
+    to: sink
+    model: cuda_mvp
+  - from: src4
+    to: sink
+    model: cuda_mvp
+  - from: src5
+    to: sink
+    model: cuda_mvp
+  - from: src6
+    to: sink
+    model: cuda_mvp
+  - from: src7
+    to: sink
+    model: cuda_mvp
+  - from: sink
+    to: src0
+    model: cuda_mvp
+  - from: sink
+    to: src1
+    model: cuda_mvp
+  - from: sink
+    to: src2
+    model: cuda_mvp
+  - from: sink
+    to: src3
+    model: cuda_mvp
+  - from: sink
+    to: src4
+    model: cuda_mvp
+  - from: sink
+    to: src5
+    model: cuda_mvp
+  - from: sink
+    to: src6
+    model: cuda_mvp
+  - from: sink
+    to: src7
+    model: cuda_mvp
+models:
+  cuda_mvp:
+    chain:
+      - type: gain
+        gain_db: -3
+      - type: phase
+        phase_rad: 0.125
+      - type: cfo
+        cfo_hz: 250
+        phase_rad: 0

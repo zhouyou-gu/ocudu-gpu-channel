@@ -11,6 +11,9 @@ build_docker="${OCUDU_ATTACH_BUILD_DOCKER:-1}"
 srsran_ref="${SRSRAN_4G_REF:-release_23_11}"
 skip_remote_pull="${OCUDU_ATTACH_SKIP_REMOTE_PULL:-0}"
 sync_worktree="${OCUDU_ATTACH_SYNC_WORKTREE:-1}"
+# Override the broker topology with OCUDU_ATTACH_TOPOLOGY (path is relative
+# to the project root, e.g. examples/topology.ocudu-docker.tx-offset.cuda.yaml).
+topology_rel="${OCUDU_ATTACH_TOPOLOGY:-examples/topology.ocudu-docker.cuda.yaml}"
 
 if [[ -z "${branch}" ]]; then
   echo "unable to determine current branch" >&2
@@ -44,7 +47,8 @@ remote_sh bash -s -- \
   "${duration_seconds}" \
   "${build_docker}" \
   "${srsran_ref}" \
-  "${skip_remote_pull}" <<'REMOTE'
+  "${skip_remote_pull}" \
+  "${topology_rel}" <<'REMOTE'
 set -euo pipefail
 
 workspace="$1"
@@ -58,6 +62,7 @@ duration_seconds="$8"
 build_docker="$9"
 srsran_ref="${10}"
 skip_remote_pull="${11}"
+topology_rel="${12}"
 
 expand_remote_path() {
   case "$1" in
@@ -343,7 +348,7 @@ wait_for_open5gs
 # from its event=stop line and applies its own verdict (see below), treating
 # rx_starvations as a soft realtime-margin signal rather than a hard failure.
 "${cuda_build}/ocudu-gpu-channel" \
-  --config "${project_root}/examples/topology.ocudu-docker.cuda.yaml" \
+  --config "${project_root}/${topology_rel}" \
   --duration "${duration_seconds}s" >"${log_dir}/broker.log" 2>&1 &
 broker_pid="$!"
 
