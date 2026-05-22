@@ -12,27 +12,36 @@
 namespace ocg {
 namespace {
 
-// Per-sample steps the GPU runs unconditionally, anywhere in a chain.
+// Per-sample steps the GPU runs unconditionally, anywhere in a chain. Leading-
+// propagation steps (sample delay, tdl) live outside this set -- they ran
+// host-side during staging and are emitted as a no-op pass-through GpuStep on
+// the device side.
 bool cuda_step_supported(ModelStepType type)
 {
   return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
          type == ModelStepType::Cfo || type == ModelStepType::Awgn;
 }
 
-// Per-sample steps the CPU backend's chain loop knows how to execute. Mirrors
-// `cuda_step_supported` so a topology with an unimplemented step (currently
-// only `tdl`) fails at processor build time on either backend, not deep inside
-// the first slot's process loop.
+// Steps the CPU backend's chain loop knows how to execute. `tdl` is now
+// included (Phase 1.1 landed the reference kernel via the shared
+// `apply_tdl_step` helper in delay.h).
 bool cpu_step_supported(ModelStepType type)
 {
   return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
          type == ModelStepType::Cfo || type == ModelStepType::Awgn ||
-         type == ModelStepType::IntegerDelay || type == ModelStepType::FractionalDelay;
+         type == ModelStepType::IntegerDelay || type == ModelStepType::FractionalDelay ||
+         type == ModelStepType::Tdl;
 }
 
-bool is_sample_delay(ModelStepType type)
+// Steps that must lead the chain on the CUDA backend because the per-sample
+// kernel cannot materialise them inline. They run host-side during staging
+// (legacy delay via apply_sample_delay; tdl via apply_tdl_step) and then
+// pass-through on the device.
+bool is_leading_propagation(ModelStepType type)
 {
-  return type == ModelStepType::IntegerDelay || type == ModelStepType::FractionalDelay;
+  return type == ModelStepType::IntegerDelay ||
+         type == ModelStepType::FractionalDelay ||
+         type == ModelStepType::Tdl;
 }
 
 } // namespace
@@ -77,12 +86,12 @@ std::vector<std::string> validate_cpu_support(const TopologyConfig& config)
 
 std::vector<std::string> validate_cuda_support(const TopologyConfig& config)
 {
-  // The CUDA backend applies a propagation delay host-side while staging, so it
-  // needs the raw link input -- it can run a sample-delay step only when that
-  // step leads the chain (a non-leading delay would need a mid-chain
-  // intermediate the per-sample kernel never materialises). A leading delay is
-  // the physically natural order anyway: the signal propagates, then the
-  // receiver-side effects (CFO, noise) apply.
+  // The CUDA backend applies leading-propagation work host-side while staging,
+  // so it needs the raw link input -- it can run a sample delay or a `tdl`
+  // step only when that step leads the chain (a non-leading one would need a
+  // mid-chain intermediate the per-sample kernel never materialises). A
+  // leading propagation step is the physically natural order anyway: the
+  // signal propagates, then the receiver-side effects (CFO, noise) apply.
   std::vector<std::string> errors;
   for (const auto& link : config.links) {
     const auto* model = find_model(config, link.model);
@@ -91,7 +100,7 @@ std::vector<std::string> validate_cuda_support(const TopologyConfig& config)
     }
     for (std::size_t s = 0; s != model->chain.size(); ++s) {
       const auto& step = model->chain[s];
-      if (is_sample_delay(step.type)) {
+      if (is_leading_propagation(step.type)) {
         if (s != 0) {
           errors.emplace_back("CUDA backend supports model " + model->id + " step " + to_string(step.type) +
                               " only as the first step of a chain");
@@ -104,8 +113,9 @@ std::vector<std::string> validate_cuda_support(const TopologyConfig& config)
     }
   }
 
-  // Receiver models run on the summed signal with no per-link input, so a
-  // sample delay there is meaningless and is never applied -- reject it.
+  // Receiver models run on the summed signal with no per-link input, so any
+  // leading-propagation step (sample delay or tdl) there is meaningless and
+  // is never applied -- reject it.
   for (const auto& device : config.devices) {
     if (device.rx_model.empty()) {
       continue;
@@ -115,8 +125,9 @@ std::vector<std::string> validate_cuda_support(const TopologyConfig& config)
       continue;
     }
     for (const auto& step : rx->chain) {
-      if (is_sample_delay(step.type)) {
-        errors.emplace_back("CUDA backend does not support a delay step in receiver model " + rx->id);
+      if (is_leading_propagation(step.type)) {
+        errors.emplace_back("CUDA backend does not support a " + to_string(step.type) +
+                            " step in receiver model " + rx->id);
       } else if (!cuda_step_supported(step.type)) {
         errors.emplace_back("CUDA backend does not support receiver model " + rx->id + " step " +
                             to_string(step.type));

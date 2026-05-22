@@ -37,18 +37,20 @@ private:
   // Fat-struct pattern: one struct serves every step type; the field set used
   // depends on `step.type` at runtime. `delay_line` is shared by IntegerDelay /
   // FractionalDelay / Tdl steps -- for Tdl it is the single cross-slot history
-  // ring sized to `ceil(max tau_k) + kTdlFracFilterTaps` at prepare time. The
-  // tdl_* fields are populated only when this step is a Tdl step.
+  // ring sized to `ceil(max tau_k) + kTdlFracFilterTaps` at prepare time.
+  //
+  // The Tdl kernel reads tap data (delay/gain/phase) directly from the live
+  // `ModelStep::taps` in the owning `ModelConfig` -- there is no per-link
+  // cached copy here. The only cached state is `tdl_polyphase`, the per-tap
+  // 8-tap Hamming-windowed sinc coefficients derived once at prepare time
+  // from each tap's fractional offset. Integer-only taps still get a
+  // coefficient set so the inner kernel loop is identical for every tap
+  // (sinc(frac=0) collapses to a unit impulse at index 3).
   struct StepState {
     std::vector<IqSample> delay_line;
     double phase_rad = 0.0;
     std::mt19937 rng;
     std::normal_distribution<float> noise; // reused across batches; sigma passed per call
-    std::vector<TapSpec> tdl_taps;  // cached copy of ModelStep::taps for the Tdl kernel
-    // Per-tap precomputed 8-tap Hamming-windowed sinc coefficients for the
-    // fractional offset frac_k = tau_k - floor(tau_k). Integer-only taps still
-    // get a coefficient set so the kernel runs the same inner loop for every
-    // tap (sinc(frac=0) collapses to a unit impulse at index 3).
     std::vector<std::array<float, kTdlFracFilterTaps>> tdl_polyphase;
   };
 

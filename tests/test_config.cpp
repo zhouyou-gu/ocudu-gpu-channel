@@ -989,8 +989,11 @@ models:
   }
   require(rejected, "tdl tap with delay above 1e6 samples must be rejected");
 
-  // validate_cpu_support rejects tdl at create_channel_processor time on the
-  // CPU backend (symmetric with validate_cuda_support on CUDA).
+  // Phase 1.1 landed the CPU `tdl` kernel; validate_cpu_support now accepts
+  // it. Use a programmatic Tdl-only topology and assert the CPU validator
+  // returns no errors. (The symmetric CUDA validator still rejects tdl in
+  // non-chain-leading positions; the chain-leading-only case is exercised
+  // implicitly by Phase 1.2's CUDA tests below.)
   {
     ocg::TopologyConfig cpu_tdl_config;
     cpu_tdl_config.runtime.backend = ocg::Backend::Cpu;
@@ -1016,7 +1019,17 @@ models:
                               .taps_declared = true});
     cpu_tdl_config.models.emplace("tdl_only", std::move(tdl_only));
     const auto cpu_errors = ocg::validate_cpu_support(cpu_tdl_config);
-    require(!cpu_errors.empty(), "CPU validator must reject tdl until Phase 1.1");
+    require(cpu_errors.empty(),
+            "CPU validator must accept tdl after Phase 1.1 landed the kernel");
+
+    // CUDA validator should also accept a chain-leading tdl (the Phase 1.2
+    // staging path handles it). Mid-chain tdl is still rejected (no test
+    // here because Phase 1.0's chain-step validator already gates on tdl
+    // schema; the CUDA position constraint is tested via the leading-only
+    // path's success case).
+    const auto cuda_errors = ocg::validate_cuda_support(cpu_tdl_config);
+    require(cuda_errors.empty(),
+            "CUDA validator must accept chain-leading tdl after Phase 1.2");
   }
 
   // A flat scalar parameter on tdl is rejected -- tdl has no scalar params today.

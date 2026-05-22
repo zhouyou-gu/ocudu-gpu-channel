@@ -721,5 +721,137 @@ int main()
             "tdl(tau=2.5) at f=fs/8: phase delay matches tau=2.5 within 0.02 rad");
   }
 
+#if OCUDU_GPU_CHANNEL_HAS_CUDA
+  // ---- Phase 1.2 CPU<->CUDA bit-exact checks for tdl ----
+  // The CUDA path runs the multi-tap convolution HOST-SIDE in stage_link()
+  // before the H2D copy (mirrors the existing chain-leading delay flow), so
+  // both backends call the same `apply_tdl_step` helper in delay.h. CPU<->CUDA
+  // bit-exactness therefore reduces to "did the CUDA staging path call the
+  // right helper" -- still worth asserting because the staged-buffer round-trip
+  // through cudaMemcpyAsync + the no-op Scale(1.0) device step is the integration
+  // surface where a regression would land.
+  if (ocg::cuda_compiled()) {
+    auto build_cuda_tdl_config = [](const ocg::ModelConfig& model,
+                                    std::size_t batch_samples) {
+      ocg::TopologyConfig cfg;
+      cfg.runtime.backend = ocg::Backend::Cuda;
+      cfg.runtime.batch_samples_auto = false;
+      cfg.runtime.batch_samples = batch_samples;
+      cfg.runtime.queue_samples = std::max<std::size_t>(614400, batch_samples * 8);
+      cfg.devices = {{.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000,
+                      .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+                     {.id = "ue0", .role = "ue", .sample_rate_hz = 23040000,
+                      .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+      cfg.links = {{.from = "gnb0", .to = "ue0", .model = model.id},
+                   {.from = "ue0", .to = "gnb0", .model = model.id}};
+      cfg.models.emplace(model.id, model);
+      return cfg;
+    };
+
+    auto run_cpu_vs_cuda = [&](const ocg::ModelConfig& model,
+                               const std::vector<ocg::IqBuffer>& slot_inputs,
+                               const char* label) {
+      const auto cfg = build_cuda_tdl_config(model, slot_inputs.front().size());
+      // Same config drives both backends; the CPU reference ignores
+      // runtime.backend and just uses the device/link/model layout.
+      ocg::CpuChannelProcessor cpu;
+      cpu.prepare(cfg);
+      auto cuda = ocg::create_channel_processor(cfg);
+      const std::string key = ocg::link_key({.from = "gnb0", .to = "ue0", .model = model.id});
+      for (std::size_t s = 0; s < slot_inputs.size(); ++s) {
+        ocg::IqBuffer cpu_out(slot_inputs[s].size());
+        ocg::IqBuffer cuda_out(slot_inputs[s].size());
+        shape_link(cpu, "ue0", key, model, slot_inputs[s], cpu_out, 23040000);
+        shape_link(*cuda, "ue0", key, model, slot_inputs[s], cuda_out, 23040000);
+        // Both backends should be bit-identical because both call
+        // apply_tdl_step in delay.h -- but require_near_buffer's 1e-3
+        // tolerance is the right gate (the device-side Scale 1.0 no-op
+        // is exactly identity but float fp through cudaMemcpyAsync can
+        // theoretically perturb if a subnormal slipped in; tolerance
+        // covers that without hiding a real divergence).
+        require_near_buffer(cpu_out, cuda_out, label);
+      }
+    };
+
+    // (a) Identity: single tap, no delay, unit gain.
+    {
+      ocg::ModelConfig m;
+      m.id = "tdl_cuda_identity";
+      ocg::ModelStep step;
+      step.type = ocg::ModelStepType::Tdl;
+      step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+      step.taps_declared = true;
+      m.chain.push_back(step);
+      run_cpu_vs_cuda(m,
+                      {{{1.0F, 0.0F}, {0.0F, 1.0F}, {0.5F, -0.5F}, {-1.0F, 0.25F},
+                        {0.75F, 0.75F}, {0.0F, 0.0F}, {-0.5F, -0.5F}, {1.0F, 1.0F}}},
+                      "CUDA tdl(tau=0,gain=0,phase=0) must match CPU bit-exactly");
+    }
+
+    // (b) Single-tap tdl(tau=4, gain_db=-3): exercises the windowed-sinc
+    // collapse to impulse for integer tau and cross-slot delay_line continuity.
+    {
+      ocg::ModelConfig m;
+      m.id = "tdl_cuda_delay_gain";
+      ocg::ModelStep step;
+      step.type = ocg::ModelStepType::Tdl;
+      step.taps = {ocg::TapSpec{.delay_samples = 4.0, .gain_db = -3.0, .phase_rad = 0.0}};
+      step.taps_declared = true;
+      m.chain.push_back(step);
+      const ocg::IqBuffer slot0 = {{1.0F, 0.0F}, {0.0F, 1.0F}, {0.5F, -0.5F}, {-1.0F, 0.25F},
+                                   {0.75F, 0.75F}, {0.0F, 0.0F}, {-0.5F, -0.5F}, {1.0F, 1.0F}};
+      const ocg::IqBuffer slot1 = {{0.25F, 0.25F}, {-0.25F, 0.5F}, {0.5F, 0.5F}, {1.0F, -1.0F},
+                                   {0.0F, 0.0F}, {-0.5F, -0.5F}, {0.5F, 0.0F}, {0.0F, 0.5F}};
+      run_cpu_vs_cuda(m, {slot0, slot1},
+                      "CUDA tdl(tau=4,gain=-3) cross-slot must match CPU bit-exactly");
+    }
+
+    // (c) 3-tap impulse response with the tau=12 echo crossing into slot 1
+    // sample 4 at batch=8: exercises multi-tap convolution and the ring update.
+    {
+      ocg::ModelConfig m;
+      m.id = "tdl_cuda_three_tap";
+      ocg::ModelStep step;
+      step.type = ocg::ModelStepType::Tdl;
+      step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0},
+                   ocg::TapSpec{.delay_samples = 3.0, .gain_db = -6.0, .phase_rad = 0.0},
+                   ocg::TapSpec{.delay_samples = 12.0, .gain_db = -12.0, .phase_rad = 0.0}};
+      step.taps_declared = true;
+      m.chain.push_back(step);
+      ocg::IqBuffer slot0(8, ocg::IqSample{0.0F, 0.0F});
+      slot0[0] = {1.0F, 0.0F};
+      const ocg::IqBuffer slot1(8, ocg::IqSample{0.0F, 0.0F});
+      run_cpu_vs_cuda(m, {slot0, slot1},
+                      "CUDA 3-tap tdl with cross-slot ring must match CPU bit-exactly");
+    }
+
+    // (d) Fractional tap tau=2.5 on a complex tone -- exercises the
+    // windowed-sinc polyphase coefficients in flight.
+    {
+      ocg::ModelConfig m;
+      m.id = "tdl_cuda_frac";
+      ocg::ModelStep step;
+      step.type = ocg::ModelStepType::Tdl;
+      step.taps = {ocg::TapSpec{.delay_samples = 2.5, .gain_db = 0.0, .phase_rad = 0.0}};
+      step.taps_declared = true;
+      m.chain.push_back(step);
+      constexpr std::size_t batch = 64;
+      ocg::IqBuffer slot0(batch), slot1(batch);
+      constexpr double two_pi = 2.0 * std::numbers::pi;
+      constexpr double f_rel = 1.0 / 8.0;
+      for (std::size_t n = 0; n < batch; ++n) {
+        const double t0 = static_cast<double>(n);
+        const double t1 = static_cast<double>(batch + n);
+        slot0[n] = {static_cast<float>(std::cos(two_pi * f_rel * t0)),
+                    static_cast<float>(std::sin(two_pi * f_rel * t0))};
+        slot1[n] = {static_cast<float>(std::cos(two_pi * f_rel * t1)),
+                    static_cast<float>(std::sin(two_pi * f_rel * t1))};
+      }
+      run_cpu_vs_cuda(m, {slot0, slot1},
+                      "CUDA tdl(tau=2.5) sinusoid passband must match CPU bit-exactly");
+    }
+  }
+#endif
+
   return 0;
 }

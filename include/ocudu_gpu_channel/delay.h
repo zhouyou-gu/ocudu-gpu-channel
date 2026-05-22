@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/iq.h"
 #include <algorithm>
 #include <array>
@@ -109,6 +110,106 @@ inline void apply_sample_delay(const IqSample* in,
     const std::size_t keep_old = history_size - count;
     std::move(delay_line.end() - static_cast<std::ptrdiff_t>(keep_old), delay_line.end(), delay_line.begin());
     std::copy(in, in + count, delay_line.begin() + static_cast<std::ptrdiff_t>(keep_old));
+  }
+}
+
+// One-shot setup for a `tdl` chain step's per-link runtime state, shared by the
+// CPU and CUDA backends so the polyphase coefficient set and the cross-slot
+// `delay_line` ring are computed identically on either path.
+//
+// `taps` is a const ref to the step's tap list in the owning `ModelConfig`
+// (which persists for the run) -- the helper does not cache or copy the tap
+// data. `polyphase` is sized to one 8-tap Hamming-windowed sinc coefficient set
+// per tap; `delay_line` is sized to `ceil(max tau_k) + kTdlFracFilterTaps`
+// samples so the filter for the largest-tau tap always reads from valid data
+// in the previous-slot tail. Both are mutated in place; both must outlive the
+// link's processing calls.
+inline void prepare_tdl_state(const std::vector<TapSpec>& taps,
+                              std::vector<std::array<float, kTdlFracFilterTaps>>& polyphase,
+                              std::vector<IqSample>& delay_line)
+{
+  polyphase.assign(taps.size(), std::array<float, kTdlFracFilterTaps>{});
+  double max_tau = 0.0;
+  for (std::size_t k = 0; k != taps.size(); ++k) {
+    const double tau = taps[k].delay_samples;
+    max_tau = std::max(max_tau, tau);
+    const double frac = tau - std::floor(tau);
+    compute_windowed_sinc_taps(frac, polyphase[k]);
+  }
+  const std::size_t ring_size =
+      static_cast<std::size_t>(std::ceil(max_tau)) +
+      static_cast<std::size_t>(kTdlFracFilterTaps);
+  if (delay_line.size() < ring_size) {
+    delay_line.assign(ring_size, IqSample{0.0F, 0.0F});
+  }
+}
+
+// Multi-tap windowed-sinc convolution shared by both backends. For each output
+// sample n, sum over taps k:
+//   y[n] = sum_k a_k * sum_{i=0..7} polyphase[k][i] * x[(n - floor(tau_k)) + 3 - i]
+// where a_k = 10^(gain_db_k/20) * exp(j * phase_rad_k). Indices below zero read
+// from the `delay_line` ring (previous-slot tail). The ring is rolled forward
+// after the convolution so the next call's negative-index reads stay valid.
+//
+// `taps` and `polyphase` are read-only views into the link's prepared state;
+// `delay_line` is the cross-slot history ring, mutated in place. `in` and
+// `out` must not alias. Both CPU and CUDA staging paths call this function --
+// there is one implementation of the math.
+inline void apply_tdl_step(const IqSample* in,
+                           IqSample* out,
+                           std::size_t count,
+                           const std::vector<TapSpec>& taps,
+                           const std::vector<std::array<float, kTdlFracFilterTaps>>& polyphase,
+                           std::vector<IqSample>& delay_line)
+{
+  const auto ring_size = static_cast<std::ptrdiff_t>(delay_line.size());
+  const auto read = [&](std::ptrdiff_t idx) -> IqSample {
+    if (idx >= 0) {
+      return in[static_cast<std::size_t>(idx)];
+    }
+    const std::ptrdiff_t ring_idx = ring_size + idx;
+    if (ring_idx < 0) {
+      return IqSample{0.0F, 0.0F};
+    }
+    return delay_line[static_cast<std::size_t>(ring_idx)];
+  };
+  for (std::size_t n = 0; n != count; ++n) {
+    IqSample acc{0.0F, 0.0F};
+    for (std::size_t k = 0; k != taps.size(); ++k) {
+      const TapSpec& tap = taps[k];
+      const std::ptrdiff_t tau_int =
+          static_cast<std::ptrdiff_t>(std::floor(tap.delay_samples));
+      const auto& h = polyphase[k];
+      IqSample x{0.0F, 0.0F};
+      for (int i = 0; i < kTdlFracFilterTaps; ++i) {
+        const std::ptrdiff_t read_idx =
+            static_cast<std::ptrdiff_t>(n) - tau_int + 3 - i;
+        const IqSample s = read(read_idx);
+        x.i += h[static_cast<std::size_t>(i)] * s.i;
+        x.q += h[static_cast<std::size_t>(i)] * s.q;
+      }
+      const float gain = static_cast<float>(std::pow(10.0, tap.gain_db / 20.0));
+      const float cos_phi = static_cast<float>(std::cos(tap.phase_rad));
+      const float sin_phi = static_cast<float>(std::sin(tap.phase_rad));
+      const float rotated_i = x.i * cos_phi - x.q * sin_phi;
+      const float rotated_q = x.i * sin_phi + x.q * cos_phi;
+      acc.i += gain * rotated_i;
+      acc.q += gain * rotated_q;
+    }
+    out[n] = acc;
+  }
+  // Roll the ring forward: the new tail is the last `delay_line.size()` samples
+  // of the current slot's input. If the slot is shorter than the ring, shift
+  // the existing tail left and append all of the current slot at the end.
+  const std::size_t dl_size = delay_line.size();
+  if (count >= dl_size) {
+    std::copy(in + (count - dl_size), in + count, delay_line.begin());
+  } else {
+    const std::size_t keep_old = dl_size - count;
+    std::move(delay_line.begin() + static_cast<std::ptrdiff_t>(count),
+              delay_line.end(), delay_line.begin());
+    std::copy(in, in + count,
+              delay_line.begin() + static_cast<std::ptrdiff_t>(keep_old));
   }
 }
 
