@@ -33,10 +33,14 @@ double estimate_average_power(std::span<const IqSample> input)
 // kept as a private static so the StepState type stays encapsulated. The
 // helper sizes `tdl_polyphase` and the cross-slot `delay_line` ring; no tap
 // data is cached here because the kernel reads `step.taps` directly from the
-// owning ModelConfig at runtime.
-void CpuChannelProcessor::prepare_tdl_step(StepState& state, const ModelStep& step)
+// owning ModelConfig at runtime. When the step has a fading sub-config, also
+// draws the deterministic Jakes sub-ray angles / phases / LOS phases into
+// state.tdl_fading via the same seed both backends use.
+void CpuChannelProcessor::prepare_tdl_step(StepState& state, const ModelStep& step,
+                                            std::uint64_t fading_seed)
 {
   prepare_tdl_state(step.taps, state.tdl_polyphase, state.delay_line);
+  prepare_tdl_fading_state(step, fading_seed, state.tdl_fading);
 }
 
 CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std::string& key,
@@ -61,7 +65,11 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     for (std::size_t i = 0; i != state.steps.size(); ++i) {
       state.steps[i].rng.seed(static_cast<unsigned>(std::hash<std::string>{}(key + ":" + std::to_string(i))));
       if (model.chain[i].type == ModelStepType::Tdl) {
-        prepare_tdl_step(state.steps[i], model.chain[i]);
+        // Per-link, per-step fading seed -- the CUDA backend computes the
+        // same hash so both backends draw the same Jakes sub-ray angles.
+        const std::uint64_t fading_seed = static_cast<std::uint64_t>(
+            std::hash<std::string>{}(key + ":fading:" + std::to_string(i)));
+        prepare_tdl_step(state.steps[i], model.chain[i], fading_seed);
       }
     }
   }
@@ -155,19 +163,22 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
         break;
       }
       case ModelStepType::Tdl:
-        // Delegated to the shared `apply_tdl_step` in delay.h so the CPU and
-        // CUDA backends call literally the same multi-tap convolution. Tap
-        // data is read directly from step.taps (the live ModelConfig) -- no
-        // per-link cached copy; only the polyphase coefficient set and the
-        // cross-slot ring live in StepState.
+        // Delegated to the shared apply_tdl_step / apply_tdl_step_fading
+        // helpers in delay.h so the CPU and CUDA backends call literally the
+        // same multi-tap convolution. Tap data is read directly from step.taps
+        // (the live ModelConfig) -- no per-link cached copy; only the
+        // polyphase coefficient set, the cross-slot ring, and (for fading)
+        // the per-tap sub-ray seeds live in StepState.
         if (step.fading_enabled) {
-          throw std::runtime_error(
-              "tdl fading sub-config is not yet implemented on the CPU backend "
-              "(Phase 1.4a landed the schema; Phase 1.4b implements the kernel)");
+          apply_tdl_step_fading(current.data(), next.data(), current.size(),
+                                step.taps, step_state.tdl_polyphase,
+                                step_state.delay_line, step_state.tdl_fading,
+                                sample_rate_hz);
+        } else {
+          apply_tdl_step(current.data(), next.data(), current.size(),
+                         step.taps, step_state.tdl_polyphase,
+                         step_state.delay_line);
         }
-        apply_tdl_step(current.data(), next.data(), current.size(),
-                       step.taps, step_state.tdl_polyphase,
-                       step_state.delay_line);
         break;
     }
     std::swap(current, next);

@@ -853,5 +853,146 @@ int main()
   }
 #endif
 
+  // ---- Phase 1.4b: fading kernel behaviour tests ----
+  // Each test builds its own CpuChannelProcessor (process_superposition path)
+  // so the per-link state is isolated.
+  auto build_fading_processor = [](const ocg::ModelConfig& model,
+                                   std::size_t batch,
+                                   std::uint64_t sample_rate)
+      -> std::unique_ptr<ocg::CpuChannelProcessor> {
+    ocg::TopologyConfig cfg;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = batch;
+    cfg.runtime.queue_samples = std::max<std::size_t>(614400, batch * 8);
+    cfg.devices = {{.id = "gnb0", .role = "gnb", .sample_rate_hz = sample_rate,
+                    .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+                   {.id = "ue0", .role = "ue", .sample_rate_hz = sample_rate,
+                    .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+    cfg.links = {{.from = "gnb0", .to = "ue0", .model = model.id},
+                 {.from = "ue0", .to = "gnb0", .model = model.id}};
+    cfg.models.emplace(model.id, model);
+    auto proc = std::make_unique<ocg::CpuChannelProcessor>();
+    proc->prepare(cfg);
+    return proc;
+  };
+
+  // (a) Stationary case: f_d_max_hz = 0 reduces to the static-tap result
+  // (g_k(t) collapses to a constant whose magnitude equals 1 on average; with
+  // zero Doppler the sub-ray sinusoids degenerate to constants
+  // exp(j*phi_{k,m}) and the sum-of-sinusoids is deterministic. For zero
+  // Doppler the output is therefore identical across slots).
+  {
+    ocg::ModelConfig m;
+    m.id = "tdl_fading_stationary";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0,
+                              .phase_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 0.0;  // stationary
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+
+    auto proc = build_fading_processor(m, 32, 1000);
+    ocg::IqBuffer in(32);
+    for (std::size_t n = 0; n < in.size(); ++n) {
+      in[n] = {static_cast<float>(0.5 * std::cos(0.1 * n)),
+               static_cast<float>(0.5 * std::sin(0.1 * n))};
+    }
+    ocg::IqBuffer out0(32), out1(32);
+    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id});
+    shape_link(*proc, "ue0", link, m, in, out0, 1000);
+    shape_link(*proc, "ue0", link, m, in, out1, 1000);
+    // f_d_max = 0 -> g_k(t) is a fixed complex constant; processing the same
+    // input across two slots must produce the same output (after the initial-
+    // history transient). The kernel's output magnitude is bounded above by
+    // 1 (g_k constant complex of |g| <= 1) times the input.
+    for (std::size_t n = 4; n < 32; ++n) {  // skip transient
+      require(near(out0[n].i, out1[n].i) && near(out0[n].q, out1[n].q),
+              "fading f_d_max=0: output must be slot-invariant once steady state");
+    }
+  }
+
+  // (b) Determinism: two independent processors with the same model / link
+  // key must produce bit-identical fading output across slots.
+  {
+    ocg::ModelConfig m;
+    m.id = "tdl_fading_det";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0,
+                              .phase_rad = 0.0},
+                 ocg::TapSpec{.delay_samples = 3.0, .gain_db = -3.0,
+                              .phase_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 50.0;
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+
+    auto proc1 = build_fading_processor(m, 32, 1000);
+    auto proc2 = build_fading_processor(m, 32, 1000);
+    ocg::IqBuffer in(32);
+    for (std::size_t n = 0; n < in.size(); ++n) {
+      in[n] = {1.0F, 0.0F};
+    }
+    ocg::IqBuffer out1(32), out2(32);
+    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id});
+    shape_link(*proc1, "ue0", link, m, in, out1, 1000);
+    shape_link(*proc2, "ue0", link, m, in, out2, 1000);
+    require_near_buffer(out1, out2,
+                        "fading determinism: same model + same link key -> identical output");
+    // Run a second slot through proc1; redo proc2 with two consecutive slots
+    // and assert the second slot matches too (slot_start_samples accumulator
+    // must advance deterministically).
+    ocg::IqBuffer out1b(32);
+    shape_link(*proc1, "ue0", link, m, in, out1b, 1000);
+    auto proc3 = build_fading_processor(m, 32, 1000);
+    ocg::IqBuffer out3a(32), out3b(32);
+    shape_link(*proc3, "ue0", link, m, in, out3a, 1000);
+    shape_link(*proc3, "ue0", link, m, in, out3b, 1000);
+    require_near_buffer(out1b, out3b,
+                        "fading determinism: cross-slot accumulator must be reproducible");
+  }
+
+  // (c) LOS at K = +Inf (effectively): when the Rician K-factor is very
+  // large the tap is dominated by the deterministic specular, so the output
+  // magnitude on a unit-power input should approach 1 (sqrt(K/(K+1)) ~ 1).
+  // At f_d_max = 0 the specular is also stationary in time -- magnitude is
+  // perfectly steady.
+  {
+    ocg::ModelConfig m;
+    m.id = "tdl_fading_strong_los";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0,
+                              .gain_db = 0.0,
+                              .phase_rad = 0.0,
+                              .is_los = true,
+                              .los_k_db = 40.0,        // K ~ 10000 -> sqrt(K/(K+1)) ~ 0.99995
+                              .los_angle_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 0.0;
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+
+    auto proc = build_fading_processor(m, 32, 1000);
+    ocg::IqBuffer in(32, ocg::IqSample{1.0F, 0.0F});
+    ocg::IqBuffer out(32);
+    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id});
+    shape_link(*proc, "ue0", link, m, in, out, 1000);
+    // Magnitudes should all be very close to 1 (within ~1% -- the LOS factor
+    // sqrt(K/(K+1)) is ~0.99995, plus the tiny Rayleigh component of
+    // magnitude ~1/sqrt(K+1) ~ 0.01 with random phase).
+    for (std::size_t n = 4; n < 32; ++n) {
+      const double mag = std::sqrt(static_cast<double>(out[n].i) * out[n].i +
+                                    static_cast<double>(out[n].q) * out[n].q);
+      require(mag > 0.95 && mag < 1.05,
+              "LOS K=40 dB: output magnitude on unit input must be ~1");
+    }
+  }
+
   return 0;
 }

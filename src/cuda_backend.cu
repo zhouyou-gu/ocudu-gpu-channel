@@ -69,10 +69,12 @@ struct LinkModelState {
   const std::vector<TapSpec>* tdl_taps = nullptr;  // borrowed view into ModelConfig::chain[0].taps
   std::vector<std::array<float, kTdlFracFilterTaps>> tdl_polyphase;
   std::vector<IqSample> delay_line;
-  // Phase 1.4 fading flag. Snapshotted from the chain-leading tdl step at
-  // configure time; stage_link throws "not yet implemented" when true on the
-  // 1.4a code path (1.4b replaces the throw with the actual kernel).
-  bool fading_enabled = false;
+  // Per-link fading sub-config state (Phase 1.4). Populated by
+  // configure_leading_propagation when the chain-leading tdl step has
+  // fading_enabled; stage_link dispatches to apply_tdl_step_fading in that
+  // case. The seed is derived from the link key + step index so the CPU and
+  // CUDA backends draw the same Jakes sub-ray angles.
+  TdlFadingState tdl_fading;
 };
 
 void init_model_state(LinkModelState& state, std::size_t steps, const std::string& seed_prefix)
@@ -187,13 +189,14 @@ double param_or(const ModelStep& step, const std::string& name, double fallback)
 // multi-tap convolution) on the model state. validate_cuda_support() has
 // already guaranteed any such step is the chain's first step, so only
 // chain.front() can be one. At most one of has_delay / has_tdl ends true.
-void configure_leading_propagation(LinkModelState& state, const ModelConfig& model)
+void configure_leading_propagation(LinkModelState& state, const ModelConfig& model,
+                                    const std::string& link_key_value)
 {
   state.has_tdl = false;
   state.tdl_taps = nullptr;
   state.tdl_polyphase.clear();
   state.delay_line.clear();
-  state.fading_enabled = false;
+  state.tdl_fading = TdlFadingState{};  // reset to disabled
   if (model.chain.empty()) {
     return;
   }
@@ -201,8 +204,13 @@ void configure_leading_propagation(LinkModelState& state, const ModelConfig& mod
   if (first.type == ModelStepType::Tdl) {
     state.has_tdl = true;
     state.tdl_taps = &first.taps;  // borrow the live ModelConfig tap list -- not copied
-    state.fading_enabled = first.fading_enabled;
     prepare_tdl_state(first.taps, state.tdl_polyphase, state.delay_line);
+    // Step index of the leading tdl is by construction 0; bake it into the
+    // fading seed the same way the CPU backend does so the two backends draw
+    // the same Jakes sub-ray angles.
+    const std::uint64_t fading_seed = static_cast<std::uint64_t>(
+        std::hash<std::string>{}(link_key_value + ":fading:0"));
+    prepare_tdl_fading_state(first, fading_seed, state.tdl_fading);
   }
 }
 
@@ -210,17 +218,22 @@ void configure_leading_propagation(LinkModelState& state, const ModelConfig& mod
 // leading propagation step (tdl multi-tap convolution) host-side, or a plain
 // copy when the link's chain has no leading propagation. The device kernel
 // then runs the rest of the chain per-sample.
-void stage_link(LinkModelState& state, const IqSample* in, IqSample* out, std::size_t count)
+void stage_link(LinkModelState& state, const IqSample* in, IqSample* out,
+                std::size_t count, std::uint64_t sample_rate_hz)
 {
   if (state.has_tdl) {
-    if (state.fading_enabled) {
-      throw std::runtime_error(
-          "tdl fading sub-config is not yet implemented on the CUDA backend "
-          "(Phase 1.4a landed the schema; Phase 1.4b implements the kernel)");
+    // tdl_taps borrowed from ModelConfig; the staging path is bit-identical
+    // to the CPU backend because both call the same apply_tdl_step (no
+    // fading) or apply_tdl_step_fading (when the leading tdl has a fading
+    // sub-config) from delay.h.
+    if (state.tdl_fading.enabled) {
+      apply_tdl_step_fading(in, out, count, *state.tdl_taps,
+                             state.tdl_polyphase, state.delay_line,
+                             state.tdl_fading, sample_rate_hz);
+    } else {
+      apply_tdl_step(in, out, count, *state.tdl_taps, state.tdl_polyphase,
+                     state.delay_line);
     }
-    // tdl_taps borrowed from ModelConfig; the staging path is bit-identical to
-    // the CPU backend because both call apply_tdl_step from delay.h.
-    apply_tdl_step(in, out, count, *state.tdl_taps, state.tdl_polyphase, state.delay_line);
   } else {
     std::copy(in, in + count, out);
   }
@@ -328,7 +341,7 @@ public:
       }
       auto& slot = link_slots_[link_key(link)];
       init_model_state(slot.model, model->chain.size(), link_key(link));
-      configure_leading_propagation(slot.model, *model);
+      configure_leading_propagation(slot.model, *model, link_key(link));
     }
 
     // Per-destination superposition state: one entry per node that is the
@@ -434,7 +447,7 @@ public:
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
       IqSample* slot = sp.host_staged + k * count;
-      stage_link(ls_it->second.model, edge.samples.data(), slot, count);
+      stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz);
       build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
       const int nsteps = static_cast<int>(edge.model->chain.size());
       sp.host_step_meta[k] = total_steps;                          // offset

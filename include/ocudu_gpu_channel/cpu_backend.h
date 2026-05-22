@@ -52,6 +52,10 @@ private:
     std::mt19937 rng;
     std::normal_distribution<float> noise; // reused across batches; sigma passed per call
     std::vector<std::array<float, kTdlFracFilterTaps>> tdl_polyphase;
+    // Per-link state for the optional fading sub-config of a Tdl step.
+    // Populated by prepare_tdl_fading_state when fading_enabled is true;
+    // remains disabled (and unused) otherwise.
+    TdlFadingState tdl_fading;
   };
 
   // All state owned by one link: two ping-pong scratch buffers and one
@@ -70,8 +74,11 @@ private:
   // One-shot setup for a Tdl step's per-link runtime state. Called from
   // ensure_link_state whenever a step in the chain is a Tdl step. Static
   // because it owns no instance state -- the StepState reference carries
-  // everything it needs to populate.
-  static void prepare_tdl_step(StepState& state, const ModelStep& step);
+  // everything it needs to populate. `fading_seed` is hashed from the link
+  // key + step index at the call site so both backends draw the same Jakes
+  // sub-ray angles / phases when fading is enabled.
+  static void prepare_tdl_step(StepState& state, const ModelStep& step,
+                               std::uint64_t fading_seed);
 
   // Internal helper used by process_superposition() to shape one edge's
   // input through its model chain into the provided output span. This is

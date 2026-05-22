@@ -133,7 +133,7 @@ struct ModelStep {
   bool fading_enabled = false;
   double fading_f_d_max_hz = 0.0;
   FadingSpectrum fading_spectrum = FadingSpectrum::Jakes;
-  double fading_grid_us = 1.0;
+  double fading_grid_us = 100.0;  // 100 us == 10 kHz; ~28x oversampling vs 350 Hz Jakes
 };
 
 struct ModelConfig {
