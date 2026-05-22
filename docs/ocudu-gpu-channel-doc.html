@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ocudu-gpu-channel — GPU Kernel Design</title>
+<title>ocudu-gpu-channel — Technical Reference</title>
 <style>
   :root {
     --bg:#0f1420; --panel:#1a2233; --ink:#e7ecf5; --muted:#9aa7bd;
     --edge:#2c3850; --accent:#5db1ff; --warm:#ffb454; --good:#6fd08c;
-    --noise:#c98bff;
+    --noise:#c98bff; --cell:#0b101a;
   }
   * { box-sizing:border-box; }
   body {
@@ -25,9 +25,8 @@
   .sub { color:var(--muted); margin-top:0; }
   .panel { background:var(--panel); border:1px solid var(--edge); border-radius:10px;
     padding:18px 20px; margin:16px 0; }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
   table { border-collapse:collapse; width:100%; margin:10px 0; font-size:14px; }
-  th,td { border:1px solid var(--edge); padding:7px 10px; text-align:left; }
+  th,td { border:1px solid var(--edge); padding:7px 10px; text-align:left; vertical-align:top; }
   th { background:#0b101a; color:var(--muted); font-weight:600; }
   .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:10px;
     background:#0b101a; border:1px solid var(--edge); color:var(--muted); }
@@ -41,58 +40,1162 @@
   .numrow { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:14px 0; }
   .numrow .panel { text-align:center; margin:0; }
   .numrow .panel div:last-child { color:var(--muted); font-size:13px; }
+  ul { color:#cdd6e6; }
+  ul.tight { margin:6px 0 6px 22px; }
+  ul.tight li { margin:2px 0; }
+
+  /* === Diagram F: layered tiers (CSS-based, easy to align) === */
+  .tier-stack { display:flex; flex-direction:column; gap:8px; }
+  .tier {
+    border-radius:8px; padding:14px 16px; background:var(--panel);
+    border:1px solid var(--edge);
+  }
+  .tier--broker { border-color:var(--warm); }
+  .tier--gpu { background:#13391f; border-color:var(--good); }
+  .tier-label {
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+    color:var(--warm); margin-bottom:10px; letter-spacing:.3px;
+  }
+  .tier--host .tier-label { color:var(--muted); }
+  .tier--gpu .tier-label { color:var(--good); }
+  .tier-cells { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .tier-cell {
+    background:var(--cell); padding:10px 12px; border-radius:6px;
+    border:1px solid var(--edge); text-align:center; font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; color:var(--ink);
+  }
+  .tier-cell small { display:block; color:var(--muted); font-size:11px; margin-top:4px; font-family:-apple-system,sans-serif; }
+  .flow-arrow {
+    text-align:center; color:var(--accent); font-size:12px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; padding:2px 0;
+  }
+  .flow-arrow::before { content:"▼ "; color:var(--accent); }
+
+  /* === Diagram I: multi-stream concurrency (CSS Gantt) === */
+  .gantt { display:flex; flex-direction:column; gap:8px; padding:14px 16px;
+    background:var(--panel); border:1px solid var(--edge); border-radius:8px; }
+  .gantt-header { display:grid; grid-template-columns:120px 1fr; gap:10px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--muted); }
+  .gantt-tick-row { position:relative; height:14px; border-bottom:1px dashed var(--edge); }
+  .gantt-tick { position:absolute; top:0; font-size:10px; color:var(--muted);
+    transform:translateX(-50%); font-family:"SF Mono",Menlo,Consolas,monospace; white-space:nowrap; }
+  .gantt-row { display:grid; grid-template-columns:120px 1fr; gap:10px; align-items:center; }
+  .gantt-label { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+    color:var(--ink); text-align:right; }
+  .gantt-track { position:relative; height:22px; background:var(--cell);
+    border-radius:3px; border:1px solid var(--edge); }
+  .gantt-bar { position:absolute; top:2px; bottom:2px; border-radius:2px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:10px;
+    display:flex; align-items:center; justify-content:center; color:#0b101a;
+    font-weight:600; overflow:hidden;
+  }
+  .gantt-bar--h2d { background:var(--accent); }
+  .gantt-bar--kernel { background:var(--warm); }
+  .gantt-bar--d2h { background:var(--accent); opacity:.85; }
+  .gantt-legend { display:flex; gap:14px; justify-content:center; font-size:11px;
+    color:var(--muted); margin-top:6px; font-family:"SF Mono",Menlo,Consolas,monospace; }
+  .gantt-swatch { display:inline-block; width:10px; height:10px; border-radius:2px;
+    margin-right:4px; vertical-align:middle; }
+  pre.code-block { background:#0b101a; border:1px solid var(--edge); border-radius:6px;
+    padding:12px 14px; overflow-x:auto; font-size:12.5px; color:var(--ink); line-height:1.5;
+    font-family:"SF Mono",Menlo,Consolas,monospace; }
+  pre.code-block code { background:none; border:none; padding:0; font-size:inherit; }
+
+  /* === Diagram J: staged-buffer packing (CSS-based, easy to align) === */
+  .stage-fig {
+    background:var(--panel); border:1px solid var(--edge); border-radius:8px;
+    padding:18px 20px; display:flex; flex-direction:column; gap:12px;
+  }
+  .stage-section-label {
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+    color:var(--muted); letter-spacing:.3px;
+  }
+  .stage-inputs { display:flex; flex-direction:column; gap:6px; }
+  .stage-input-row {
+    display:grid; grid-template-columns:110px 1fr 130px; gap:10px; align-items:center;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+  }
+  .stage-input-row .stage-edge { text-align:left; font-weight:600; }
+  .stage-input-row .stage-buf {
+    background:var(--cell); padding:7px 10px; border-radius:4px; color:var(--ink);
+    text-align:center; letter-spacing:.5px;
+  }
+  .stage-input-row .stage-size { color:var(--muted); font-size:10px; text-align:right; }
+  .stage-edge--e0, .stage-input-row.r0 .stage-buf { border:1px solid var(--accent); color:var(--accent); }
+  .stage-edge--e1, .stage-input-row.r1 .stage-buf { border:1px solid var(--good); color:var(--good); }
+  .stage-edge--eN, .stage-input-row.rN .stage-buf { border:1px solid var(--noise); color:var(--noise); }
+  .stage-input-row.r0 .stage-edge { color:var(--accent); }
+  .stage-input-row.r1 .stage-edge { color:var(--good); }
+  .stage-input-row.rN .stage-edge { color:var(--noise); }
+  .stage-input-row.r0 .stage-buf { color:var(--ink); }
+  .stage-input-row.r1 .stage-buf { color:var(--ink); }
+  .stage-input-row.rN .stage-buf { color:var(--ink); }
+  .stage-input-vdots {
+    text-align:center; color:var(--muted); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px; padding:2px 0;
+  }
+  .stage-arrow {
+    text-align:center; color:var(--accent); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px; padding:2px 0;
+  }
+  .stage-arrow::before { content:"▼ "; }
+  .stage-output {
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .stage-strip {
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:0;
+    background:var(--cell); border:1px solid var(--edge); border-radius:4px; overflow:hidden;
+  }
+  .stage-strip .stage-seg {
+    padding:10px 8px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+    text-align:center; color:var(--ink);
+  }
+  .stage-strip .stage-seg small {
+    display:block; color:var(--muted); font-size:10px; margin-top:3px;
+    font-family:-apple-system,sans-serif;
+  }
+  .stage-strip .stage-seg.s0 { background:rgba(93,177,255,0.12); border-right:1px dashed var(--edge); color:var(--accent); }
+  .stage-strip .stage-seg.s1 { background:rgba(111,208,140,0.12); border-right:1px dashed var(--edge); color:var(--good); }
+  .stage-strip .stage-seg.sN { background:rgba(201,139,255,0.12); color:var(--noise); }
+  .stage-offsets {
+    display:grid; grid-template-columns:repeat(4, 1fr); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px; color:var(--muted); margin-top:-2px;
+  }
+  .stage-offsets span { text-align:left; }
+  .stage-offsets span:last-child { text-align:right; }
+  .stage-formula {
+    text-align:center; color:var(--warm); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:12px; padding:6px 0 2px;
+  }
+  .stage-device {
+    text-align:center; padding:10px 12px; border-radius:4px;
+    background:#13391f; border:1px solid var(--good); color:var(--ink);
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+  }
+  .stage-device small { display:block; color:var(--muted); font-size:11px; margin-top:3px; font-family:-apple-system,sans-serif; }
+
+  /* === Diagram K: broker per-slot pipeline (swimlane) === */
+  .bk-pipe {
+    padding:14px 16px; background:var(--panel); border:1px solid var(--edge);
+    border-radius:8px; display:flex; flex-direction:column; gap:6px;
+  }
+  .bk-axis {
+    display:grid; grid-template-columns:130px 1fr; gap:10px; align-items:end;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+    color:var(--muted); padding-bottom:2px;
+  }
+  .bk-axis-spacer { /* aligns ticks with the tracks */ }
+  .bk-axis-bar {
+    position:relative; height:34px;
+    border-bottom:1px dashed var(--edge);
+  }
+  .bk-tick {
+    position:absolute; top:0; bottom:0; width:1px;
+    background:rgba(255,180,84,0.45);
+  }
+  .bk-tick-label {
+    position:absolute; bottom:0; font-size:10px; color:var(--warm);
+    white-space:nowrap; transform:translateX(-50%);
+  }
+  .bk-tick-sub {
+    display:block; color:var(--muted); font-size:9px;
+    font-family:-apple-system,sans-serif;
+  }
+  .bk-lane {
+    display:grid; grid-template-columns:130px 1fr; gap:10px; align-items:center;
+  }
+  .bk-label {
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--ink);
+    text-align:right;
+  }
+  .bk-label small {
+    display:block; color:var(--muted); font-size:10px;
+    font-family:-apple-system,sans-serif; margin-top:2px;
+  }
+  .bk-track {
+    position:relative; height:46px; background:var(--cell);
+    border:1px solid var(--edge); border-radius:4px;
+  }
+  .bk-stage {
+    position:absolute; top:3px; bottom:3px; border-radius:3px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:10.5px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:var(--ink); padding:3px 4px; overflow:hidden; line-height:1.2;
+  }
+  .bk-stage b {
+    display:block; font-weight:600; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; max-width:100%;
+  }
+  .bk-stage small {
+    display:block; font-size:9px; color:var(--muted);
+    font-family:"SF Mono",Menlo,Consolas,monospace; margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+  }
+  .bk-stage--zmq { background:rgba(154,167,189,0.20); border:1px solid var(--muted); }
+  .bk-stage--cpu { background:rgba(255,180,84,0.18); border:1px solid var(--warm); }
+  .bk-stage--gpu { background:rgba(111,208,140,0.25); border:1px solid var(--good); }
+  /* Lane-crossing hand-off arrow drawn as an overlay on the pipe container */
+  .bk-handoff-layer {
+    position:relative; height:0;
+  }
+  .bk-handoff-row {
+    display:grid; grid-template-columns:130px 1fr; gap:10px; height:14px;
+    align-items:center;
+  }
+  .bk-handoff-row .bk-handoff-label {
+    text-align:right; font-family:-apple-system,sans-serif;
+    font-size:10px; color:var(--muted);
+  }
+  .bk-handoff-row .bk-handoff-arrows {
+    position:relative; height:14px;
+  }
+  .bk-handoff {
+    position:absolute; top:0; bottom:0; display:flex; align-items:center;
+    transform:translateX(-50%); color:var(--warm); font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+  }
+  .bk-legend {
+    display:flex; gap:14px; justify-content:center; font-size:11px;
+    color:var(--muted); margin-top:6px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+  }
+  .bk-legend-sw {
+    display:inline-block; width:10px; height:10px; border-radius:2px;
+    margin-right:4px; vertical-align:middle;
+  }
+  .bk-disclaimer {
+    text-align:center; font-size:10px; color:var(--muted);
+    font-family:-apple-system,sans-serif; margin-top:-4px;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <h1>GPU Kernel Design — <span class="mono">ocudu-gpu-channel</span></h1>
-  <p class="sub">How the channel emulator maps wireless-channel math onto the GPU's
-  thread array to emulate the desired signal, interference, and crosstalk for a whole
-  topology in real time.</p>
+  <h1>ocudu-gpu-channel — Technical Reference</h1>
+  <p class="sub">The deep technical doc behind <span class="mono">README.md</span>. Covers the
+  whole project: broker architecture, topology and YAML model, per-slot signal alignment,
+  GPU compute, signal memory, multi-stream concurrency, observability, and validation.</p>
 
-  <h2>1. Why a GPU fits channel emulation</h2>
-  <p>A channel emulator turns each transmitter's IQ stream into what a receiver hears.
-  Per output sample the math is <b>independent</b> of every other sample — a gain is a
-  multiply, a phase/CFO rotation is a <code>sincos</code> + complex multiply, AWGN is one
-  RNG draw. That is the textbook shape of a <b>SIMT</b> (single-instruction, multiple-thread)
-  workload: launch one GPU thread per sample and they all run the same chain at once.</p>
-  <p>OCUDU's ZMQ radio exchanges IQ in <b>23&nbsp;040-sample slots</b> (1&nbsp;ms at
-  23.04&nbsp;MS/s). The emulator processes one slot per link per millisecond — so the GPU
-  has a 1&nbsp;ms budget to shape and sum every edge of the graph.</p>
+  <h2>1. Overview</h2>
+  <p>ocudu-gpu-channel is a real-time, in-the-loop channel emulator that sits between live
+  SDR stacks (OCUDU runtime, srsRAN gNB/UE) over ZMQ and applies CUDA channel models inside
+  a hard 1&nbsp;ms slot deadline. This doc is the implementation reference — it assumes you
+  have already read the <a href="../README.md"><code>README</code></a> for positioning and
+  quick-start.</p>
+  <p>Reading order is bottom-up: terminology → system layers → topology and config →
+  the broker's per-slot loop → channel modeling → GPU compute → memory and pipeline →
+  operations → scope. The five GPU-internal diagrams (A–E) live in the middle; the four
+  system-level diagrams (F, G, H, I) frame them.</p>
 
-  <h2>2. The two kernels</h2>
+  <h2>2. Key terms — quick reference</h2>
+  <p>The diagrams below name buffers, indices, and struct fields directly from
+  <code>src/cuda_backend.cu</code> and <code>src/broker.cpp</code>. Skim this table before
+  reading; later sections use these names without re-introducing them.</p>
+
+  <h3>Topology</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td class="mono">node</td><td>a device in the graph (a gNB or a UE); the broker serves one RX signal per node, per slot</td></tr>
+    <tr><td class="mono">link / edge</td><td>a directed channel from one node to another, configured under <code>links:</code> in the YAML topology with a named <code>model</code></td></tr>
+    <tr><td class="mono">model</td><td>a chain of channel steps (gain, phase, CFO, AWGN, delay) applied per-edge under <code>models:</code> in the YAML</td></tr>
+    <tr><td class="mono">rx_model</td><td>an optional second model applied <b>once to the summed RX</b> of a node — typically a thermal-noise floor</td></tr>
+    <tr><td class="mono">gNB / UE</td><td>5G base station (gNodeB) / user equipment; both are just "nodes" to the emulator</td></tr>
+    <tr><td class="mono">OCUDU</td><td>the Split-8 ZMQ SDR runtime that exchanges IQ slots with the broker over <code>tcp://</code></td></tr>
+  </table>
+
+  <h3>Signals and indices</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td class="mono">IQ sample</td><td>one complex baseband sample, an <code>(i, q)</code> pair of <code>float32</code>s</td></tr>
+    <tr><td class="mono">slot / batch</td><td>one 1 ms IQ exchange — <b>23 040 samples</b> = 23.04 MS/s × 1 ms in the canonical topology (any other sample rate works; batch is derived from <code>sample_rate_hz × slot_duration</code>)</td></tr>
+    <tr><td class="mono">count</td><td>per-batch sample count = 23 040 in the canonical topology (the kernel parameter named <code>count</code>)</td></tr>
+    <tr><td class="mono">N · link_count</td><td>number of incoming edges into a destination node; the per-thread loop bound in <code>superpose_kernel</code></td></tr>
+    <tr><td class="mono">k</td><td>per-edge loop index inside <code>superpose_kernel</code> (0 … N − 1)</td></tr>
+    <tr><td class="mono">idx</td><td>per-thread / per-sample index (0 … <code>count</code> − 1) — every diagram's <span class="mono">idx</span> is this</td></tr>
+    <tr><td class="mono">sequence number</td><td>monotonic <code>uint64_t</code> tag on every sample written into a source's IQ ring; used by the broker for cursor co-init and common-window reads</td></tr>
+  </table>
+
+  <h3>Buffers (per RX node — <span class="mono">CudaSuperposeState</span>)</h3>
+  <table>
+    <tr><th>Name</th><th>What it holds</th></tr>
+    <tr><td class="mono">host_staged · device_staged</td>
+        <td><b>The "staged" array.</b> Every incoming edge's input batch <b>packed back-to-back</b> in one contiguous block: edge <span class="mono">k</span>'s sample <span class="mono">idx</span> lives at <span class="mono">staged[k·count + idx]</span>. The broker writes per-edge batches into pinned <code>host_staged</code>, then a single H2D copies the whole concatenation to <code>device_staged</code> for the kernel to read. Total size: <span class="mono">N × 23 040</span> IQ samples.</td></tr>
+    <tr><td class="mono">host_output · device_output</td>
+        <td>the node's summed RX signal; the kernel writes <code>device_output</code>, a single D2H copies to pinned <code>host_output</code>, the broker serves it over ZMQ</td></tr>
+    <tr><td class="mono">host_steps · device_steps</td>
+        <td>flat <code>GpuStep</code> array — every edge's chain concatenated head-to-tail</td></tr>
+    <tr><td class="mono">host_step_meta · device_step_meta</td>
+        <td><span class="mono">2N × int</span>: the first <span class="mono">N</span> entries are each edge's offset into <code>device_steps</code>; the next <span class="mono">N</span> are each edge's chain length</td></tr>
+    <tr><td class="mono">device_rx_steps</td>
+        <td>optional second chain (the <code>rx_model</code>) — consumed by an in-place <code>apply_steps_kernel</code> pass after <code>superpose_kernel</code></td></tr>
+  </table>
+  <p class="key">Per-link state lives in <code>CudaLinkSlot</code> (just the
+  <code>LinkModelState</code> — the chain steps, Philox seed, and
+  <code>delay_line</code> ring). The bench-only per-link scratch buffers
+  (<span class="mono">host_input · device_input · device_steps · host_output ·
+  device_output</span>) and their lazy-allocation path were unified away with
+  the old <code>process_into</code> API; the broker's superposition serve
+  carries all required per-call buffers in <code>CudaSuperposeState</code>.</p>
+
+  <h3>Chain step (<span class="mono">GpuStep</span>)</h3>
+  <table>
+    <tr><th>Field</th><th>Used by</th><th>Meaning</th></tr>
+    <tr><td class="mono">step.type</td><td>all branches</td><td><code>Scale</code> | <code>Phase</code> | <code>AddNoise</code> — selects which branch runs (integer / fractional delay step types are configured but handled host-side, not in the per-sample kernel chain)</td></tr>
+    <tr><td class="mono">step.a</td><td>all</td><td>scalar: gain factor (Scale), base phase (Phase), noise amplitude (AddNoise)</td></tr>
+    <tr><td class="mono">step.b</td><td>Phase</td><td>phase increment per sample, in radians; <code>b = 2π·f<sub>cfo</sub>/f<sub>s</sub></code> for CFO; <code>b = 0</code> for a static phase rotation</td></tr>
+    <tr><td class="mono">step.seed · step.counter</td><td>AddNoise</td><td>Philox4_32_10 state — the RNG is keyed on <code>(seed, counter + idx)</code>; <code>counter</code> advances by <span class="mono">count</span> every call</td></tr>
+  </table>
+
+  <h3>Functions, kernels, runtime</h3>
+  <table>
+    <tr><th>Name</th><th>What it is</th></tr>
+    <tr><td class="mono">apply_chain()</td><td><code>__device__</code> function that walks one chain on (i, q) in registers; called inside both kernels</td></tr>
+    <tr><td class="mono">apply_steps_kernel</td><td>single-link kernel; also runs in-place as the <code>rx_model</code> pass after <code>superpose_kernel</code></td></tr>
+    <tr><td class="mono">superpose_kernel</td><td>multi-edge superposition kernel — one thread per output sample, walks every edge, sums into <code>dst[idx]</code></td></tr>
+    <tr><td class="mono">apply_leading_delay()</td><td>host-side helper that applies the chain's leading integer / fractional propagation delay before staging</td></tr>
+    <tr><td class="mono">process_superposition</td><td>the sole CPU / CUDA processor entry point; called by the broker for N-edge fan-in and by the benchmark / tests for the N=1 single-edge case (an earlier <code>process_into</code> API was unified away — see §21.1)</td></tr>
+    <tr><td class="mono">serve</td><td>one broker iteration for a destination node: read inputs from each source's ring, stage them, run the kernel, send the result over ZMQ</td></tr>
+    <tr><td class="mono">cursor</td><td>per-link <code>std::atomic&lt;uint64_t&gt;</code> pointing into its source's IQ ring; co-initialised across edges so superposition aligns every edge's same virtual instant</td></tr>
+    <tr><td class="mono">pinned memory</td><td>host memory allocated with <code>cudaHostAlloc</code>; required for <code>cudaMemcpyAsync</code> to actually run async over PCIe DMA</td></tr>
+    <tr><td class="mono">Philox4_32_10</td><td>NVIDIA's <b>counter-based</b> stateless RNG; same <code>(seed, counter)</code> always produces the same draw, so AWGN is bit-reproducible across runs and across thread schedules</td></tr>
+  </table>
+
+  <!-- ============ DIAGRAM F : system architecture ============ -->
+  <h2>3. System architecture — three layers</h2>
+  <p>Zooming out before zooming in: every IQ sample makes a round-trip through three layers
+  per slot. The external SDR layer is the user's existing software stack; the broker is
+  this project; the GPU is where every per-sample math operation actually executes.</p>
+  <figure>
+  <div class="tier-stack">
+    <div class="tier tier--host">
+      <div class="tier-label">External SDR layer · live radio stacks</div>
+      <div class="tier-cells">
+        <div class="tier-cell">srsRAN gNB <small>5G base station</small></div>
+        <div class="tier-cell">OCUDU runtime <small>Split-8 ZMQ SDR</small></div>
+        <div class="tier-cell">srsRAN srsUE <small>user equipment</small></div>
+      </div>
+    </div>
+    <div class="flow-arrow">ZMQ <code>tcp://</code>  ·  cf32 IQ in 23 040-sample / 1 ms slots</div>
+    <div class="tier tier--broker">
+      <div class="tier-label">ocudu-gpu-channel broker · this project</div>
+      <div class="tier-cells">
+        <div class="tier-cell">RX rings + cursors <small>per source, sequence-tagged</small></div>
+        <div class="tier-cell">Per-node server threads <small>one ZMQ REP socket each</small></div>
+        <div class="tier-cell">YAML topology + models <small>nodes, links, channels</small></div>
+      </div>
+    </div>
+    <div class="flow-arrow">PCIe DMA  ·  <code>cudaMemcpyAsync</code> H2D / D2H  ·  per-node <code>cudaStream_t</code></div>
+    <div class="tier tier--gpu">
+      <div class="tier-label">GPU · CUDA backend</div>
+      <div class="tier-cells">
+        <div class="tier-cell">superpose_kernel <small>per-thread loop over N edges</small></div>
+        <div class="tier-cell">apply_steps_kernel <small>single-link + in-place rx_model</small></div>
+        <div class="tier-cell">apply_chain() <small>device fn: Scale / Phase / AddNoise</small></div>
+      </div>
+    </div>
+  </div>
+  <figcaption>Diagram F — three layers, one direction per slot. IQ arrives over ZMQ,
+  stages into pinned host buffers, copies to the GPU, processes, copies back, and is
+  served to the next ZMQ REP request.</figcaption>
+  </figure>
+
+  <!-- ============ DIAGRAM G : topology graph ============ -->
+  <h2>4. Topology graph and YAML model</h2>
+  <p>The topology is a directed graph: nodes are devices (gNBs and UEs); links are channel
+  edges between them, each with a named <code>model</code>. The broker reads
+  <code>examples/topology.*.yaml</code>, builds one server thread per node, and one
+  <code>CudaLinkSlot</code> per link. The 3-node example below
+  (<code>examples/topology.graph.cuda.yaml</code>) carries both <b>desired</b> links (downlink
+  + uplink) and <b>crosstalk</b> links (UE↔UE leakage).</p>
+  <figure>
+  <svg viewBox="0 0 700 380" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="arg" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#6fd08c"/>
+      </marker>
+      <marker id="argx" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#c98bff"/>
+      </marker>
+    </defs>
+
+    <text x="20" y="20" fill="#9aa7bd" font-size="11">3-node graph · examples/topology.graph.cuda.yaml · 6 edges total</text>
+
+    <!-- nodes -->
+    <circle cx="350" cy="90" r="42" fill="#13391f" stroke="#6fd08c" stroke-width="2"/>
+    <text x="350" y="88" fill="#e7ecf5" text-anchor="middle">gnb0</text>
+    <text x="350" y="104" fill="#9aa7bd" text-anchor="middle" font-size="10">gNB</text>
+
+    <circle cx="160" cy="280" r="42" fill="#1a2233" stroke="#5db1ff" stroke-width="2"/>
+    <text x="160" y="278" fill="#e7ecf5" text-anchor="middle">ue0</text>
+    <text x="160" y="294" fill="#9aa7bd" text-anchor="middle" font-size="10">UE</text>
+
+    <circle cx="540" cy="280" r="42" fill="#1a2233" stroke="#5db1ff" stroke-width="2"/>
+    <text x="540" y="278" fill="#e7ecf5" text-anchor="middle">ue1</text>
+    <text x="540" y="294" fill="#9aa7bd" text-anchor="middle" font-size="10">UE</text>
+
+    <!-- gnb0 -> ue0 (desired DL) -->
+    <path d="M 322 118 Q 235 180 188 246" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
+    <text x="208" y="180" fill="#6fd08c" font-size="10">desired DL</text>
+
+    <!-- gnb0 -> ue1 (desired DL) -->
+    <path d="M 378 118 Q 465 180 512 246" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
+    <text x="450" y="180" fill="#6fd08c" font-size="10">desired DL</text>
+
+    <!-- ue0 -> gnb0 (desired UL) -->
+    <path d="M 195 250 Q 280 185 322 128" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
+    <text x="215" y="225" fill="#6fd08c" font-size="10">desired UL</text>
+
+    <!-- ue1 -> gnb0 (desired UL) -->
+    <path d="M 505 250 Q 420 185 378 128" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
+    <text x="450" y="225" fill="#6fd08c" font-size="10">desired UL</text>
+
+    <!-- ue0 <-> ue1 crosstalk -->
+    <path d="M 205 290 Q 350 340 495 290" stroke="#c98bff" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#argx)"/>
+    <text x="350" y="335" fill="#c98bff" font-size="10" text-anchor="middle">crosstalk · −40 dB</text>
+    <path d="M 495 270 Q 350 220 205 270" stroke="#c98bff" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#argx)"/>
+
+    <!-- legend -->
+    <g font-size="11">
+      <line x1="20" y1="365" x2="40" y2="365" stroke="#6fd08c" stroke-width="1.6"/>
+      <text x="46" y="369" fill="#9aa7bd">desired (gain + phase + CFO)</text>
+      <line x1="290" y1="365" x2="310" y2="365" stroke="#c98bff" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <text x="316" y="369" fill="#9aa7bd">crosstalk (path-loss + phase)</text>
+      <text x="540" y="369" fill="#ffb454">+ rx_model per node</text>
+    </g>
+  </svg>
+  <figcaption>Diagram G — directed-graph topology. Solid green = desired links; dashed
+  purple = crosstalk. Every node has its own <code>rx_model</code> noise floor, applied
+  once to the summed RX. The broker sums all edges arriving at each node.</figcaption>
+  </figure>
+
+  <p class="key">YAML in 10 lines:</p>
+  <pre class="code-block"><code>runtime:    { backend: cuda, batch_samples: 23040 }
+devices:    [ { id: gnb0, sample_rate_hz: 23040000, rx_model: noise_floor, … },
+              { id: ue0,  sample_rate_hz: 23040000, rx_model: noise_floor, … },
+              { id: ue1,  sample_rate_hz: 23040000, rx_model: noise_floor, … } ]
+links:      [ { from: gnb0, to: ue0,  model: desired   },   # downlink
+              { from: gnb0, to: ue1,  model: desired   },
+              { from: ue0,  to: gnb0, model: desired   },   # uplink
+              { from: ue1,  to: gnb0, model: desired   },
+              { from: ue0,  to: ue1,  model: crosstalk },   # leakage
+              { from: ue1,  to: ue0,  model: crosstalk } ]
+models:     desired:     [ gain -3 dB · phase 0.1 rad · cfo 150 Hz ]
+            crosstalk:   [ path_loss 40 dB · phase 0.7 rad ]
+            noise_floor: [ awgn noise_power 0.01 ]</code></pre>
+
+  <h2>5. The broker — per-slot loop</h2>
+  <p>The broker spawns one <b>server thread per destination node</b>. Each thread owns a
+  ZMQ REP socket; when a downstream radio issues a request, the thread reads the common
+  window of samples available across all of the node's incoming edges, stages them into
+  pinned memory, runs the GPU pipeline, and replies with the processed IQ. Two threads
+  for the same node never coexist; threads for different nodes run in parallel and use
+  independent CUDA streams (see <a href="#stream-concurrency">section 16</a>).</p>
+  <p>Receive-side rings are written by a separate set of RX threads — one per source —
+  that pull TX packets from each source's PUB socket and append samples (with a monotonic
+  sequence number) to a per-source ring buffer. The server thread only reads from these
+  rings; it never writes to them.</p>
+  <p>The per-serve sequence in <code>src/broker.cpp</code> is a strict pipeline —
+  <b>align → read → delay → stage → kernel → return → throttle → advance</b>. Each
+  later stage assumes the guarantee the previous one made. The shape, laid out by
+  resource (which thread / which device does the work) reads like this:</p>
+
+  <!-- ============ DIAGRAM K : broker per-slot pipeline (swimlane) ============ -->
+  <figure>
+  <div class="bk-pipe">
+    <!-- Time axis with concrete anchors -->
+    <div class="bk-axis">
+      <div class="bk-axis-spacer"></div>
+      <div class="bk-axis-bar">
+        <span class="bk-tick" style="left:0%;"></span>
+        <span class="bk-tick-label" style="left:1%;">t = 0<span class="bk-tick-sub">REP received</span></span>
+        <span class="bk-tick" style="left:44%;"></span>
+        <span class="bk-tick-label" style="left:44%;">GPU starts<span class="bk-tick-sub">H2D launch</span></span>
+        <span class="bk-tick" style="left:70%;"></span>
+        <span class="bk-tick-label" style="left:70%;">GPU done<span class="bk-tick-sub">D2H complete</span></span>
+        <span class="bk-tick" style="left:100%;"></span>
+        <span class="bk-tick-label" style="left:99%;">t = 1 ms<span class="bk-tick-sub">slot deadline</span></span>
+      </div>
+    </div>
+
+    <!-- ZMQ lane: wait REP (start), REP send (end) -->
+    <div class="bk-lane">
+      <div class="bk-label">ZMQ socket<small>per node</small></div>
+      <div class="bk-track">
+        <div class="bk-stage bk-stage--zmq" style="left:0%; width:9%;">
+          <b>1. wait REP</b><small>zmq_recv</small>
+        </div>
+        <div class="bk-stage bk-stage--zmq" style="left:81%; width:9%;">
+          <b>7b. REP send</b><small>zmq_send reply</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hand-off: ZMQ → CPU after stage 1 -->
+    <div class="bk-handoff-layer"><div class="bk-handoff-row">
+      <div class="bk-handoff-label">ZMQ → CPU</div>
+      <div class="bk-handoff-arrows">
+        <span class="bk-handoff" style="left:9.5%;">↓</span>
+      </div>
+    </div></div>
+
+    <!-- CPU lane: stages 2-5, then 7a throttle, then 8 advance -->
+    <div class="bk-lane">
+      <div class="bk-label">host CPU<small>broker thread</small></div>
+      <div class="bk-track">
+        <div class="bk-stage bk-stage--cpu" style="left:10%; width:8%;">
+          <b>2. align</b><small>§6 cursors</small>
+        </div>
+        <div class="bk-stage bk-stage--cpu" style="left:18.5%; width:7%;">
+          <b>3. read</b><small>rings</small>
+        </div>
+        <div class="bk-stage bk-stage--cpu" style="left:26%; width:8%;">
+          <b>4. delay</b><small>§8 host</small>
+        </div>
+        <div class="bk-stage bk-stage--cpu" style="left:34.5%; width:8%;">
+          <b>5. stage</b><small>§7 pack</small>
+        </div>
+        <div class="bk-stage bk-stage--cpu" style="left:71%; width:9%;">
+          <b>7a. throttle</b><small>sleep_until</small>
+        </div>
+        <div class="bk-stage bk-stage--cpu" style="left:91%; width:9%;">
+          <b>8. advance</b><small>cursors += serve</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hand-off: CPU → GPU after stage 5, GPU → CPU after stage 6, CPU → ZMQ after 7a, ZMQ → CPU after 7b -->
+    <div class="bk-handoff-layer"><div class="bk-handoff-row">
+      <div class="bk-handoff-label">CPU ↔ GPU ↔ ZMQ ↔ CPU</div>
+      <div class="bk-handoff-arrows">
+        <span class="bk-handoff" style="left:43%;">↓</span>
+        <span class="bk-handoff" style="left:70.5%;">↑</span>
+        <span class="bk-handoff" style="left:80.5%;">↓</span>
+        <span class="bk-handoff" style="left:90.5%;">↑</span>
+      </div>
+    </div></div>
+
+    <!-- GPU lane: stage 6 single span, split into H2D / kernel / D2H sub-phases -->
+    <div class="bk-lane">
+      <div class="bk-label">GPU device<small>per-node CUDA stream</small></div>
+      <div class="bk-track">
+        <div class="bk-stage bk-stage--gpu" style="left:43.5%; width:9%;">
+          <b>6a. H2D</b><small>staged → device</small>
+        </div>
+        <div class="bk-stage bk-stage--gpu" style="left:53%; width:9%;">
+          <b>6b. kernel</b><small>§10–15</small>
+        </div>
+        <div class="bk-stage bk-stage--gpu" style="left:62%; width:8.5%;">
+          <b>6c. D2H</b><small>output → host</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="bk-legend">
+      <span><span class="bk-legend-sw" style="background:rgba(154,167,189,0.45); border:1px solid #9aa7bd;"></span>ZMQ network</span>
+      <span><span class="bk-legend-sw" style="background:rgba(255,180,84,0.45); border:1px solid #ffb454;"></span>host CPU work</span>
+      <span><span class="bk-legend-sw" style="background:rgba(111,208,140,0.55); border:1px solid #6fd08c;"></span>GPU device work</span>
+      <span>↓↑ = hand-off (resource transfer)</span>
+    </div>
+    <div class="bk-disclaimer">
+      Bar widths are nominal — they show <b>strict-sequential ordering</b> and resource
+      ownership, not measured timings. In practice stages 1–6 fit in ~10–20 µs and the
+      throttle (7a) absorbs whatever's left of the 1 ms slot.
+    </div>
+  </div>
+  <figcaption>Diagram K — the per-serve pipeline laid out by resource (ZMQ socket /
+  host CPU / GPU device). Each stage strictly blocks the next; the arrows between
+  lanes mark hand-offs where ownership transfers (ZMQ→CPU after the request arrives,
+  CPU→GPU after staging, GPU→CPU after D2H, CPU→ZMQ after the throttle anchor hits).
+  Stage 6 is shown as three sub-phases (6a H2D, 6b kernel, 6c D2H) since they have
+  distinct <code>cudaEvent</code> brackets and dominate the on-device timeline.
+  Section refs (§) link to the dedicated sections.</figcaption>
+  </figure>
+
+  <p>Detail per stage:</p>
+  <ol class="tight">
+    <li><b>Wait for REP request</b> on the node's socket.</li>
+    <li><b>Align</b> — first serve: co-init every incoming-edge cursor to its source
+        ring's <code>earliest_sequence()</code> so all edges share an epoch (sequence 0).
+        Subsequent serves: cursors are already aligned because they only ever advance
+        together (step 8). <b>Compute the common window</b>
+        <code>serve = min(batch, min over k of (next_seq − cursor))</code> — the largest
+        slice every edge can supply. If the window is zero the thread polls again, and
+        <code>rx_starvations</code> increments if the wait exceeds the starvation
+        deadline. <b>Detail in <a href="#alignment">section 6</a> + Diagram H.</b></li>
+    <li><b>Read</b> the common window from each source ring at its cursor — N separate
+        per-edge sample arrays, each <code>serve</code> samples long, all representing
+        the same source-time slice.</li>
+    <li><b>Apply per-link leading delay</b> (host-side) — for any edge whose chain
+        starts with <code>integer_delay</code> / <code>fractional_delay</code>,
+        <code>apply_leading_delay()</code> shifts that edge's samples back in time using
+        the per-link <code>delay_line</code> ring for cross-slot history. The shifted
+        samples replace the raw read. <b>Detail in <a href="#staged">section 7</a> top
+        prose + <a href="#channels">section 8</a> delay row.</b></li>
+    <li><b>Stage</b> — pack the N per-edge arrays back-to-back into the pinned
+        <code>host_staged</code> buffer for one H2D copy. <b>Detail in
+        <a href="#staged">section 7</a> + Diagram J.</b></li>
+    <li><b>Kernel</b> — <code>process_superposition</code> runs the H2D, launches
+        <code>superpose_kernel</code> (+ optional in-place <code>rx_model</code> pass),
+        and does the D2H. <b>Detail in <a href="#kernels">sections 10–15</a>.</b></li>
+    <li><b>Throttle then ZMQ REP send</b> — sleep until
+        <code>throttle_anchor + served / rate</code> (so wall-clock matches virtual
+        time), then reply with the processed IQ.</li>
+    <li><b>Advance cursors</b> by <code>serve</code> samples on every edge — keeps
+        them aligned for the next serve.</li>
+  </ol>
+
+  <!-- ============ DIAGRAM H : signal alignment ============ -->
+  <h2 id="alignment">6. Signal alignment and time discipline</h2>
+  <p>Three layers of alignment compose to make the emulator behave physically:</p>
+  <ol>
+    <li><b>Sequence-aligned superposition</b> — every incoming-edge cursor reads from the
+        same virtual time slice on every serve, so the kernel's
+        <code>staged[k·count + idx]</code> for different <code>k</code> always represents
+        the same instant in source time.</li>
+    <li><b>Per-link propagation delay</b> — chain-leading
+        <code>integer_delay</code> / <code>fractional_delay</code> steps shift an edge
+        back in time, with continuity preserved across slot boundaries via a host-side
+        <code>delay_line</code>.</li>
+    <li><b>Wall-clock throttle</b> — the server thread sleeps to pace serves at exactly
+        the sample rate, so virtual time = real time.</li>
+  </ol>
+  <figure>
+  <svg viewBox="0 0 1000 250" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <text x="20" y="22" fill="#9aa7bd">Per-source IQ rings (one per radio TX) · sequence-tagged samples 0, 1, 2, …</text>
+
+    <!-- Ring src 0 -->
+    <text x="20" y="58" fill="#5db1ff" font-size="11">src 0 ring</text>
+    <g fill="#1a2233" stroke="#2c3850">
+      <rect x="100" y="42" width="40" height="28"/>
+      <rect x="140" y="42" width="40" height="28"/>
+      <rect x="180" y="42" width="40" height="28"/>
+      <rect x="220" y="42" width="40" height="28"/>
+      <rect x="260" y="42" width="40" height="28"/>
+      <rect x="300" y="42" width="40" height="28"/>
+      <rect x="340" y="42" width="40" height="28"/>
+      <rect x="380" y="42" width="40" height="28"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="120" y="60">0</text>
+      <text x="160" y="60">1</text>
+      <text x="200" y="60">2</text>
+      <text x="240" y="60">3</text>
+      <text x="280" y="60">4</text>
+      <text x="320" y="60">5</text>
+      <text x="360" y="60">6</text>
+      <text x="400" y="60">7</text>
+    </g>
+    <text x="438" y="60" fill="#9aa7bd" font-size="11">… next_seq</text>
+
+    <!-- Ring src 1 -->
+    <text x="20" y="116" fill="#5db1ff" font-size="11">src 1 ring</text>
+    <g fill="#1a2233" stroke="#2c3850">
+      <rect x="100" y="100" width="40" height="28"/>
+      <rect x="140" y="100" width="40" height="28"/>
+      <rect x="180" y="100" width="40" height="28"/>
+      <rect x="220" y="100" width="40" height="28"/>
+      <rect x="260" y="100" width="40" height="28"/>
+      <rect x="300" y="100" width="40" height="28"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="120" y="118">0</text>
+      <text x="160" y="118">1</text>
+      <text x="200" y="118">2</text>
+      <text x="240" y="118">3</text>
+      <text x="280" y="118">4</text>
+      <text x="320" y="118">5</text>
+    </g>
+    <text x="358" y="118" fill="#9aa7bd" font-size="11">… next_seq</text>
+
+    <!-- Common window highlight -->
+    <rect x="98" y="34" width="244" height="104" fill="#5db1ff" fill-opacity="0.08" stroke="#5db1ff" stroke-dasharray="4 3"/>
+    <text x="220" y="158" fill="#5db1ff" text-anchor="middle" font-size="11">common window = min(batch, min over k of (next_seq − cursor))</text>
+    <text x="220" y="174" fill="#9aa7bd" text-anchor="middle" font-size="10">(here 6 samples — src 1's ring limits the window)</text>
+
+    <!-- Cursor marker: orange arrow pointing up at column 0 from below the rings -->
+    <g stroke="#ffb454" stroke-width="2" fill="#ffb454">
+      <line x1="120" y1="148" x2="120" y2="142"/>
+      <polygon points="120,138 114,148 126,148"/>
+    </g>
+    <text x="120" y="190" fill="#ffb454" text-anchor="middle" font-size="11">cursor_k</text>
+    <text x="120" y="204" fill="#9aa7bd" text-anchor="middle" font-size="10">(seq 0 on 1st serve = epoch)</text>
+
+    <text x="500" y="222" fill="#ffb454" font-size="11" text-anchor="middle">→ after serve: every cursor += 6 (lockstep advance across all edges)</text>
+
+    <!-- Time discipline panel on right - simplified to virtual-time formula only -->
+    <rect x="600" y="42" width="380" height="90" rx="6" fill="#1a2233" stroke="#2c3850"/>
+    <text x="790" y="64" fill="#ffb454" text-anchor="middle">Time discipline</text>
+    <text x="620" y="92" fill="#cdd6e6" font-size="11">virtual time of dst[idx]:</text>
+    <text x="620" y="116" fill="#5db1ff" font-size="13">  t = (cursor_start + idx) / sample_rate</text>
+
+    <text x="500" y="244" fill="#cdd6e6" text-anchor="middle" font-size="11">Same column index across rings = same source-time instant — that is what makes superposition physical.</text>
+  </svg>
+  <figcaption>Diagram H — per-source rings + co-initialised cursors + a common-window read.
+  Co-init gives every edge a shared time origin; the common-window rule keeps them aligned
+  every serve. (Wall-clock pacing is visualized separately in Diagram L; per-link delay in
+  Diagram M.)</figcaption>
+  </figure>
+  <!-- ============ DIAGRAM L : multi-serve cursor evolution over wall-clock time ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 295" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <text x="20" y="22" fill="#9aa7bd">Cursor evolution across serves · wall-clock time → (pinned by the throttle)</text>
+
+    <!-- time axis -->
+    <line x1="100" y1="42" x2="980" y2="42" stroke="#9aa7bd"/>
+    <g stroke="#ffb454" stroke-width="1.5">
+      <line x1="100" y1="38" x2="100" y2="46"/>
+      <line x1="393" y1="38" x2="393" y2="46"/>
+      <line x1="686" y1="38" x2="686" y2="46"/>
+      <line x1="980" y1="38" x2="980" y2="46"/>
+    </g>
+    <g fill="#ffb454" font-size="11" text-anchor="middle">
+      <text x="100" y="62">t = 0</text>
+      <text x="393" y="62">+ 1 ms</text>
+      <text x="686" y="62">+ 2 ms</text>
+      <text x="980" y="62">+ 3 ms</text>
+    </g>
+    <text x="100" y="74" fill="#9aa7bd" font-size="10" text-anchor="middle">throttle anchor</text>
+
+    <!-- src 0 ring -->
+    <text x="20" y="98" fill="#5db1ff" font-size="11">src 0 ring</text>
+    <g stroke="#2c3850">
+      <rect x="100" y="82" width="293" height="28" fill="#1a2233"/>
+      <rect x="393" y="82" width="293" height="28" fill="#1a2233"/>
+      <rect x="686" y="82" width="294" height="28" fill="#1a2233"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="246" y="100">seq 0 … 23 039</text>
+      <text x="539" y="100">seq 23 040 … 46 079</text>
+      <text x="833" y="100">seq 46 080 … 69 119</text>
+    </g>
+
+    <!-- src 1 ring -->
+    <text x="20" y="135" fill="#5db1ff" font-size="11">src 1 ring</text>
+    <g stroke="#2c3850">
+      <rect x="100" y="119" width="293" height="28" fill="#1a2233"/>
+      <rect x="393" y="119" width="293" height="28" fill="#1a2233"/>
+      <rect x="686" y="119" width="294" height="28" fill="#1a2233"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="246" y="137">seq 0 … 23 039</text>
+      <text x="539" y="137">seq 23 040 … 46 079</text>
+      <text x="833" y="137">seq 46 080 … 69 119</text>
+    </g>
+
+    <text x="540" y="162" fill="#9aa7bd" font-size="11" text-anchor="middle">⋮  (one row per incoming edge)</text>
+
+    <!-- src N-1 ring -->
+    <text x="20" y="190" fill="#5db1ff" font-size="11">src N−1</text>
+    <g stroke="#2c3850">
+      <rect x="100" y="174" width="293" height="28" fill="#1a2233"/>
+      <rect x="393" y="174" width="293" height="28" fill="#1a2233"/>
+      <rect x="686" y="174" width="294" height="28" fill="#1a2233"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="246" y="192">seq 0 … 23 039</text>
+      <text x="539" y="192">seq 23 040 … 46 079</text>
+      <text x="833" y="192">seq 46 080 … 69 119</text>
+    </g>
+
+    <!-- Vertical dashed lines at serve boundaries -->
+    <g stroke="#ffb454" stroke-dasharray="3 2">
+      <line x1="100" y1="78" x2="100" y2="206"/>
+      <line x1="393" y1="78" x2="393" y2="206"/>
+      <line x1="686" y1="78" x2="686" y2="206"/>
+      <line x1="980" y1="78" x2="980" y2="206"/>
+    </g>
+
+    <!-- Cursor positions row -->
+    <text x="20" y="228" fill="#ffb454" font-size="11">cursor_k</text>
+    <text x="68" y="240" fill="#9aa7bd" font-size="10">(all k)</text>
+    <g fill="#ffb454" font-size="11" text-anchor="middle">
+      <text x="100" y="234">0</text>
+      <text x="393" y="234">23 040</text>
+      <text x="686" y="234">46 080</text>
+      <text x="980" y="234">69 120</text>
+    </g>
+    <g fill="#9aa7bd" font-size="10" text-anchor="middle">
+      <text x="246" y="234">+= serve</text>
+      <text x="539" y="234">+= serve</text>
+      <text x="833" y="234">+= serve</text>
+    </g>
+
+    <!-- Bottom annotations -->
+    <text x="500" y="262" fill="#cdd6e6" text-anchor="middle">co-init at t = 0 sets every cursor to seq 0 of its source · they advance lockstep by 'serve' samples after every serve</text>
+    <text x="500" y="278" fill="#cdd6e6" text-anchor="middle">throttle pins each serve boundary to real time: t_serve(n) = anchor + n · serve / sample_rate</text>
+  </svg>
+  <figcaption>Diagram L — cursor evolution across serves. Diagram H showed one moment;
+  this shows the whole sequence. Every source's cursor starts at sequence 0 (co-init at
+  <span class="mono">t = 0</span>) and advances by <span class="mono">serve</span>
+  samples each serve, in lockstep across all edges. The wall-clock throttle pins each
+  serve boundary to real time, so virtual time = real time for the life of the run.</figcaption>
+  </figure>
+
+  <!-- ============ DIAGRAM M : how per-link delay shifts each source at the RX ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 330" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <text x="500" y="22" fill="#9aa7bd" text-anchor="middle">Per-link integer_delay shifts each source's contribution at the receiver</text>
+    <text x="500" y="36" fill="#9aa7bd" text-anchor="middle" font-size="10">d_k encodes both physical propagation distance AND constant TX timing offset — composed into one per-link knob</text>
+
+    <!-- virtual time idx ruler -->
+    <text x="20" y="60" fill="#9aa7bd" font-size="11">virtual time idx</text>
+    <g fill="#cdd6e6" text-anchor="middle" font-size="11">
+      <text x="170" y="60">0</text>
+      <text x="230" y="60">1</text>
+      <text x="290" y="60">2</text>
+      <text x="350" y="60">3</text>
+      <text x="410" y="60">4</text>
+      <text x="470" y="60">5</text>
+      <text x="530" y="60">6</text>
+      <text x="590" y="60" fill="#ffb454" font-weight="bold">7</text>
+      <text x="650" y="60">8</text>
+      <text x="710" y="60">9</text>
+    </g>
+
+    <!-- src 0 row -->
+    <text x="20" y="94" fill="#5db1ff" font-size="11">src 0</text>
+    <g stroke="#2c3850">
+      <rect x="140" y="76" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
+      <rect x="200" y="76" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
+      <rect x="260" y="76" width="60" height="28" fill="#1a2233"/>
+      <rect x="320" y="76" width="60" height="28" fill="#1a2233"/>
+      <rect x="380" y="76" width="60" height="28" fill="#1a2233"/>
+      <rect x="440" y="76" width="60" height="28" fill="#1a2233"/>
+      <rect x="500" y="76" width="60" height="28" fill="#1a2233"/>
+      <rect x="560" y="76" width="60" height="28" fill="#2a2113" stroke="#ffb454"/>
+      <rect x="620" y="76" width="60" height="28" fill="#1a2233"/>
+      <rect x="680" y="76" width="60" height="28" fill="#1a2233"/>
+    </g>
+    <g fill="#5db1ff" text-anchor="middle" font-size="11">
+      <text x="170" y="94" fill="#9aa7bd" font-size="10">(no signal yet)</text>
+      <text x="230" y="94" fill="#9aa7bd" font-size="10">⋯</text>
+      <text x="290" y="94">a₀</text>
+      <text x="350" y="94">a₁</text>
+      <text x="410" y="94">a₂</text>
+      <text x="470" y="94">a₃</text>
+      <text x="530" y="94">a₄</text>
+      <text x="590" y="94" fill="#ffb454" font-weight="bold">a₅</text>
+      <text x="650" y="94">a₆</text>
+      <text x="710" y="94">a₇</text>
+    </g>
+
+    <!-- src 0 d_k bracket below dashed cells (x=140 to 260) -->
+    <g stroke="#ffb454" stroke-width="1.5" fill="none">
+      <line x1="140" y1="110" x2="260" y2="110"/>
+      <line x1="140" y1="110" x2="140" y2="116"/>
+      <line x1="260" y1="110" x2="260" y2="116"/>
+    </g>
+    <text x="200" y="128" fill="#ffb454" text-anchor="middle" font-size="11">d_0 = 2 samples (delay_line tail)</text>
+
+    <!-- src 1 row -->
+    <text x="20" y="166" fill="#6fd08c" font-size="11">src 1</text>
+    <g stroke="#2c3850">
+      <rect x="140" y="148" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
+      <rect x="200" y="148" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
+      <rect x="260" y="148" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
+      <rect x="320" y="148" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
+      <rect x="380" y="148" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
+      <rect x="440" y="148" width="60" height="28" fill="#1a2233"/>
+      <rect x="500" y="148" width="60" height="28" fill="#1a2233"/>
+      <rect x="560" y="148" width="60" height="28" fill="#2a2113" stroke="#ffb454"/>
+      <rect x="620" y="148" width="60" height="28" fill="#1a2233"/>
+      <rect x="680" y="148" width="60" height="28" fill="#1a2233"/>
+    </g>
+    <g fill="#6fd08c" text-anchor="middle" font-size="11">
+      <text x="170" y="166" fill="#9aa7bd" font-size="10">(no signal yet)</text>
+      <text x="230" y="166" fill="#9aa7bd" font-size="10">⋯</text>
+      <text x="290" y="166" fill="#9aa7bd" font-size="10">⋯</text>
+      <text x="350" y="166" fill="#9aa7bd" font-size="10">⋯</text>
+      <text x="410" y="166" fill="#9aa7bd" font-size="10">⋯</text>
+      <text x="470" y="166">b₀</text>
+      <text x="530" y="166">b₁</text>
+      <text x="590" y="166" fill="#ffb454" font-weight="bold">b₂</text>
+      <text x="650" y="166">b₃</text>
+      <text x="710" y="166">b₄</text>
+    </g>
+
+    <!-- src 1 d_k bracket below dashed cells (x=140 to 440) -->
+    <g stroke="#ffb454" stroke-width="1.5" fill="none">
+      <line x1="140" y1="182" x2="440" y2="182"/>
+      <line x1="140" y1="182" x2="140" y2="188"/>
+      <line x1="440" y1="182" x2="440" y2="188"/>
+    </g>
+    <text x="290" y="200" fill="#ffb454" text-anchor="middle" font-size="11">d_1 = 5 samples (delay_line tail)</text>
+
+    <!-- Highlight column at idx=7 (across both source rows) -->
+    <rect x="558" y="72" width="64" height="108" fill="none" stroke="#ffb454" stroke-width="1.5" stroke-dasharray="4 2"/>
+
+    <!-- Formula box on right of highlight -->
+    <line x1="624" y1="126" x2="770" y2="126" stroke="#ffb454" stroke-dasharray="2 2"/>
+    <rect x="770" y="86" width="220" height="80" rx="6" fill="#0b101a" stroke="#ffb454"/>
+    <text x="880" y="106" fill="#ffb454" text-anchor="middle">at idx = 7</text>
+    <text x="880" y="126" fill="#cdd6e6" text-anchor="middle" font-size="11">dst[7] = a₅ + b₂</text>
+    <text x="880" y="144" fill="#9aa7bd" text-anchor="middle" font-size="10">src 0 sample (7−d_0) = 5</text>
+    <text x="880" y="158" fill="#9aa7bd" text-anchor="middle" font-size="10">src 1 sample (7−d_1) = 2</text>
+
+    <!-- Annotation lines: where d_k comes from -->
+    <text x="20" y="230" fill="#ffb454" font-size="12">Where d_k comes from (summed per link):</text>
+    <text x="40" y="252" fill="#cdd6e6" font-size="11">·  <tspan fill="#ffb454">propagation delay</tspan>  —  per-link geometry, YAML: propagation_delay_samples on the link</text>
+    <text x="40" y="270" fill="#cdd6e6" font-size="11">·  <tspan fill="#ffb454">tx timing offset</tspan>  —  per-device constant lag, YAML: tx_timing_offset_samples on the device</text>
+    <text x="40" y="288" fill="#cdd6e6" font-size="11">·  <tspan fill="#9aa7bd">explicit chain step</tspan>  —  integer_delay / fractional_delay as the chain's first step (see section 8)</text>
+    <text x="20" y="316" fill="#9aa7bd" font-size="10">Dashed cells = the delay_line tail kept on the host across slot boundaries so even the earliest idx in a slot has a defined delayed lookup.</text>
+  </svg>
+  <figcaption>Diagram M — the same virtual time index <span class="mono">idx</span> reaches
+  different source-sequence positions on different edges, because each edge applies its
+  own <code>integer_delay</code> d<sub>k</sub>. At idx = 7 the receiver integrates
+  <span class="mono">src 0</span>'s sample 5 (= 7 − d<sub>0</sub>) and
+  <span class="mono">src 1</span>'s sample 2 (= 7 − d<sub>1</sub>). d<sub>k</sub>
+  composes propagation distance and constant TX offset into one per-link knob — the
+  emulator cannot distinguish them.</figcaption>
+  </figure>
+
+  <p class="key"><b>Layer 2 in detail — what d<sub>k</sub> bundles together.</b>
+  d<sub>k</sub> in the diagram above is the chain-leading sample-delay step on the
+  link, and it absorbs two physically distinct effects. The receiver can't tell
+  them apart, but the YAML exposes a named knob for each so a topology can express
+  each effect cleanly:</p>
+  <ul class="tight">
+    <li><b>Propagation delay</b> — a per-link, geometry-driven physical
+        propagation time. A source farther from the receiver in the topology
+        corresponds to a larger contribution. One sample at the OCUDU / srsRAN
+        sample rate (≈ 23.04 MS/s) is ~13 m of free-space propagation, so a 100 m
+        link is roughly 8 samples. YAML knob: <code>propagation_delay_samples</code>
+        on the <b>link</b>.</li>
+    <li><b>TX timing offset</b> — a per-source, constant TX-start-time lag. If a
+        radio brought its ZMQ TX socket up later than the others, every sample it
+        produces is shifted in virtual time by exactly that constant.
+        Indistinguishable from being farther away by the same number of samples,
+        so the broker folds it into the same chain-leading delay step. YAML knob:
+        <code>tx_timing_offset_samples</code> on the <b>device</b> — applies
+        uniformly to every outgoing link.</li>
+  </ul>
+  <p class="key">At load time, <code>fold_link_leading_delays()</code> sums these
+  two knobs with whatever explicit <code>integer_delay</code> /
+  <code>fractional_delay</code> the link's model already has, then merges or
+  prepends the total as the chain's leading step. d<sub>k</sub> for an edge is
+  the sum of all three sources — see <a href="#channels">section 8</a> for the
+  YAML recipes.</p>
+
+  <p class="key"><b>What is not modeled at this layer:</b> any time-varying offset
+  (clock drift, slot misalignment that grows over time, sample-rate mismatch between
+  endpoints) is out of scope. d<sub>k</sub> is constant for the life of a serve and
+  changes only when the YAML is reloaded — drift would require a runtime-mutable
+  per-link delay, which is on the planned list in <a href="#scope">section 19</a>.</p>
+
+  <p class="key"><b>What this stage guarantees for everything downstream:</b> after this
+  step, the broker holds <span class="mono">N</span> per-edge sample arrays that are
+  <b>(a)</b> all exactly <span class="mono">serve</span> samples long, and
+  <b>(b)</b> whose element at index <span class="mono">idx</span> represents the same
+  source-time instant on every edge. The next stage (<a href="#staged">section 7</a>,
+  staging) takes these aligned arrays as given and concatenates them; the kernel
+  (<a href="#kernels">sections 10–12</a>) takes the staged buffer as given and sums
+  <span class="mono">staged[k·count + idx]</span> across edges to produce the node's
+  RX sample at instant <span class="mono">idx</span>.</p>
+
+  <!-- ============ DIAGRAM J : staged buffer packing ============ -->
+  <h2 id="staged">7. The staged buffer — packing N edges for one H2D</h2>
+  <p>"Staged" is the word for what the broker hands to the GPU each serve. By the time
+  the broker reaches this stage, <a href="#alignment">section 6</a> has already
+  guaranteed that the <span class="mono">N</span> per-edge sample arrays are
+  <b>time-aligned</b> — every edge's sample at index <span class="mono">idx</span>
+  represents the same source-time instant, and every array has the same length
+  <span class="mono">serve</span>. (If a per-link <code>integer_delay</code> /
+  <code>fractional_delay</code> applies, <code>apply_leading_delay()</code> has already
+  shifted that edge's samples back in time using its host-side <code>delay_line</code>
+  ring.) <b>Staging is purely a packing step</b> — it takes those
+  <span class="mono">N</span> aligned, delay-applied arrays and concatenates them
+  back-to-back into one pinned buffer (<code>host_staged</code>) so a <b>single</b>
+  <code>cudaMemcpyAsync</code> ships the whole block. The kernel then addresses any
+  edge's any sample with one formula:
+  <span class="mono">staged[k·count + idx]</span> = edge <span class="mono">k</span>'s
+  sample <span class="mono">idx</span>.</p>
+  <figure>
+  <div class="stage-fig">
+    <div class="stage-section-label">After section 6 alignment — N separate per-edge buffers, all <code>count</code> samples long</div>
+    <div class="stage-inputs">
+      <div class="stage-input-row r0">
+        <span class="stage-edge">edge 0 · ue0→gnb0</span>
+        <span class="stage-buf">[ s0  s1  s2  s3  ⋯  s_count−1 ]</span>
+        <span class="stage-size">23 040 IQ · 180 KB</span>
+      </div>
+      <div class="stage-input-row r1">
+        <span class="stage-edge">edge 1 · ue1→gnb0</span>
+        <span class="stage-buf">[ s0  s1  s2  s3  ⋯  s_count−1 ]</span>
+        <span class="stage-size">23 040 IQ · 180 KB</span>
+      </div>
+      <div class="stage-input-vdots">⋮&nbsp;&nbsp;(one row per incoming edge)</div>
+      <div class="stage-input-row rN">
+        <span class="stage-edge">edge N−1 · src→node</span>
+        <span class="stage-buf">[ s0  s1  s2  s3  ⋯  s_count−1 ]</span>
+        <span class="stage-size">23 040 IQ · 180 KB</span>
+      </div>
+    </div>
+    <div class="stage-arrow">pack contiguously into one pinned host buffer</div>
+    <div class="stage-output">
+      <div class="stage-section-label">host_staged · one pinned block of <span class="mono">N × count</span> IQ samples</div>
+      <div class="stage-strip">
+        <div class="stage-seg s0">edge 0 samples<small>byte offsets [0, count)</small></div>
+        <div class="stage-seg s1">edge 1 samples<small>byte offsets [count, 2·count)</small></div>
+        <div class="stage-seg sN">edge N−1 samples<small>byte offsets [(N−1)·count, N·count)</small></div>
+      </div>
+      <div class="stage-formula">address formula:  staged[k · count + idx]   →   edge k's sample idx</div>
+    </div>
+    <div class="stage-arrow">ONE cudaMemcpyAsync H2D · total = N × count × 8 B</div>
+    <div class="stage-device">device_staged · same layout · kernel reads staged[k·count + idx]<small>see Diagram B (kernel logic) and Diagram D (buffer pairing) for downstream use</small></div>
+  </div>
+  <figcaption>Diagram J — the "staging" transformation. <b>Top:</b> N separate
+  per-edge inputs after time alignment. <b>Middle:</b> concatenated back-to-back
+  into one pinned buffer. <b>Bottom:</b> a single H2D copies the whole block; the kernel
+  uses one index formula to reach any edge's any sample.</figcaption>
+  </figure>
+  <p class="key"><b>Why pack at all?</b></p>
+  <ul class="tight">
+    <li><b>One H2D, not N.</b> Each <code>cudaMemcpyAsync</code> carries fixed
+        per-launch overhead; for N=2 that doubles, for N=8 it's 8×. A single contiguous
+        copy amortises it.</li>
+    <li><b>Single-pointer kernel argument.</b> <code>superpose_kernel</code> takes one
+        <code>staged</code> pointer plus the integer <code>count</code>; the address
+        formula derives any (edge, sample) pair without extra metadata.</li>
+    <li><b>DMA + L2 friendly.</b> Contiguous memory plays well with the GPU's copy
+        engine and the L2 prefetcher.</li>
+  </ul>
+  <p class="key"><b>Sizing.</b> Each IQ sample is 8 bytes (two <code>float32</code>).
+  For the canonical 23 040-sample slot and a 2-edge node:
+  <span class="mono">2 × 23 040 × 8 B = 360 KB per serve</span>. Even a 16-edge node
+  caps at 2.88 MB — comfortably under any current GPU's L2 (50 MB on H100, 128 MB on
+  B200). For RTX 5090's wider memory bus, 360 KB clears L2 in tens of microseconds.</p>
+
+  <h2 id="channels">8. Channel models in YAML</h2>
+  <p>Every model is a chain of named steps. The CPU and CUDA backends accept the same step
+  set and produce bit-exact output for any single edge (validated by
+  <code>tests/test_processing.cpp</code>). YAML keys per step type:</p>
+  <table>
+    <tr><th>Step type</th><th>YAML keys</th><th>Effect</th></tr>
+    <tr><td><code>gain</code></td><td><code>gain_db</code></td><td>scalar multiply on (i, q) — built into <code>step.a</code> = <code>10^(gain_db/20)</code></td></tr>
+    <tr><td><code>path_loss</code></td><td><code>path_loss_db</code></td><td>same Scale branch, sign-flipped — attenuation</td></tr>
+    <tr><td><code>phase</code></td><td><code>phase_rad</code></td><td>static phase rotation — <code>step.a</code> = phase, <code>step.b</code> = 0</td></tr>
+    <tr><td><code>cfo</code></td><td><code>cfo_hz</code></td><td>linear phase drift = carrier frequency offset — <code>step.b</code> = <code>2π·f<sub>cfo</sub>/f<sub>s</sub></code></td></tr>
+    <tr><td><code>awgn</code></td><td><code>noise_power</code> <i>or</i> <code>snr_db</code></td><td>complex Gaussian noise via counter-based Philox. Absolute mode: per-component σ = √(noise_power/2); SNR mode: noise scaled to <code>running_power / 10^(SNR/10)</code></td></tr>
+    <tr><td><code>integer_delay</code> · <code>fractional_delay</code></td><td><code>delay_samples</code></td><td>Raw chain-leading sample delay, applied <b>host-side</b> in <code>apply_leading_delay()</code>; continuous across slots via a <code>delay_line</code> ring. This step is the underlying mechanism the two higher-level knobs (<code>propagation_delay_samples</code> on a link, <code>tx_timing_offset_samples</code> on a device — see the "Three named knobs" table below) fold into; use it directly only when neither of those scopes fits. <b>Why host-side?</b> Delay reads <code>input[n − d]</code> — for small <code>n</code>, that index is in the <i>previous</i> slot, which the per-sample device kernel never sees (it gets one slot at a time). The per-link <code>delay_line</code> ring on the host carries the previous batch's tail across the boundary so the lookup stays defined.</td></tr>
+  </table>
+  <p class="key"><b>Three named knobs for the chain-leading delay.</b> Two
+  physically distinct effects compose into the same chain-leading delay step
+  (<a href="#alignment">section 6</a>, Layer 2). The YAML exposes a named knob
+  for each so a topology can express each one cleanly; at config-load time
+  <code>fold_link_leading_delays()</code> sums them and merges the total into the
+  link's effective chain.</p>
+  <table>
+    <tr><th>Knob</th><th>Scope</th><th>YAML key</th><th>Physical meaning</th></tr>
+    <tr>
+      <td><b>Propagation delay</b></td>
+      <td>per-link</td>
+      <td><code>propagation_delay_samples</code> on a <code>LinkConfig</code></td>
+      <td>Geometry-driven physical propagation along this specific edge. One
+          sample at 23.04 MS/s is ~13 m free-space. Different outbound links of
+          the same source can carry different values.</td>
+    </tr>
+    <tr>
+      <td><b>TX timing offset</b></td>
+      <td>per-device</td>
+      <td><code>tx_timing_offset_samples</code> on a <code>DeviceConfig</code></td>
+      <td>Constant TX-start-time lag of this endpoint — applies uniformly to
+          every outgoing link of the device. Models a radio that brought its
+          ZMQ TX socket up later than the others.</td>
+    </tr>
+    <tr>
+      <td><b>Explicit chain step</b></td>
+      <td>per-link (via model)</td>
+      <td><code>integer_delay</code> / <code>fractional_delay</code> as the
+          chain's first step</td>
+      <td>The raw mechanism. Use directly when neither of the above scopes
+          fits — e.g., the model genuinely needs a leading delay distinct from
+          link geometry.</td>
+    </tr>
+  </table>
+  <p class="key"><b>Composition rules.</b> All three are summed for each link.
+  If the chain already has a leading <code>integer_delay</code> /
+  <code>fractional_delay</code>, the sum is merged into its
+  <code>delay_samples</code>; otherwise a leading step is prepended. A fractional
+  total promotes the leading step to <code>fractional_delay</code>. Negative
+  values for either named knob are rejected at load time. The per-link
+  <code>delay_line</code> ring fills on the first serve and the composed offset
+  becomes constant for the run.</p>
+  <p class="key"><b>Worked example.</b> A device with
+  <code>tx_timing_offset_samples: 2</code> and a link from it carrying
+  <code>propagation_delay_samples: 4</code> on top of a base model whose chain
+  starts with <code>integer_delay 1</code> ends up with a synthesized leading
+  <code>integer_delay 7</code> = (2 + 4 + 1). At idx = 7 the receiver sees the
+  source's sample 0. For a runnable variant of this composition see
+  <code>examples/topology.ocudu-docker.tx-offset.cuda.yaml</code> — the same
+  single-cell OCUDU topology with a 4-sample <code>tx_timing_offset_samples</code>
+  on gNB plus a 3-sample <code>propagation_delay_samples</code> on the uplink
+  edge.</p>
+  <p class="key"><code>running_power</code> in the AWGN SNR mode is the broker's
+  running estimate of the signal power at the point in the chain where the AWGN step
+  appears — built up by the host-side <code>build_steps()</code> walking the chain, so
+  placing AWGN earlier vs later in the chain gives different absolute noise levels for
+  the same <code>snr_db</code>. The <code>rx_model</code> for a node is just another model
+  — typically a single <code>awgn</code> step (the noise floor), but anything is legal.
+  The validator rejects delay steps in <code>rx_model</code> (they would have no defined
+  input signal).</p>
+
+  <h2>9. Processor backends — CPU and CUDA</h2>
+  <p>There are two backends behind a common <code>ChannelProcessor</code> interface
+  (<code>include/ocudu_gpu_channel/processing.h</code>): <b>CPU</b> for correctness
+  reference and local development, <b>CUDA</b> for production scale. Both expose a
+  single entry point:</p>
+  <ul class="tight">
+    <li><code>process_superposition(dst_node, edges, rx_model, rate, out)</code> —
+        shapes every incoming edge of <code>dst_node</code> through that edge's
+        own channel model, sums them, and applies the node's optional
+        <code>rx_model</code> once to the sum. The broker uses this for N-edge
+        fan-in; the benchmark and unit tests use the same call with a
+        one-element <code>edges</code> list (the N = 1 single-edge case) instead
+        of a separate per-link API.</li>
+  </ul>
+  <p>Bit-exactness contract: for any single edge,
+  <code>process_superposition</code> on CPU and CUDA produces identical
+  <code>cf32</code> output bit-for-bit. This is enforced by tests and matters
+  because it lets us debug regressions on the CPU path before reproducing on the
+  GPU. The shared inline implementation of delay
+  (<code>include/ocudu_gpu_channel/delay.h</code>) and the counter-based Philox
+  RNG are what make this practical.</p>
+
+  <h2 id="kernels">10. The two device kernels</h2>
   <table>
     <tr><th>Kernel</th><th>Used by</th><th>Each thread does</th></tr>
     <tr>
       <td class="mono">apply_steps_kernel</td>
-      <td>single-link <code>process_into</code> (benchmark, tests)</td>
-      <td>shapes one output sample through one link's model chain</td>
+      <td>runs in-place as the <b>receiver-model pass</b> after
+          <code>superpose_kernel</code> when a destination node has an
+          <code>rx_model</code> — a thermal-noise floor applied once to the
+          summed RX signal (rather than once per incoming edge).</td>
+      <td>shapes one output sample through one model chain</td>
     </tr>
     <tr>
       <td class="mono">superpose_kernel</td>
-      <td>multi-link <code>process_superposition</code> (the broker)</td>
+      <td>multi-link <code>process_superposition</code> (the broker's serve path)</td>
       <td>computes one output sample of a node's RX = <b>sum over every incoming
       edge</b> of that edge's channel-shaped input</td>
     </tr>
   </table>
   <p><span class="tag">interference</span> <span class="tag">crosstalk</span> Both are
   graph fan-in: a node's received signal is the superposition of every edge arriving at
-  it. <code>superpose_kernel</code> is where that summation runs — <b>on the GPU</b>.</p>
+  it. <code>superpose_kernel</code> is where that summation runs — <b>on the GPU</b>.
+  Both kernels live in <code>src/cuda_backend.cu</code>.</p>
 
   <!-- ============ DIAGRAM A : SIMT mapping ============ -->
-  <h2>3. Parallelism axis 1 — one thread per output sample</h2>
+  <h2>11. Parallelism axis 1 — one thread per output sample</h2>
   <figure>
-  <svg viewBox="0 0 1000 300" font-family="SF Mono,Menlo,monospace" font-size="12">
+  <svg viewBox="0 0 1000 260" font-family="SF Mono,Menlo,monospace" font-size="12">
     <defs>
       <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
         <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
       </marker>
     </defs>
-    <!-- batch strip -->
     <text x="20" y="34" fill="#9aa7bd">one 1 ms slot — 23 040 IQ samples</text>
     <g>
-      <!-- sample cells -->
       <g fill="#1a2233" stroke="#2c3850">
         <rect x="20"  y="44" width="48" height="34"/>
         <rect x="68"  y="44" width="48" height="34"/>
@@ -111,17 +1214,15 @@
       </g>
       <text x="300" y="65" fill="#9aa7bd">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
     </g>
-    <!-- arrows down -->
     <g stroke="#5db1ff" marker-end="url(#ar)">
-      <line x1="44"  y1="80" x2="44"  y2="128"/>
-      <line x1="92"  y1="80" x2="92"  y2="128"/>
-      <line x1="140" y1="80" x2="140" y2="128"/>
-      <line x1="188" y1="80" x2="188" y2="128"/>
-      <line x1="236" y1="80" x2="236" y2="128"/>
-      <line x1="830" y1="80" x2="830" y2="128"/>
+      <line x1="44"  y1="80" x2="44"  y2="156"/>
+      <line x1="92"  y1="80" x2="92"  y2="156"/>
+      <line x1="140" y1="80" x2="140" y2="156"/>
+      <line x1="188" y1="80" x2="188" y2="156"/>
+      <line x1="236" y1="80" x2="236" y2="156"/>
+      <line x1="830" y1="80" x2="830" y2="156"/>
     </g>
-    <!-- thread cells -->
-    <text x="20" y="150" fill="#9aa7bd">GPU threads — one per sample, all running concurrently</text>
+    <text x="20" y="118" fill="#9aa7bd" font-size="11">GPU threads — one per sample, all running concurrently</text>
     <g fill="#13391f" stroke="#6fd08c">
       <rect x="20"  y="160" width="48" height="34"/>
       <rect x="68"  y="160" width="48" height="34"/>
@@ -139,14 +1240,13 @@
       <text x="830" y="181">t23039</text>
     </g>
     <text x="300" y="181" fill="#9aa7bd">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
-    <!-- grid/block bracket -->
     <g stroke="#ffb454" fill="none">
-      <rect x="16" y="210" width="244" height="40" rx="4"/>
+      <rect x="16" y="156" width="244" height="42" rx="4"/>
     </g>
-    <text x="138" y="235" fill="#ffb454" text-anchor="middle">block 0 — 256 threads</text>
-    <text x="290" y="235" fill="#9aa7bd">block 1 · · · block 89</text>
-    <text x="20" y="278" fill="#cdd6e6">
-      grid = ⌈23040 / 256⌉ = 90 blocks  ·  90 × 256 = 23 040 threads  ·  the SM array runs them in lock-step warps of 32
+    <text x="138" y="216" fill="#ffb454" text-anchor="middle">block 0 — 256 threads</text>
+    <text x="290" y="216" fill="#9aa7bd">block 1 · · · block 89</text>
+    <text x="20" y="248" fill="#cdd6e6">
+      grid = ⌈23040 / 256⌉ = 90 blocks  ·  90 × 256 = 23 040 threads  ·  dispatched across the SMs as 32-thread warps
     </text>
   </svg>
   <figcaption>Diagram A — the launch <span class="mono">&lt;&lt;&lt;90, 256&gt;&gt;&gt;</span>:
@@ -154,12 +1254,14 @@
   </figure>
 
   <!-- ============ DIAGRAM B : superpose_kernel ============ -->
-  <h2>4. Parallelism axis 2 — each thread sums the whole interference graph</h2>
+  <h2>12. Parallelism axis 2 — each thread sums the whole interference graph</h2>
   <p>For a node with <span class="mono">N</span> incoming edges, the broker stages the
-  <span class="mono">N</span> source batches back to back and launches one
-  <code>superpose_kernel</code>. Thread <span class="mono">idx</span> walks all
-  <span class="mono">N</span> edges for its sample, shaping each through that edge's own
-  model chain, and accumulates — that accumulation <b>is</b> the interference.</p>
+  <span class="mono">N</span> source batches back to back into one pinned buffer and
+  launches one <code>superpose_kernel</code>. A small <code>step_meta</code> array packs
+  each edge's offset into the flattened step list (the first <span class="mono">N</span>
+  entries) and step count (the next <span class="mono">N</span> entries), so thread
+  <span class="mono">idx</span> can walk every edge for its sample, shape it through that
+  edge's own chain, and accumulate — that accumulation <b>is</b> the interference.</p>
   <figure>
   <svg viewBox="0 0 1000 340" font-family="SF Mono,Menlo,monospace" font-size="12">
     <defs>
@@ -167,109 +1269,1453 @@
         <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
       </marker>
     </defs>
-    <!-- staged edge buffers -->
-    <text x="20" y="26" fill="#9aa7bd">staged inputs — each incoming edge's 23 040-sample batch</text>
-    <g font-size="11">
-      <rect x="20" y="36" width="430" height="26" fill="#1a2233" stroke="#2c3850"/>
-      <text x="30" y="53" fill="#5db1ff">edge 0  ue0 → gnb0   [ s0 s1 s2 … ]</text>
-      <rect x="20" y="68" width="430" height="26" fill="#1a2233" stroke="#2c3850"/>
-      <text x="30" y="85" fill="#5db1ff">edge 1  ue1 → gnb0   [ s0 s1 s2 … ]</text>
-      <rect x="20" y="100" width="430" height="26" fill="#1a2233" stroke="#2c3850"/>
-      <text x="30" y="117" fill="#5db1ff">edge k  …            [ s0 s1 s2 … ]</text>
-    </g>
-    <!-- column idx highlight -->
-    <rect x="232" y="36" width="20" height="90" fill="none" stroke="#ffb454" stroke-dasharray="3 2"/>
-    <text x="242" y="146" fill="#ffb454" text-anchor="middle">sample idx</text>
+    <text x="20" y="22" fill="#9aa7bd">device_staged — every incoming edge's 23 040-sample batch, packed back to back</text>
 
-    <!-- thread box -->
+    <!-- Row 0: edge 0 -->
+    <text x="25" y="56" fill="#5db1ff" font-size="11">edge 0</text>
+    <text x="72" y="56" fill="#9aa7bd" font-size="10">ue0 → gnb0</text>
+    <g stroke="#2c3850">
+      <rect x="140" y="40" width="28" height="24" fill="#1a2233"/>
+      <rect x="168" y="40" width="28" height="24" fill="#1a2233"/>
+      <rect x="196" y="40" width="28" height="24" fill="#1a2233"/>
+      <rect x="224" y="40" width="28" height="24" fill="#2a2113"/>
+      <rect x="252" y="40" width="28" height="24" fill="#1a2233"/>
+      <rect x="280" y="40" width="28" height="24" fill="#1a2233"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="154" y="56">s0</text>
+      <text x="182" y="56">s1</text>
+      <text x="210" y="56">s2</text>
+      <text x="238" y="56" fill="#ffb454">s_idx</text>
+      <text x="266" y="56">s4</text>
+      <text x="294" y="56">s5</text>
+    </g>
+    <text x="324" y="56" fill="#9aa7bd" font-size="11">· · ·</text>
+    <rect x="350" y="40" width="55" height="24" fill="#1a2233" stroke="#2c3850"/>
+    <text x="377" y="56" fill="#9aa7bd" text-anchor="middle" font-size="11">s23039</text>
+
+    <!-- Row 1: edge 1 -->
+    <text x="25" y="86" fill="#5db1ff" font-size="11">edge 1</text>
+    <text x="72" y="86" fill="#9aa7bd" font-size="10">ue1 → gnb0</text>
+    <g stroke="#2c3850">
+      <rect x="140" y="70" width="28" height="24" fill="#1a2233"/>
+      <rect x="168" y="70" width="28" height="24" fill="#1a2233"/>
+      <rect x="196" y="70" width="28" height="24" fill="#1a2233"/>
+      <rect x="224" y="70" width="28" height="24" fill="#2a2113"/>
+      <rect x="252" y="70" width="28" height="24" fill="#1a2233"/>
+      <rect x="280" y="70" width="28" height="24" fill="#1a2233"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="154" y="86">s0</text>
+      <text x="182" y="86">s1</text>
+      <text x="210" y="86">s2</text>
+      <text x="238" y="86" fill="#ffb454">s_idx</text>
+      <text x="266" y="86">s4</text>
+      <text x="294" y="86">s5</text>
+    </g>
+    <text x="324" y="86" fill="#9aa7bd" font-size="11">· · ·</text>
+    <rect x="350" y="70" width="55" height="24" fill="#1a2233" stroke="#2c3850"/>
+    <text x="377" y="86" fill="#9aa7bd" text-anchor="middle" font-size="11">s23039</text>
+
+    <!-- Vertical dots indicating more edges in between -->
+    <text x="222" y="110" fill="#9aa7bd" font-size="11" text-anchor="middle">⋮</text>
+    <text x="266" y="110" fill="#9aa7bd" font-size="10">(one row per incoming edge)</text>
+
+    <!-- Row N−1 -->
+    <text x="25" y="132" fill="#5db1ff" font-size="11">edge N−1</text>
+    <text x="80" y="132" fill="#9aa7bd" font-size="10">src → node</text>
+    <g stroke="#2c3850">
+      <rect x="140" y="116" width="28" height="24" fill="#1a2233"/>
+      <rect x="168" y="116" width="28" height="24" fill="#1a2233"/>
+      <rect x="196" y="116" width="28" height="24" fill="#1a2233"/>
+      <rect x="224" y="116" width="28" height="24" fill="#2a2113"/>
+      <rect x="252" y="116" width="28" height="24" fill="#1a2233"/>
+      <rect x="280" y="116" width="28" height="24" fill="#1a2233"/>
+    </g>
+    <g fill="#e7ecf5" text-anchor="middle" font-size="11">
+      <text x="154" y="132">s0</text>
+      <text x="182" y="132">s1</text>
+      <text x="210" y="132">s2</text>
+      <text x="238" y="132" fill="#ffb454">s_idx</text>
+      <text x="266" y="132">s4</text>
+      <text x="294" y="132">s5</text>
+    </g>
+    <text x="324" y="132" fill="#9aa7bd" font-size="11">· · ·</text>
+    <rect x="350" y="116" width="55" height="24" fill="#1a2233" stroke="#2c3850"/>
+    <text x="377" y="132" fill="#9aa7bd" text-anchor="middle" font-size="11">s23039</text>
+
+    <!-- Column highlight: dashed bracket around the s_idx column across all rows -->
+    <rect x="222" y="38" width="32" height="104" fill="none" stroke="#ffb454" stroke-width="1.5" stroke-dasharray="4 2"/>
+    <text x="238" y="160" fill="#ffb454" text-anchor="middle" font-size="11">column idx</text>
+    <text x="238" y="174" fill="#9aa7bd" text-anchor="middle" font-size="10">(same source-time instant on every edge)</text>
+
     <g>
       <rect x="540" y="40" width="430" height="210" rx="8" fill="#13391f" stroke="#6fd08c"/>
       <text x="560" y="64" fill="#6fd08c">thread idx   —   computes dst[idx]</text>
       <text x="560" y="92"  fill="#e7ecf5">acc = (0, 0)</text>
       <text x="560" y="116" fill="#cdd6e6">for k in 0 … N-1:</text>
       <text x="582" y="140" fill="#5db1ff">s = staged[k·count + idx]</text>
-      <text x="582" y="164" fill="#c98bff">apply_chain(s, model_k)</text>
-      <text x="600" y="186" fill="#9aa7bd" font-size="11">gain ×a · rotate sincos · AWGN (Philox)</text>
-      <text x="582" y="210" fill="#ffb454">acc += s</text>
-      <text x="560" y="238" fill="#e7ecf5">dst[idx] = acc</text>
+      <text x="582" y="164" fill="#c98bff">apply_chain(s, steps + step_meta[k],</text>
+      <text x="652" y="180" fill="#c98bff">step_meta[N+k], idx)</text>
+      <text x="600" y="200" fill="#9aa7bd" font-size="11">gain ·  rotate sincos  ·  AWGN (Philox)</text>
+      <text x="582" y="222" fill="#ffb454">acc += s</text>
+      <text x="560" y="244" fill="#e7ecf5">dst[idx] = acc</text>
     </g>
-    <!-- arrows from staged column to thread -->
+    <!-- arrows from the highlighted column (right edge x=254) into the thread box -->
     <g stroke="#5db1ff" marker-end="url(#ar2)">
-      <line x1="252" y1="49"  x2="536" y2="120"/>
-      <line x1="252" y1="81"  x2="536" y2="135"/>
-      <line x1="252" y1="113" x2="536" y2="150"/>
+      <line x1="254" y1="52"  x2="536" y2="120"/>
+      <line x1="254" y1="82"  x2="536" y2="135"/>
+      <line x1="254" y1="128" x2="536" y2="150"/>
     </g>
-    <!-- output -->
-    <rect x="700" y="276" width="200" height="34" rx="4" fill="#1a2233" stroke="#ffb454"/>
-    <text x="800" y="297" fill="#ffb454" text-anchor="middle">dst[idx] = node RX sample</text>
-    <line x1="755" y1="250" x2="780" y2="272" stroke="#5db1ff" marker-end="url(#ar2)"/>
-    <text x="20" y="300" fill="#cdd6e6">desired + interference + crosstalk are the same operation:</text>
-    <text x="20" y="320" fill="#cdd6e6">every edge into the node is one term of the sum that thread idx accumulates.</text>
+    <rect x="540" y="268" width="430" height="34" rx="4" fill="#1a2233" stroke="#ffb454"/>
+    <text x="755" y="289" fill="#ffb454" text-anchor="middle">dst[0 … 23039] — node's RX signal (all threads' writes)</text>
+    <line x1="755" y1="250" x2="755" y2="260" stroke="#5db1ff" marker-end="url(#ar2)"/>
+    <text x="20" y="300" fill="#cdd6e6">desired, interference, and crosstalk are the same operation:</text>
+    <text x="20" y="320" fill="#cdd6e6">every term of dst[idx] is one edge arriving at the node.</text>
   </svg>
   <figcaption>Diagram B — <span class="mono">superpose_kernel</span>: 23 040 threads each
   evaluate the full N-edge superposition for their own sample, in parallel.</figcaption>
   </figure>
   <p class="key"><b>Two parallel axes multiply:</b> 23 040 samples wide (one thread each) ×
-  N edges deep (the per-thread loop). The 3-node graph's 2-edge nodes are ≈46 000 complex
+  N edges deep (the per-thread loop). The 3-node graph's 2-edge nodes are ≈ 46 000 complex
   channel evaluations per launch — measured at <b>5–9 µs</b> on the RTX 5090, well inside
   the 1 ms slot.</p>
 
-  <!-- ============ DIAGRAM C : pipeline ============ -->
-  <h2>5. The fused pipeline — one copy in, one kernel, one copy out</h2>
+  <!-- ============ DIAGRAM E : per-sample channel application ============ -->
+  <h2>13. How the channel is applied to each sample</h2>
+  <p>Inside the per-thread loop of <code>superpose_kernel</code> (and in the body of
+  <code>apply_steps_kernel</code>), each thread loads one (i, q) pair into registers and
+  walks the link's chain via <code>apply_chain()</code>. The chain is a flat array of
+  <code>GpuStep</code> structs built host-side from the YAML model; every iteration
+  switches on <code>step.type</code> to apply one of three operations, each mutating the
+  same (i, q) state in place. The same machinery serves every model in the topology —
+  "desired" is gain + phase + CFO, "crosstalk" is path-loss + phase, the receiver
+  <code>noise_floor</code> is a single AWGN step.</p>
   <figure>
-  <svg viewBox="0 0 1000 200" font-family="SF Mono,Menlo,monospace" font-size="12">
+  <svg viewBox="0 0 1000 410" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="are" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+    <rect x="20" y="20" width="960" height="40" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <text x="500" y="44" fill="#e7ecf5" text-anchor="middle">load into per-thread registers:  i = staged[k·count + idx].i  ·  q = staged[k·count + idx].q</text>
+    <line x1="500" y1="64" x2="500" y2="82" stroke="#5db1ff" marker-end="url(#are)"/>
+    <rect x="20" y="90" width="960" height="240" rx="8" fill="#0b101a" stroke="#ffb454"/>
+    <text x="500" y="112" fill="#ffb454" text-anchor="middle">apply_chain():  for step_idx in 0 … step_count − 1:  switch (steps[step_idx].type)</text>
+    <rect x="30" y="130" width="305" height="190" rx="6" fill="#1a2233" stroke="#6fd08c"/>
+    <text x="182" y="150" fill="#6fd08c" text-anchor="middle">Scale</text>
+    <text x="182" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">gain · path-loss</text>
+    <line x1="50" y1="180" x2="315" y2="180" stroke="#2c3850"/>
+    <text x="50" y="206" fill="#e7ecf5">i ← step.a · i</text>
+    <text x="50" y="226" fill="#e7ecf5">q ← step.a · q</text>
+    <text x="50" y="266" fill="#9aa7bd" font-size="11">step.a built host-side from</text>
+    <text x="50" y="282" fill="#9aa7bd" font-size="11">gain_db or path_loss_db.</text>
+    <rect x="345" y="130" width="305" height="190" rx="6" fill="#1a2233" stroke="#6fd08c"/>
+    <text x="497" y="150" fill="#6fd08c" text-anchor="middle">Phase  /  CFO</text>
+    <text x="497" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">sincos + complex multiply</text>
+    <line x1="365" y1="180" x2="630" y2="180" stroke="#2c3850"/>
+    <text x="365" y="200" fill="#e7ecf5">φ = step.a + step.b · idx</text>
+    <text x="365" y="220" fill="#e7ecf5">(c, s) = sincosf(φ)</text>
+    <text x="365" y="244" fill="#e7ecf5">(i, q) ← (i·c − q·s,  i·s + q·c)</text>
+    <text x="365" y="262" fill="#9aa7bd" font-size="11">simultaneous: both use the original (i, q)</text>
+    <text x="365" y="288" fill="#9aa7bd" font-size="11">b = 0  →  static phase rotate.</text>
+    <text x="365" y="304" fill="#9aa7bd" font-size="11">b = 2π·f_cfo / f_s  →  CFO drift.</text>
+    <rect x="660" y="130" width="305" height="190" rx="6" fill="#1a2233" stroke="#c98bff"/>
+    <text x="812" y="150" fill="#c98bff" text-anchor="middle">AddNoise  (AWGN)</text>
+    <text x="812" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">counter-based Philox</text>
+    <line x1="680" y1="180" x2="945" y2="180" stroke="#2c3850"/>
+    <text x="680" y="200" fill="#e7ecf5">rng = Philox4_32_10(</text>
+    <text x="680" y="216" fill="#e7ecf5">  step.seed, step.counter + idx)</text>
+    <text x="680" y="236" fill="#e7ecf5">n = curand_normal2(rng)</text>
+    <text x="680" y="256" fill="#e7ecf5">i ← i + step.a · n.x</text>
+    <text x="680" y="272" fill="#e7ecf5">q ← q + step.a · n.y</text>
+    <text x="680" y="296" fill="#9aa7bd" font-size="11">stateless: same (seed, ctr + idx)</text>
+    <text x="680" y="312" fill="#9aa7bd" font-size="11">→ same noise, every run.</text>
+    <line x1="500" y1="334" x2="500" y2="352" stroke="#5db1ff" marker-end="url(#are)"/>
+    <rect x="20" y="360" width="960" height="40" rx="4" fill="#1a2233" stroke="#ffb454"/>
+    <text x="500" y="384" fill="#e7ecf5" text-anchor="middle">acc_i += i  ·  acc_q += q       (dst[idx] = (acc_i, acc_q) once all N edges are summed)</text>
+  </svg>
+  <figcaption>Diagram E — <span class="mono">apply_chain()</span> on one (i, q) sample.
+  Each loop iteration picks ONE branch by <code>step.type</code>; (i, q) live in
+  registers throughout, no shared memory needed. The chain's order and length come from
+  the YAML config. Propagation delay is not shown — it is the chain's leading step,
+  handled host-side before staging.</figcaption>
+  </figure>
+
+  <!-- ============ DIAGRAM D : signal memory layout ============ -->
+  <h2 id="signal-memory">14. Signal memory — pinned host buffers paired with device buffers</h2>
+  <p>The pipeline in the next section moves data between two halves of a memory map: a
+  <b>pinned host side</b> (allocated with <code>cudaHostAlloc</code> so cudaMemcpyAsync is
+  truly asynchronous over PCIe DMA) and a matching <b>device side</b>
+  (<code>cudaMalloc</code> in GPU global memory). Each state owns its own
+  <code>cudaStream_t</code> (non-blocking) plus a quartet of <code>cudaEvent_t</code>s that
+  bracket H2D / kernel / D2H for the <code>event=gpu_timings</code> log line.</p>
+  <p>Two state structs hold the broker's signal memory:
+  <code>CudaSuperposeState</code> (one per destination node — the broker's
+  only hot-path state) and <code>CudaLinkSlot</code> (one per emulator
+  edge, holding the per-link chain phase / AWGN counter / delay_line ring).
+  The <code>process_superposition</code> call walks every incoming edge's
+  <code>CudaLinkSlot</code> to pack the staged buffer, then does one
+  fused H2D + kernel + D2H against the per-destination superpose state.</p>
+  <figure>
+  <svg viewBox="0 0 1000 320" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="ard" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+    <text x="200" y="20" fill="#9aa7bd" text-anchor="middle">HOST</text>
+    <text x="500" y="20" fill="#9aa7bd" text-anchor="middle">PCIe · cudaMemcpyAsync</text>
+    <text x="800" y="20" fill="#6fd08c" text-anchor="middle">DEVICE · global (cudaMalloc)</text>
+    <text x="20" y="44" fill="#ffb454" font-size="13">CudaSuperposeState — one per RX node · preallocated in prepare() · reused every serve</text>
+    <rect x="20" y="58" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <text x="30" y="75" fill="#e7ecf5">host_staged <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
+    <text x="30" y="89" fill="#9aa7bd" font-size="10.5">N × 23 040 IQ &nbsp; (180 KB per edge)</text>
+    <rect x="620" y="58" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c"/>
+    <text x="630" y="75" fill="#e7ecf5">device_staged</text>
+    <text x="630" y="89" fill="#9aa7bd" font-size="10.5">N × 23 040 IQ &nbsp; (kernel reads staged[k·count + idx])</text>
+    <line x1="384" y1="77" x2="614" y2="77" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="73" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · samples</text>
+    <rect x="20" y="104" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <text x="30" y="121" fill="#e7ecf5">host_steps <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
+    <text x="30" y="135" fill="#9aa7bd" font-size="10.5">Σ steps × GpuStep &nbsp; (flattened per-edge chains)</text>
+    <rect x="620" y="104" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c"/>
+    <text x="630" y="121" fill="#e7ecf5">device_steps</text>
+    <text x="630" y="135" fill="#9aa7bd" font-size="10.5">Σ steps × GpuStep</text>
+    <line x1="384" y1="123" x2="614" y2="123" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="119" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · chain</text>
+    <rect x="20" y="150" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <text x="30" y="167" fill="#e7ecf5">host_step_meta <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
+    <text x="30" y="181" fill="#9aa7bd" font-size="10.5">2N × int &nbsp; (first N: offsets · next N: counts)</text>
+    <rect x="620" y="150" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c"/>
+    <text x="630" y="167" fill="#e7ecf5">device_step_meta</text>
+    <text x="630" y="181" fill="#9aa7bd" font-size="10.5">2N × int</text>
+    <line x1="384" y1="169" x2="614" y2="169" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="165" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · meta</text>
+    <rect x="20" y="196" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850" stroke-dasharray="4 3"/>
+    <text x="30" y="213" fill="#cdd6e6">rx_model.host_steps <tspan fill="#9aa7bd" font-size="10.5">· optional</tspan></text>
+    <text x="30" y="227" fill="#9aa7bd" font-size="10.5">noise-floor chain · only when node has rx_model</text>
+    <rect x="620" y="196" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c" stroke-dasharray="4 3"/>
+    <text x="630" y="213" fill="#cdd6e6">device_rx_steps</text>
+    <text x="630" y="227" fill="#9aa7bd" font-size="10.5">consumed by the in-place apply_steps_kernel pass</text>
+    <line x1="384" y1="215" x2="614" y2="215" stroke="#5db1ff" stroke-dasharray="4 3" marker-end="url(#ard)"/>
+    <text x="499" y="211" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · rx (opt)</text>
+    <rect x="20" y="242" width="360" height="38" rx="4" fill="#1a2233" stroke="#ffb454"/>
+    <text x="30" y="259" fill="#e7ecf5">host_output <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
+    <text x="30" y="273" fill="#9aa7bd" font-size="10.5">23 040 IQ · the served signal</text>
+    <rect x="620" y="242" width="360" height="38" rx="4" fill="#13391f" stroke="#ffb454"/>
+    <text x="630" y="259" fill="#e7ecf5">device_output</text>
+    <text x="630" y="273" fill="#9aa7bd" font-size="10.5">23 040 IQ · kernel write target</text>
+    <line x1="614" y1="261" x2="384" y2="261" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="257" fill="#5db1ff" text-anchor="middle" font-size="11">D2H · result</text>
+    <text x="20" y="295" fill="#9aa7bd" font-size="11">
+      <tspan x="20" dy="0">pinned buffers (cudaHostAlloc) let cudaMemcpyAsync DMA run truly asynchronously</tspan>
+      <tspan x="20" dy="14">heap vectors (chain + meta) are tiny — the sync vs async distinction does not matter for them</tspan>
+    </text>
+  </svg>
+  <figcaption>Diagram D — signal memory map for the broker's superposition
+  hot path. Pinned host buffers pair with device global buffers; the small
+  heap-resident chain metadata gets its H2D piggy-backed on the staged
+  buffer's transfer. <code>CudaLinkSlot</code> holds only the per-link
+  chain-running state (phase / AWGN counter / delay_line) — no scratch.</figcaption>
+  </figure>
+
+  <p class="key"><b>Analytical footprint per RX node</b>. For
+  <span class="mono">N</span> incoming edges, a chain of
+  <span class="mono">S</span> steps, and a batch of
+  <span class="mono">count</span> IQ samples (8 bytes each):</p>
+  <ul class="tight">
+    <li><b>Staged buffer</b> — <span class="mono">8 · N · count</span> bytes,
+        allocated <i>twice</i>: pinned on host, mirrored on device. At
+        <span class="mono">N = 8</span>, <span class="mono">count = 23 040</span>:
+        ~1.4 MiB per side.</li>
+    <li><b>Output buffer</b> — <span class="mono">8 · count</span> bytes per
+        side. ~180 KiB.</li>
+    <li><b>Steps buffer</b> — <span class="mono">sizeof(GpuStep) · N · max_steps</span>
+        bytes per side. At <span class="mono">sizeof(GpuStep) = 24</span>,
+        <span class="mono">max_steps = 5</span>: ~960 B per N=8 node — tiny.</li>
+    <li><b>delay_line ring</b> — per link, <span class="mono">8 · (d + 2)</span>
+        bytes host-only, where <span class="mono">d</span> is the chain-leading
+        delay in samples. Negligible unless <span class="mono">d</span> is huge.</li>
+  </ul>
+  <p>Total device footprint for an 8-incoming-edge node at 23.04 MS/s fits
+  comfortably in any GPU's L2 (50 MB on H100, 128 MB on B200), and even the
+  full 16-edge stress topology stays in L2. Bandwidth, not capacity, is the
+  working constraint — quantified in <a href="#perf-pcie">§21.5</a>.</p>
+
+  <!-- ============ DIAGRAM C : pipeline ============ -->
+  <h2>15. The pipeline — staged in, summed in place, copied out</h2>
+  <p>Each destination node owns its own non-blocking CUDA stream, so independent nodes'
+  serves overlap without contention. Per serve, the broker issues a fixed sequence on that
+  one stream — three (or four, when the node has an <code>rx_model</code>) asynchronous
+  H2D copies, one or two kernel launches, one D2H. The sum stays in device memory across
+  the kernel launches.</p>
+  <figure>
+  <svg viewBox="0 0 1000 274" font-family="SF Mono,Menlo,monospace" font-size="12">
     <defs>
       <marker id="ar3" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
         <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
       </marker>
     </defs>
-    <!-- host -->
-    <rect x="30" y="50" width="230" height="100" rx="8" fill="#1a2233" stroke="#2c3850"/>
-    <text x="145" y="40" fill="#9aa7bd" text-anchor="middle">HOST (broker server thread)</text>
-    <text x="145" y="90" fill="#e7ecf5" text-anchor="middle">stage N edge batches</text>
-    <text x="145" y="112" fill="#9aa7bd" text-anchor="middle" font-size="11">into pinned memory</text>
-    <!-- device -->
-    <rect x="420" y="34" width="320" height="132" rx="8" fill="#13391f" stroke="#6fd08c"/>
-    <text x="580" y="24" fill="#6fd08c" text-anchor="middle">GPU (RTX 5090)</text>
-    <text x="580" y="78" fill="#e7ecf5" text-anchor="middle">superpose_kernel</text>
-    <text x="580" y="100" fill="#9aa7bd" text-anchor="middle" font-size="11">&lt;&lt;&lt;90 blocks, 256 threads&gt;&gt;&gt;</text>
-    <text x="580" y="134" fill="#ffb454" text-anchor="middle">23 040 threads · all edges summed</text>
-    <!-- host out -->
-    <rect x="780" y="50" width="190" height="100" rx="8" fill="#1a2233" stroke="#2c3850"/>
-    <text x="875" y="40" fill="#9aa7bd" text-anchor="middle">HOST</text>
-    <text x="875" y="100" fill="#ffb454" text-anchor="middle">node RX signal</text>
-    <text x="875" y="120" fill="#9aa7bd" text-anchor="middle" font-size="11">→ served to the radio</text>
-    <!-- arrows -->
-    <line x1="262" y1="100" x2="416" y2="100" stroke="#9aa7bd" marker-end="url(#ar3)"/>
-    <text x="338" y="92" fill="#5db1ff" text-anchor="middle" font-size="11">1 × H2D</text>
-    <line x1="742" y1="100" x2="776" y2="100" stroke="#9aa7bd" marker-end="url(#ar3)"/>
-    <text x="759" y="92" fill="#5db1ff" text-anchor="middle" font-size="11">1×D2H</text>
-    <text x="500" y="190" fill="#cdd6e6">
-      One batched host→device copy, one kernel launch, one device→host copy — no per-edge round-trips, the sum never leaves the GPU.
+    <rect x="20" y="46" width="230" height="160" rx="8" fill="#1a2233" stroke="#2c3850"/>
+    <text x="135" y="36" fill="#9aa7bd" text-anchor="middle">HOST · broker (pre-launch)</text>
+    <text x="135" y="78" fill="#e7ecf5" text-anchor="middle" font-size="12">apply_leading_delay</text>
+    <text x="135" y="96" fill="#9aa7bd" text-anchor="middle" font-size="11">(integer + fractional)</text>
+    <text x="135" y="124" fill="#e7ecf5" text-anchor="middle">stage N edge batches</text>
+    <text x="135" y="140" fill="#9aa7bd" text-anchor="middle" font-size="11">into pinned host_staged</text>
+    <text x="135" y="170" fill="#e7ecf5" text-anchor="middle">build steps + step_meta</text>
+    <text x="135" y="186" fill="#9aa7bd" text-anchor="middle" font-size="11">(flatten per-edge chains)</text>
+    <rect x="390" y="20" width="380" height="200" rx="8" fill="#13391f" stroke="#6fd08c"/>
+    <text x="580" y="14" fill="#6fd08c" text-anchor="middle">GPU device — one CUDA stream per destination node</text>
+    <rect x="405" y="34" width="350" height="56" rx="4" fill="none" stroke="#5db1ff" stroke-dasharray="3 2"/>
+    <text x="580" y="50" fill="#5db1ff" text-anchor="middle" font-size="11">3 × cudaMemcpyAsync H2D</text>
+    <text x="580" y="68" fill="#cdd6e6" text-anchor="middle" font-size="11">staged samples · flat steps · step_meta</text>
+    <text x="580" y="84" fill="#9aa7bd" text-anchor="middle" font-size="11">(+ rx_steps when the node has an rx_model)</text>
+    <rect x="405" y="100" width="350" height="42" rx="4" fill="#1a2233" stroke="#ffb454"/>
+    <text x="580" y="118" fill="#ffb454" text-anchor="middle">superpose_kernel &lt;&lt;&lt;90, 256&gt;&gt;&gt;</text>
+    <text x="580" y="134" fill="#9aa7bd" text-anchor="middle" font-size="11">23 040 threads · all N edges summed into device_output</text>
+    <rect x="405" y="150" width="350" height="34" rx="4" fill="#1a2233" stroke="#ffb454" stroke-dasharray="4 3"/>
+    <text x="580" y="172" fill="#ffb454" text-anchor="middle" font-size="11">apply_steps_kernel (in place) — rx_model, when present</text>
+    <rect x="405" y="192" width="350" height="22" rx="4" fill="none" stroke="#5db1ff" stroke-dasharray="3 2"/>
+    <text x="580" y="207" fill="#5db1ff" text-anchor="middle" font-size="11">1 × cudaMemcpyAsync D2H → host_output</text>
+    <rect x="800" y="80" width="180" height="100" rx="8" fill="#1a2233" stroke="#2c3850"/>
+    <text x="890" y="70" fill="#9aa7bd" text-anchor="middle">HOST · broker (post-launch)</text>
+    <text x="890" y="125" fill="#ffb454" text-anchor="middle">node RX signal</text>
+    <text x="890" y="145" fill="#9aa7bd" text-anchor="middle" font-size="11">→ served to ZMQ radio</text>
+    <text x="890" y="165" fill="#9aa7bd" text-anchor="middle" font-size="11">event=gpu_timings logged</text>
+    <line x1="252" y1="120" x2="386" y2="120" stroke="#9aa7bd" marker-end="url(#ar3)"/>
+    <line x1="772" y1="120" x2="796" y2="120" stroke="#9aa7bd" marker-end="url(#ar3)"/>
+    <text x="20" y="246" fill="#cdd6e6">
+      <tspan x="20" dy="0">One stream per destination node · independent nodes' serves overlap</tspan>
+      <tspan x="20" dy="16">cudaEvents bracket H2D / kernel / D2H for the gpu_timings log line</tspan>
     </text>
   </svg>
-  <figcaption>Diagram C — the whole interference graph for one node, one slot:
-  staged once, summed on-device, returned once.</figcaption>
+  <figcaption>Diagram C — the whole interference graph for one node, one slot: staged
+  once, summed on-device, optionally noise-floored in place, returned once.</figcaption>
   </figure>
 
-  <h2>6. Measured on the RTX 5090</h2>
-  <div class="numrow">
-    <div class="panel"><div class="num">23 040</div><div>threads / kernel launch</div></div>
-    <div class="panel"><div class="num">5–9 µs</div><div>superpose_kernel — measured</div></div>
-    <div class="panel"><div class="num">6 edges</div><div>3-node graph, summed on GPU</div></div>
-    <div class="panel"><div class="num">bit-exact</div><div>vs CPU reference sum</div></div>
+  <!-- ============ DIAGRAM I : multi-stream concurrency ============ -->
+  <h2 id="stream-concurrency">16. Multi-stream concurrency — overlapping serves</h2>
+  <p>Each destination node has its own <code>cudaStream_t</code> + thread, so the per-serve
+  H2D → kernel → D2H sequence runs concurrently across nodes. With three nodes the GPU is
+  rarely idle: while one node's kernel is running, another's H2D and a third's D2H can be
+  in flight on the GPU's copy engine.</p>
+  <figure>
+  <div class="gantt" style="max-width:760px; margin:0 auto;">
+    <div class="gantt-header">
+      <span></span>
+      <div class="gantt-tick-row">
+        <span class="gantt-tick" style="left:0%">t=0</span>
+        <span class="gantt-tick" style="left:25%">~50 µs</span>
+        <span class="gantt-tick" style="left:50%">~100 µs</span>
+        <span class="gantt-tick" style="left:75%">~150 µs</span>
+        <span class="gantt-tick" style="left:100%">slot end (1 ms)</span>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">gnb0 stream</div>
+      <div class="gantt-track">
+        <div class="gantt-bar gantt-bar--h2d" style="left:0%; width:18%;">H2D</div>
+        <div class="gantt-bar gantt-bar--kernel" style="left:18%; width:5%;">k</div>
+        <div class="gantt-bar gantt-bar--d2h" style="left:23%; width:14%;">D2H</div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">ue0 stream</div>
+      <div class="gantt-track">
+        <div class="gantt-bar gantt-bar--h2d" style="left:8%; width:18%;">H2D</div>
+        <div class="gantt-bar gantt-bar--kernel" style="left:26%; width:5%;">k</div>
+        <div class="gantt-bar gantt-bar--d2h" style="left:31%; width:14%;">D2H</div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-label">ue1 stream</div>
+      <div class="gantt-track">
+        <div class="gantt-bar gantt-bar--h2d" style="left:16%; width:18%;">H2D</div>
+        <div class="gantt-bar gantt-bar--kernel" style="left:34%; width:5%;">k</div>
+        <div class="gantt-bar gantt-bar--d2h" style="left:39%; width:14%;">D2H</div>
+      </div>
+    </div>
+    <div class="gantt-legend">
+      <span><span class="gantt-swatch" style="background:#5db1ff;"></span>cudaMemcpyAsync H2D / D2H</span>
+      <span><span class="gantt-swatch" style="background:#ffb454;"></span>kernel (superpose ± rx_model)</span>
+    </div>
   </div>
-  <p>The 3-node graph (<code>topology.graph.cuda.yaml</code> — two UEs and a gNB, uplink
-  interference plus UE↔UE crosstalk) relays through the CUDA broker with every
-  data-integrity counter at zero; the measured node powers match the analytic
-  superposition to &lt;0.3 %. The broker's <code>event=gpu_timings</code> line reports
-  <span class="mono">superpose_kernel</span> at 5–9 µs — under 1 % of the 1 ms slot — so
-  the compute headroom scales to many more edges before the GPU is the bottleneck. (The
-  host↔device copies are the larger cost today; overlapping them across the per-node
-  streams is a later optimisation.)</p>
+  <figcaption>Diagram I — per-node CUDA streams overlap. The GPU's copy engines and
+  compute engine can run concurrently, so one node's D2H and another's H2D coexist on the
+  PCIe bus while a third's kernel executes. Bar widths are illustrative — kernels are
+  ≈ 5–9 µs measured; H2D / D2H dominate per-slot wall time.</figcaption>
+  </figure>
 
-  <p class="sub" style="margin-top:34px">ocudu-gpu-channel · GPU-accelerated wireless-channel
-  emulator for OCUDU Split-8 ZMQ SDR · kernels in <span class="mono">src/cuda_backend.cu</span></p>
+  <h2>17. Validation</h2>
+  <p>Three layers, each progressively closer to a live radio integration:</p>
+  <ul class="tight">
+    <li><b>Unit tests</b> (<code>ctest</code> after <code>cmake --build</code>) — config
+        parsing, ring-buffer invariants, single-link channel processing including the
+        <b>bit-exact CPU↔CUDA contract</b>, broker thread-safety smoke.</li>
+    <li><b>Synthetic relay loops</b> — drive synthetic ZMQ source + sink through the
+        broker with controlled channel models; assert sink-side measured signal power
+        matches analytic expectation. Specific cases:
+        <ul class="tight" style="margin-top:4px;">
+          <li>AWGN with <code>noise_power=0.25</code> against a unit-power tone — sink
+              measures <code>avg_power = 1.250</code> within 0.003 %.</li>
+          <li>3-node graph (Diagram G) — <code>gnb0</code> RX <code>avg_power = 2.005</code>
+              (two UE uplinks summed), <code>ue0</code>/<code>ue1</code> RX
+              <code>avg_power = 0.501</code> (desired + −40 dB crosstalk) — within
+              <b>&lt; 0.3 %</b> of analytic superposition, all data-integrity counters at
+              zero.</li>
+          <li>2-cell / 4-node / 8-link multi-gNB graph — all four nodes' measured RX
+              <code>0.262</code> matches analytic superposition.</li>
+        </ul></li>
+    <li><b>Live OCUDU + srsRAN smoke</b> — Docker gNB + srsUE attach + IP ping through
+        the CUDA broker; see <a href="ocudu-interop.md"><code>docs/ocudu-interop.md</code></a>.</li>
+  </ul>
+  <p>The canonical GPU validation sequence is
+  <code>scripts/remote/gpu-test-sequence.sh</code>; it must pass before any change to the
+  broker or CUDA backend ships.</p>
+
+  <h2>18. Operational guidance</h2>
+  <ul class="tight">
+    <li><b>Use <code>--strict-realtime</code></b> for CI and any merge gate — it turns
+        starvation, overflow, and continuity events into hard exit-non-zero failures.</li>
+    <li><b>Reading the latency gate</b>: green = p99 added latency ≤ 25 % of the NR slot;
+        yellow = stable, ≤ one slot; red = &gt; one slot or unstable. Yellow on the
+        benchmark + zero <code>rx_starvations</code> in a relay loop is normally enough
+        for development; ship green.</li>
+    <li><b>Sample rates other than 23.04 MS/s</b> work as long as the topology declares
+        them consistently. The slot batch defaults to <code>auto</code>
+        (= 1 ms worth of samples).</li>
+    <li><b>If <code>rx_starvations</code> climbs</b> in production: usually the host CPU
+        is slower than the sample-rate cadence on whichever node started missing
+        deadlines. Check the kernel timings first (<code>event=gpu_timings</code>);
+        the GPU is rarely the bottleneck.</li>
+    <li><b>Distributed IQ across machines</b> over Wi-Fi or VPN is not viable — see
+        <a href="distributed.md"><code>docs/distributed.md</code></a>. Co-locate the
+        broker and radios on a wired LAN, ideally the same host.</li>
+  </ul>
+
+  <h2 id="scope">19. Scope and planned work</h2>
+  <h3>Scope today</h3>
+  <ul class="tight">
+    <li>CUDA is the target backend; CPU is the correctness reference and local
+        development path. Both are bit-exact for the supported step set.</li>
+    <li>Supported chain steps: <b>gain, path_loss, phase, CFO, AWGN,
+        integer_delay, fractional_delay</b>.</li>
+    <li>Per-link delay knobs that fold into the chain-leading delay at
+        config-load time: <code>device.tx_timing_offset_samples</code>
+        (per source) and <code>link.propagation_delay_samples</code>
+        (per edge). See <a href="#alignment">§6</a>.</li>
+    <li>Single processor entry point:
+        <code>ChannelProcessor::process_superposition()</code> handles
+        single-edge and N-edge fan-in uniformly. The previous
+        <code>process_into()</code> API was unified away in this branch
+        (it was the <span class="mono">N=1, rx_model=nullptr</span> case
+        of superposition).</li>
+    <li>Broker is a standalone external process, not a patch into OCUDU
+        or srsRAN.</li>
+    <li>Scale claims depend on topology, sample rate, model chain, and
+        hardware — measured per topology
+        (<a href="#perf">§21</a>), not promised.</li>
+  </ul>
+
+  <h3>Planned — realistic channel models (highest priority)</h3>
+
+  <p>The biggest gap between ocudu-gpu-channel and any commercial RF emulator
+  is the channel model itself: today we apply a single-tap chain, while real
+  wireless is multi-tap and time-varying. One new chain step closes that
+  gap.</p>
+
+  <p>The step is <b><code>tdl</code></b> — a tapped delay line with per-tap
+  complex gain and per-tap fractional delay. An optional per-tap
+  <b><code>fading</code></b> sub-config makes each tap's gain time-varying
+  with a Doppler-shaped autocorrelation. <code>tdl</code> alone is static
+  multipath; <code>tdl</code> with per-tap fading is the standard 3GPP
+  CDL/TDL channel used in every modem test in TS 38.101.</p>
+
+  <h4>Static taps — what <code>tdl</code> does</h4>
+
+  <p>A single chain step on a single edge holds an array of
+  <span class="mono">(delay, complex_gain)</span> taps. The kernel sums
+  <span class="mono">y[idx] = Σ a<sub>k</sub> · x[idx − τ<sub>k</sub>]</span>
+  in registers using one shared staged buffer plus a small
+  <code>delay_line</code> ring for cross-slot history.</p>
+
+  <p><b>Fractional delays from day one.</b> Tap delays are
+  <span class="mono">double</span> samples; sub-sample offsets resolve via
+  a per-tap polyphase/sinc interpolation kernel, reusing the building blocks
+  already in <code>fractional_delay</code> today. This avoids snapping CDL
+  delays to the nearest integer sample (which would lose up to ~22 ns of
+  delay-spread fidelity at 23.04 MS/s).</p>
+
+  <p><b>What it buys.</b> Static frequency-selective channels — 3GPP
+  TDL/CDL profiles, 2-ray ground-reflection, indoor multipath. Memory cost
+  is roughly the same as a single-tap edge today and <b>~24× lower</b>
+  than the naive "N parallel edges per link" approach for a 23-tap CDL-A
+  profile, because the cross-slot history is one ring per link rather
+  than one per tap.</p>
+
+  <h4>Per-tap fading — the Doppler sub-config</h4>
+
+  <p><b>The model.</b> When fading is enabled on a tap, its complex gain
+  <span class="mono">a<sub>k</sub>(t)</span> becomes a zero-mean complex
+  <b>stationary Gaussian process</b>. The one knob that defines it is the
+  tap's <b>Doppler power spectrum</b>
+  <span class="mono">S<sub>k</sub>(f)</span> — equivalently, the temporal
+  autocorrelation <span class="mono">R<sub>k</sub>(Δt)</span>, since one
+  is the Fourier transform of the other (the WSSUS framework, Bello 1963).
+  Everything else about the tap follows from that single choice.</p>
+
+  <p><b>Default spectrum: Jakes' classical.</b> Cosine-symmetric around
+  0 Hz, parameterised by a per-tap max-Doppler frequency
+  <span class="mono">f<sub>d,k</sub> = v · f<sub>c</sub> / c</span> —
+  stationary radio mismatch ≈ 0 Hz, pedestrian at 3.5 GHz ≈ 11 Hz, car
+  ≈ 350 Hz. Other spectra (Gaussian, flat, 3GPP cluster-specific) drop
+  in as alternate generators behind the same sub-config.</p>
+
+  <p><b>Envelope statistics fall out — they are not a separate knob.</b>
+  A zero-mean complex Gaussian process has a <b>Rayleigh</b> envelope by
+  construction; there is nothing to configure. A <b>Rician</b> envelope
+  is the same Gaussian process <i>plus</i> a deterministic LOS path (its
+  own gain, delay, and Doppler shift), and the K-factor is just the
+  LOS-to-scattered power ratio. So "Rayleigh vs. Rician" is a topology
+  question (is there a deterministic LOS tap alongside the faded ones?),
+  not a fading parameter.</p>
+
+  <p><b>Per-tap <span class="mono">f<sub>d,k</sub></span> matters.</b>
+  A stationary LOS tap and several mobile-scatterer taps can coexist with
+  different Doppler frequencies — exactly the 3GPP TR 38.901 cluster
+  model. A single link-wide <span class="mono">f<sub>d</sub></span> would
+  smear every tap with the same Doppler, which is not what the standard
+  says.</p>
+
+  <p><b>Implementation.</b> Per-tap Jakes sum-of-sinusoids (~16 sinusoids
+  per tap), counter-based Philox seeds per (link, tap, sinusoid, slot)
+  for deterministic reproducibility. To bound kernel cost, the generator
+  produces <span class="mono">a<sub>k</sub>(t)</span> on a coarse grid
+  (~1 µs, ~1 kHz) and linearly interpolates up to sample rate: fading
+  bandwidth is ~10<sup>4</sup>× below sample rate, so the interpolation
+  error sits well below any AWGN floor. The fading evaluation and the
+  TDL convolution share a single kernel — both backends produce the same
+  bits given the same Philox counter.</p>
+
+  <h4>What this replaces</h4>
+
+  <p>When <code>tdl</code> lands, it subsumes three existing single-tap
+  steps:</p>
+  <ul class="tight">
+    <li><code>gain</code> → a one-tap <code>tdl</code> with
+        <span class="mono">delay_samples = 0</span> and the chosen complex
+        gain.</li>
+    <li><code>integer_delay</code> → a one-tap <code>tdl</code> with the
+        integer delay and unit gain.</li>
+    <li><code>fractional_delay</code> → a one-tap <code>tdl</code> with the
+        fractional delay and unit gain.</li>
+  </ul>
+  <p>These three are removed in the same change set as <code>tdl</code>
+  lands; existing YAMLs and tests are rewritten in the same PR. The
+  per-link delay knobs
+  (<code>device.tx_timing_offset_samples</code>,
+  <code>link.propagation_delay_samples</code>) keep their semantics but
+  fold into the chain-leading <code>tdl</code> step rather than into a
+  leading <code>integer_delay</code> / <code>fractional_delay</code>. See
+  <a href="#alignment">§6</a> — that section will be retargeted at the
+  same time. The <code>path_loss</code>, <code>phase</code>, <code>cfo</code>,
+  and <code>awgn</code> steps stay as separate steps because they are not
+  multipath operations.</p>
+
+  <p class="key"><b>What about Doppler today?</b> Deterministic Doppler
+  shift (no spread) is already supported via the existing <code>cfo</code>
+  chain step — set <code>cfo_hz</code> to
+  <span class="mono">f<sub>d</sub> = v · f<sub>c</sub> / c</span> for a
+  link-wide constant offset. What's missing is <i>per-tap</i> Doppler and
+  <i>stochastic</i> Doppler spread, both of which arrive together when
+  <code>tdl</code> with its fading sub-config lands.</p>
+
+  <h3>Planned — operational flexibility</h3>
+  <ul class="tight">
+    <li><b>Runtime-mutable channel parameters.</b> Atomic per-link
+        parameters with a ZMQ control plane so gain, SNR, tap weights,
+        Doppler, and similar can be adjusted live without restarting the
+        broker. Important for closed-loop experiments
+        (link-adaptation under varying SNR, handover triggers, etc.).</li>
+    <li><b>Mixed-sample-rate links via per-link resampling.</b> Today the
+        validator rejects topologies where source and destination
+        <code>sample_rate_hz</code> differ. A small per-link polyphase
+        resampler at the broker would let asymmetric stacks (e.g., a
+        23.04 MS/s gNB and a 30.72 MS/s probe) talk through the same
+        emulator. Compute cost is bounded; the bigger work is the variable
+        batch-size accounting along the path.</li>
+  </ul>
+
+  <h3>Planned — performance frontier (only if we hit the wall)</h3>
+  <p>The actual hardware fix for the PCIe bottleneck is a true gen-5 x16
+  slot (<a href="#perf-pcie">§21.5</a>). The software levers below are
+  worth pursuing only if the hardware can't change; listed in priority
+  order:</p>
+  <ul class="tight">
+    <li><b>CUDA Graphs — capture-and-replay the per-slot pipeline.</b>
+        The H2D + kernel + D2H sequence is static after
+        <code>prepare()</code>: same kernel, same memcpys, same chain
+        layout. Recording it once as a <code>cudaGraph</code> and
+        replaying via <code>cudaGraphLaunch</code> each slot eliminates
+        ~10 µs/call of host-side dispatch overhead
+        (<code>cudaLaunchKernel</code> + four <code>cudaEventRecord</code>s
+        + three <code>cudaMemcpyAsync</code>s, totals in
+        <a href="#perf-resource">§21.4</a>). Biggest impact at small N
+        where the 10 µs is a large fraction of total per-call cost; at
+        N = 1 (mvp-2-edge), that's 10 / 65 µs ≈ 15 % gain. Cheap to
+        prototype, no kernel changes.</li>
+    <li><b>Coalesced H2D per call.</b> Each
+        <code>process_superposition</code> currently issues three H2D
+        memcpys (<code>device_staged</code>, <code>device_steps</code>,
+        <code>device_step_meta</code>); packing them into one contiguous
+        transfer saves the two extra PCIe transaction setups (~3–5 µs
+        each). Expected savings: <b>~20 % faster at N = 1</b>, ~6 % at
+        N = 8, &lt; 1 % at N = 64 — the staged buffer dominates absolutely
+        at high N, so this helps small configs proportionally more.</li>
+    <li><b>Mixed precision (cf16 IQ).</b> Today IQ is two float32s
+        (8 B/sample). Going to cf16 halves the staged buffer, halves
+        H2D / D2H bytes per slot, <b>doubles the effective PCIe
+        bandwidth</b>. At N = 8 it would compress H2D from 119 µs →
+        ~60 µs — equivalent to upgrading from x4 to x8 PCIe without
+        touching hardware. The only software lever that lifts the bench
+        ceiling. Cost: revisiting the bit-exact CPU↔CUDA contract (AWGN
+        sigma in fp16 needs care; gain / phase / CFO multiplies are
+        fine). <b>Highest impact item by far</b> — only one that actually
+        scales the boundary.</li>
+    <li><b>H2D pipelining (ping-pong staged buffers) — considered and
+        deprioritised.</b> Ping-pong only helps when kernel time
+        approaches H2D time, but on this kernel the ratio is ~1:10 even
+        at N = 64 (kernel ~54 µs vs H2D ~884 µs). Saves at most
+        ~kernel µs/slot (5–8 % of total), not the ~50 % a balanced
+        kernel would yield. Doubles staged-buffer VRAM. Reconsider only
+        if a heavier kernel (multi-tap <code>tdl</code> + per-tap
+        <code>fading</code>) pushes kernel µs into the same order as
+        H2D µs.</li>
+  </ul>
+
+  <h3>Planned — topology shapes (lower priority)</h3>
+  <ul class="tight">
+    <li><b>Distributed IQ across hosts.</b> Today the broker and radios
+        must be co-located (<a href="distributed.md">docs/distributed.md</a>).
+        A second broker hop over RDMA-class networking would let the
+        emulator scale across nodes. Out of scope for now — the per-link
+        latency budget on a wired LAN is already tight; over IP fabric
+        it's almost certainly impossible at slot cadence.</li>
+  </ul>
+
+  <!-- ============ §20 Profiling — instrumentation system design ============ -->
+  <h2 id="profiling">20. Profiling — instrumentation system design</h2>
+  <p>The broker is instrumented end-to-end so a real-time relay can be diagnosed
+  from log lines alone, no debugger attach required. The instrumentation answers
+  three questions: <i>where is the time going</i>, <i>where are samples being
+  lost</i>, and <i>where is the system at the edge of realtime margin</i>.</p>
+
+  <p>The architecture has <b>two producers</b> emitting onto <b>one stdout
+  event stream</b>, plus a parallel <b>microbenchmark CLI</b> that drives the
+  same processor without ZMQ I/O:</p>
+
+  <ol class="tight">
+    <li><b>Host-side <code>chrono::steady_clock</code> brackets in the broker
+        server loop</b> — measure each per-serve stage (wait_req · align ·
+        read · process · throttle · send) and publish as
+        <code>event=cpu_stage_timings</code>. See Diagram K (§5) for the
+        stage definitions.</li>
+    <li><b>CUDA event brackets around the processor's GPU work</b> —
+        <code>cudaEventRecord</code> wraps H2D, kernel, D2H; the host reads
+        the µs deltas after <code>cudaStreamSynchronize</code> and publishes
+        them as <code>event=gpu_timings</code>. The only layer that sees
+        <i>inside</i> the GPU.</li>
+    <li><b>Microbenchmark CLI</b> (<code>ocudu-gpu-channel-bench</code>) —
+        drives the channel processor in a tight loop with no ZMQ I/O and no
+        broker scheduling, emitting per-percentile latency CSV. Shares the
+        same <code>cudaEvent</code> instrumentation with the broker — just a
+        different driving cadence. Numbers populate <a href="#perf">§21</a>.</li>
+  </ol>
+  <p>Both producers' events plus ring-pressure heartbeats, lifetime
+  data-integrity counters, and fatals share one stdout stream — see
+  <a href="#profiling-events">§20.1</a> for the full vocabulary. Memory
+  footprint is analytical (computed at <code>prepare()</code> time, not
+  measured) — see <a href="#signal-memory">§14</a>.</p>
+
+  <!-- ============ DIAGRAM N : instrumentation flow ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 470" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="arr_on" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#6fd08c"/>
+      </marker>
+      <marker id="arr_od" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#ffb454"/>
+      </marker>
+    </defs>
+
+    <text x="20" y="20" fill="#9aa7bd" font-size="11">Instrumentation data flow · two broker producers feed one stdout stream · bench is an alternate driver</text>
+
+    <!-- Top row: producers (Broker, cudaEvent API, GPU device) -->
+    <rect x="40" y="50" width="240" height="92" rx="6" fill="#13391f" stroke="#6fd08c" stroke-width="2"/>
+    <text x="160" y="76" fill="#e7ecf5" text-anchor="middle">Broker thread</text>
+    <text x="160" y="94" fill="#9aa7bd" text-anchor="middle" font-size="10">src/broker.cpp</text>
+    <text x="160" y="114" fill="#cdd6e6" text-anchor="middle" font-size="10">brackets per-serve stages with</text>
+    <text x="160" y="128" fill="#cdd6e6" text-anchor="middle" font-size="10">chrono::steady_clock</text>
+
+    <rect x="380" y="50" width="240" height="92" rx="6" fill="#1a2233" stroke="#5db1ff" stroke-width="2"/>
+    <text x="500" y="76" fill="#e7ecf5" text-anchor="middle">cudaEvent API</text>
+    <text x="500" y="94" fill="#9aa7bd" text-anchor="middle" font-size="10">cudaEventRecord +</text>
+    <text x="500" y="108" fill="#9aa7bd" text-anchor="middle" font-size="10">cudaEventElapsedTime</text>
+    <text x="500" y="128" fill="#cdd6e6" text-anchor="middle" font-size="10">brackets H2D · kernel · D2H</text>
+
+    <rect x="720" y="50" width="240" height="92" rx="6" fill="#1a2233" stroke="#c98bff" stroke-width="2"/>
+    <text x="840" y="76" fill="#e7ecf5" text-anchor="middle">GPU device</text>
+    <text x="840" y="94" fill="#9aa7bd" text-anchor="middle" font-size="10">superpose_kernel</text>
+    <text x="840" y="108" fill="#9aa7bd" text-anchor="middle" font-size="10">apply_steps_kernel</text>
+    <text x="840" y="128" fill="#cdd6e6" text-anchor="middle" font-size="10">work being timed</text>
+
+    <!-- Arrows top row: GPU → cudaEvent → Broker (per-serve, always-on) -->
+    <line x1="720" y1="96" x2="624" y2="96" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
+    <text x="672" y="88" fill="#6fd08c" font-size="10" text-anchor="middle">phase events</text>
+    <line x1="380" y1="96" x2="284" y2="96" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
+    <text x="332" y="88" fill="#6fd08c" font-size="10" text-anchor="middle">µs deltas</text>
+
+    <!-- Middle row: stdout event lines (full-width strip) -->
+    <rect x="40" y="200" width="920" height="80" rx="6" fill="#1a2233" stroke="#ffb454" stroke-width="2"/>
+    <text x="500" y="222" fill="#ffb454" text-anchor="middle">stdout event stream · key=value lines</text>
+    <g font-size="10" fill="#cdd6e6" text-anchor="middle">
+      <text x="160" y="248">event=cpu_stage_timings</text>
+      <text x="380" y="248">event=gpu_timings</text>
+      <text x="560" y="248">event=heartbeat</text>
+      <text x="720" y="248">event=stats</text>
+      <text x="850" y="248">event=stop</text>
+      <text x="500" y="266">event=fatal</text>
+    </g>
+    <text x="500" y="277" fill="#9aa7bd" text-anchor="middle" font-size="9">see §20.1 for fields and cadence</text>
+
+    <!-- Arrow Broker → stdout (always-on per-serve + once-per-second) -->
+    <line x1="160" y1="142" x2="160" y2="198" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
+    <text x="60" y="172" fill="#6fd08c" font-size="10">per-serve +</text>
+    <text x="60" y="186" fill="#6fd08c" font-size="10">heartbeat (1 Hz)</text>
+
+    <!-- Bottom row: bench CLI (left) and results dir (right) -->
+    <rect x="40" y="340" width="280" height="90" rx="6" fill="#1a2233" stroke="#ffb454" stroke-dasharray="5 3" stroke-width="2"/>
+    <text x="180" y="366" fill="#e7ecf5" text-anchor="middle">ocudu-gpu-channel-bench</text>
+    <text x="180" y="384" fill="#9aa7bd" text-anchor="middle" font-size="10">apps/ocudu_gpu_channel_bench.cpp</text>
+    <text x="180" y="402" fill="#cdd6e6" text-anchor="middle" font-size="10">alternate driver: no ZMQ, no broker</text>
+    <text x="180" y="416" fill="#cdd6e6" text-anchor="middle" font-size="10">isolates processor latency</text>
+
+    <rect x="680" y="340" width="280" height="90" rx="6" fill="#13391f" stroke="#6fd08c" stroke-width="2"/>
+    <text x="820" y="366" fill="#e7ecf5" text-anchor="middle">results/reports/ · CSV / JSON</text>
+    <text x="820" y="384" fill="#9aa7bd" text-anchor="middle" font-size="10">scripts/remote/perf-sweep.sh</text>
+    <text x="820" y="402" fill="#cdd6e6" text-anchor="middle" font-size="10">per-config p50 · p95 · p99</text>
+    <text x="820" y="416" fill="#cdd6e6" text-anchor="middle" font-size="10">aggregator + plot source</text>
+
+    <!-- Arrows from bench CLI: dashed orange (on-demand) -->
+    <line x1="180" y1="340" x2="180" y2="282" stroke="#ffb454" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arr_od)"/>
+    <text x="220" y="312" fill="#ffb454" font-size="10">CSV summary</text>
+
+    <line x1="320" y1="385" x2="500" y2="282" stroke="#ffb454" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arr_od)"/>
+    <text x="410" y="345" fill="#ffb454" font-size="10">same cudaEvent path</text>
+
+    <!-- Arrow stdout → results: always-on (capture) -->
+    <line x1="820" y1="282" x2="820" y2="340" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
+    <text x="855" y="312" fill="#6fd08c" font-size="10">log capture</text>
+
+    <!-- Legend -->
+    <g font-size="11">
+      <line x1="60" y1="455" x2="80" y2="455" stroke="#6fd08c" stroke-width="1.6"/>
+      <text x="86" y="459" fill="#9aa7bd">always-on (broker · per-serve + 1 Hz heartbeat)</text>
+      <line x1="540" y1="455" x2="560" y2="455" stroke="#ffb454" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <text x="566" y="459" fill="#9aa7bd">on-demand (microbenchmark)</text>
+    </g>
+  </svg>
+  <figcaption>Diagram N — instrumentation data flow. The GPU side is timed by
+  <code>cudaEvent</code> brackets, the CPU side by <code>chrono::steady_clock</code>
+  brackets in the broker server loop; both feed the same stdout event stream.
+  The benchmark CLI reuses the same processor and the same <code>cudaEvent</code>
+  primitives, so its numbers and the live broker's numbers measure the same
+  underlying work — only the driving cadence differs.</figcaption>
+  </figure>
+
+  <h3 id="profiling-events">20.1 Event vocabulary</h3>
+  <p>The broker emits six event kinds. Anyone reading <code>broker.log</code> can
+  watch in real time with <code>grep -E 'event=(stop|fatal|gpu_timings|cpu_stage_timings)' broker.log</code>;
+  the heartbeats are usually noise unless something has wedged.</p>
+  <table>
+    <tr><th>Event</th><th>Fields</th><th>Cadence</th><th>What it tells you</th></tr>
+    <tr><td><code>event=cpu_stage_timings</code></td>
+        <td><code>t, dev, wait_req_us, align_us, read_us, process_us, throttle_us, send_us</code></td>
+        <td>1 Hz (last-serve snapshot)</td>
+        <td>Per-stage CPU latency of the broker's per-serve pipeline. <code>process_us</code> is the entire processor call (its h2d/kernel/d2h subset is in <code>gpu_timings</code> below). <code>throttle_us</code> is mostly idle wall-clock pacing. <code>wait_req_us</code> is idle waiting for the next REP request.</td></tr>
+    <tr><td><code>event=gpu_timings</code></td>
+        <td><code>t, h2d_us, kernel_us, d2h_us</code></td>
+        <td>1 Hz (last-serve snapshot)</td>
+        <td>Per-phase GPU timings from <code>cudaEventElapsedTime</code>. Zero on the CPU backend. <code>t</code> is monotonic seconds since broker start.</td></tr>
+    <tr><td><code>event=heartbeat</code></td>
+        <td><code>t, dev, ring=size/cap, puller[state, pulls, idle, room_stall, last], server[state, serves, idle, data_spin, last]</code></td>
+        <td>1 Hz, per device</td>
+        <td>Liveness probe and ring-pressure snapshot. <code>room_stall</code> climbing means the puller is blocked on a full ring; <code>data_spin</code> climbing means the server is starved.</td></tr>
+    <tr><td><code>event=stats</code></td>
+        <td><code>rx_requests, rx_starvations, tx_queue_overflows, tx_sequence_gaps, zmq_errors</code></td>
+        <td>at <code>--strict-realtime</code> checkpoints</td>
+        <td>Lifetime data-integrity counters. See <a href="#counter-taxonomy">§20.3</a> for what each surfaces.</td></tr>
+    <tr><td><code>event=stop</code></td>
+        <td>same fields as <code>stats</code> plus <code>tx_pulls</code></td>
+        <td>once, at shutdown</td>
+        <td>The final reckoning — what every smoke test grep's for to verify the run.</td></tr>
+    <tr><td><code>event=fatal</code></td>
+        <td><code>error="…"</code></td>
+        <td>at most once</td>
+        <td>Hard failure; broker exits non-zero.</td></tr>
+  </table>
+  <p class="key">Both per-serve event types
+  (<code>cpu_stage_timings</code>, <code>gpu_timings</code>) publish the
+  <i>last</i> serve's numbers, not a rolling average — the emit happens on the
+  1 Hz heartbeat thread and just snapshots the worker threads' last-store
+  values. To get a percentile distribution, either pipe the broker log into a
+  rollup script or use the bench CLI which records every iteration.</p>
+
+  <h3 id="counter-taxonomy">20.2 Counter taxonomy</h3>
+  <p>The data-integrity counters partition the failure modes a real-time
+  emulator can hit. Each counter is a hard signal except for one:</p>
+  <ul class="tight">
+    <li><b><code>rx_starvations</code></b> — the server thread waited longer
+        than 5×slot for an incoming edge to deliver new samples. Soft signal:
+        non-zero in development on a noisy host is expected; non-zero under
+        <code>--strict-realtime</code> means the host CPU is too slow for the
+        configured sample rate × topology.</li>
+    <li><b><code>tx_queue_overflows</code></b> — the puller could not write a
+        pulled batch into the device's ring (room stall exhausted retries).
+        Indicates the broker is being fed faster than it can serve. Hard
+        signal.</li>
+    <li><b><code>tx_sequence_gaps</code></b> — a server thread observed a
+        cursor pointing before <code>earliest_sequence()</code>, meaning the
+        ring discarded samples the cursor still pointed at. The cursor is
+        snapped forward and the gap counted. Hard signal — IQ was lost.</li>
+    <li><b><code>zmq_errors</code></b> — non-recoverable ZMQ errno from any
+        socket. Hard signal — transport broken.</li>
+  </ul>
+
+  <h3 id="latency-gate">20.3 Latency-gate verdict</h3>
+  <p>The bench CLI publishes a green / yellow / red verdict alongside the
+  <code>p99</code> latency, defined formally as:</p>
+  <table>
+    <tr><th>Band</th><th>Condition</th><th>Meaning</th></tr>
+    <tr><td style="color:#6fd08c"><b>green</b></td><td>p99 added latency ≤ 25 % of the slot</td><td>Plenty of margin — the slot deadline is met even with reasonable jitter.</td></tr>
+    <tr><td style="color:#ffb454"><b>yellow</b></td><td>p99 added latency ≤ one slot</td><td>Stable but tight — a brief OS scheduling hiccup can blow the deadline.</td></tr>
+    <tr><td style="color:#ff8aa3"><b>red</b></td><td>p99 added latency &gt; one slot</td><td>Cannot keep up with realtime — bench reports red, broker would report sustained <code>rx_starvations</code>.</td></tr>
+  </table>
+  <p class="key">The bench's latency is in-memory model mixing only; ZMQ I/O,
+  broker scheduling, and host↔device contention are not in it. The broker
+  itself measures the full pipeline. Both rows are reported in §21 so the gap
+  is visible.</p>
+
+
+  <!-- ============ §21 Performance — measured boundaries ============ -->
+  <h2 id="perf">21. Performance — measured boundaries</h2>
+  <p>All numbers in this section come from runs on an
+  <b>NVIDIA GeForce RTX 5090</b> (driver 570.211.01, 32 GB VRAM, CUDA 12.8.1)
+  via <code>scripts/remote/perf-sweep.sh</code> and
+  <code>scripts/remote/perf-fanin-sweep.sh</code>. The bench
+  (<code>ocudu-gpu-channel-bench</code>) drives the same
+  <code>ChannelProcessor::process_superposition()</code> entry point the
+  live broker uses — one fused call per RX node per slot under CUDA, with
+  the CPU backend looping per edge internally and summing on the host. All
+  µs values are <code>p99</code> over a 10 s run; verdict band per
+  <a href="#latency-gate">§20.3</a> (slot deadline = 500 µs at 30 kHz SCS).</p>
+
+  <h3 id="perf-method">21.1 Methodology and test matrices</h3>
+  <p>Two complementary test matrices are run. The <b>baseline matrix</b>
+  (5 configs) covers the topology shapes used elsewhere in the project; the
+  <b>fan-in sweep</b> (21 configs, generated by
+  <code>scripts/gen_topology.py</code>) isolates how a single RX node's
+  per-call cost scales with edge count, and exercises both fan-in axes of
+  the broker.</p>
+  <table>
+    <tr><th>Matrix</th><th>Config</th><th>Topology / shape</th><th>Edges</th><th>Busiest fan-in</th></tr>
+    <tr><td rowspan="5" style="vertical-align:top">Baseline (5)</td>
+        <td><code>mvp-2-edge</code></td><td>1 gNB ↔ 1 UE — single bidirectional link</td><td>2</td><td>1</td></tr>
+    <tr><td><code>multi-ue-4-edge</code></td><td>1 gNB + 2 UEs, all pairs DL+UL</td><td>4</td><td>2</td></tr>
+    <tr><td><code>graph-6-edge</code></td><td>3-node graph with UE↔UE crosstalk (Diagram G)</td><td>6</td><td>2</td></tr>
+    <tr><td><code>multi-gnb-8-edge</code></td><td>2-cell 4-node multi-gNB with inter-cell interference</td><td>8</td><td>2</td></tr>
+    <tr><td><code>stress-16-edge</code></td><td>9-node fan-in star: one sink with 8 incoming + 8 outgoing</td><td>16</td><td>8</td></tr>
+    <tr><td rowspan="2" style="vertical-align:top">Fan-in sweep (21)</td>
+        <td><b>Set 1: 1-to-N</b></td>
+        <td>1 gNB ↔ N UEs, no UE↔UE crosstalk</td>
+        <td>2 N</td>
+        <td><b>N</b> (gNB)</td></tr>
+    <tr><td><b>Set 2: M-to-N</b></td>
+        <td>M gNB ↔ N UE bipartite, no inter-gNB / inter-UE crosstalk</td>
+        <td>2·M·N</td>
+        <td><b>max(M, N)</b></td></tr>
+  </table>
+  <p>Set 1 sweeps <span class="mono">N ∈ {1, 2, 4, 8, 16, 32, 64}</span> with
+  M = 1 (7 configs). Set 2 sweeps the symmetric points
+  <span class="mono">(M = N) ∈ {2, 4, 8, 16}</span> plus 10 asymmetric pairs
+  for a total of 14 configs.</p>
+  <p class="key"><b>What the bench measures vs what the broker does</b>. The
+  bench is single-threaded and runs every RX node's
+  <code>process_superposition()</code> call sequentially within one
+  iteration, then loops. Its <code>p99</code> therefore reflects the
+  <i>worst single call</i> across the topology — usually the device with
+  the largest incoming-edge count. The live broker, by contrast, dispatches
+  per-node calls on independent CUDA streams (Diagram I) that overlap on
+  the GPU and overlap with ZMQ I/O on the host. <b>The bench is a per-call
+  cost ceiling; the broker's per-slot wall-clock cost is always &le; the
+  bench's worst call.</b> §21.6 demonstrates this empirically.</p>
+
+  <p class="key"><b>API-unification note</b>: an earlier version of the bench
+  exposed a <code>--mode per-link</code> flag that drove a now-removed
+  <code>ChannelProcessor::process_into()</code> entry point — one call per
+  edge instead of one fused call per RX node.
+  <code>process_into()</code> was the
+  <span class="mono">N = 1, rx_model = nullptr</span> special case of
+  <code>process_superposition()</code>; the two APIs duplicated ~150 LOC of
+  CUDA state management between them. This branch unifies them: only
+  <code>process_superposition()</code> exists, and a single-edge call is
+  just <code>process_superposition(dst, {edge}, nullptr, …)</code>.</p>
+
+  <h3 id="perf-cpu-cuda">21.2 CPU vs CUDA — the baseline matrix</h3>
+  <p>The CUDA backend stays green through 8 edges and is yellow at 16; the
+  CPU backend saturates at 4 edges. Speedup widens monotonically with edge
+  count — from 4.6× at the single-link config to 9.9× at the 16-edge stress
+  topology — because the CUDA path fuses all edges into one launch while
+  CPU loops linearly.</p>
+
+  <table>
+    <tr><th>config</th><th>backend</th><th>p99 µs</th><th>h2d p99</th><th>kernel p99</th><th>d2h p99</th><th>verdict</th><th>speedup</th></tr>
+    <tr><td><code>mvp-2-edge</code></td>     <td>CPU</td> <td><b>295.1</b></td><td>—</td><td>—</td><td>—</td><td style="color:#ffb454">yellow</td><td>1.0×</td></tr>
+    <tr><td></td>                            <td>CUDA</td><td><b>64.6</b></td> <td>26.3</td><td>4.8</td> <td>17.7</td><td style="color:#6fd08c">green</td>  <td><b>4.6×</b></td></tr>
+    <tr><td><code>multi-ue-4-edge</code></td><td>CPU</td> <td><b>793.0</b></td><td>—</td><td>—</td><td>—</td><td style="color:#ff8aa3">red</td>     <td>1.0×</td></tr>
+    <tr><td></td>                            <td>CUDA</td><td><b>107.3</b></td><td>40.3</td><td>6.1</td> <td>19.7</td><td style="color:#6fd08c">green</td>  <td><b>7.4×</b></td></tr>
+    <tr><td><code>graph-6-edge</code></td>   <td>CPU</td> <td><b>832.7</b></td><td>—</td><td>—</td><td>—</td><td style="color:#ff8aa3">red</td>     <td>1.0×</td></tr>
+    <tr><td></td>                            <td>CUDA</td><td><b>92.5</b></td><td>40.9</td><td>6.9</td><td>19.7</td><td style="color:#6fd08c">green</td>  <td><b>9.0×</b></td></tr>
+    <tr><td><code>multi-gnb-8-edge</code></td><td>CPU</td><td><b>696.8</b></td><td>—</td><td>—</td><td>—</td><td style="color:#ff8aa3">red</td>     <td>1.0×</td></tr>
+    <tr><td></td>                            <td>CUDA</td><td><b>99.7</b></td><td>41.3</td><td>5.8</td><td>20.7</td><td style="color:#6fd08c">green</td>  <td><b>7.0×</b></td></tr>
+    <tr><td><code>stress-16-edge</code></td> <td>CPU</td> <td><b>2236.3</b></td><td>—</td><td>—</td><td>—</td><td style="color:#ff8aa3">red</td>     <td>1.0×</td></tr>
+    <tr><td></td>                            <td>CUDA</td><td><b>226.7</b></td><td>118.8</td><td>10.3</td><td>17.7</td><td style="color:#ffb454">yellow</td><td><b>9.9×</b></td></tr>
+  </table>
+
+  <!-- ============ Diagram O : p99 latency vs edge count, CPU vs CUDA ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 470" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <text x="20" y="20" fill="#9aa7bd" font-size="11">Diagram O · p99 model_mix latency vs edges per node · CPU vs CUDA · RTX 5090 · slot = 500 µs</text>
+
+    <!-- Y-axis -->
+    <line x1="80" y1="50" x2="80" y2="380" stroke="#9aa7bd"/>
+    <line x1="80" y1="380" x2="960" y2="380" stroke="#9aa7bd"/>
+
+    <!-- Y ticks: 0, 250, 500 (slot), 1000, 1500, 2000, 2500 -->
+    <g fill="#9aa7bd" font-size="10" text-anchor="end">
+      <text x="74" y="383">0</text>
+      <text x="74" y="350">250</text>
+      <text x="74" y="317">500</text>
+      <text x="74" y="251">1000</text>
+      <text x="74" y="185">1500</text>
+      <text x="74" y="119">2000</text>
+      <text x="74" y="53">2500</text>
+    </g>
+    <text x="22" y="200" fill="#9aa7bd" font-size="11" transform="rotate(-90 22 200)">p99 model_mix latency (µs)</text>
+
+    <!-- Reference bands (labels right-aligned so they stay inside viewBox) -->
+    <line x1="80" y1="317" x2="900" y2="317" stroke="#ffb454" stroke-dasharray="4 3" stroke-width="1"/>
+    <text x="990" y="320" fill="#ffb454" font-size="10" text-anchor="end">500 µs = 1 slot</text>
+    <line x1="80" y1="350" x2="900" y2="350" stroke="#6fd08c" stroke-dasharray="3 3" stroke-width="1"/>
+    <text x="990" y="353" fill="#6fd08c" font-size="10" text-anchor="end">125 µs = 25 % slot</text>
+
+    <!-- X labels (edges) -->
+    <g fill="#cdd6e6" font-size="11" text-anchor="middle">
+      <text x="180" y="403">2</text>
+      <text x="340" y="403">4</text>
+      <text x="500" y="403">6</text>
+      <text x="660" y="403">8</text>
+      <text x="820" y="403">16</text>
+    </g>
+    <text x="500" y="423" fill="#9aa7bd" font-size="11" text-anchor="middle">incoming edges per RX node (bench config)</text>
+
+    <!-- y_pixel(us) = 380 - us * (380-50)/2500 = 380 - us*0.132 -->
+    <!-- Superposition-mode (unified API) numbers:
+         CPU p99:  295.1, 793.0, 832.7, 696.8, 2236.3
+         CUDA p99: 64.6, 107.3, 92.5, 99.7, 226.7 -->
+
+    <g>
+      <!-- mvp-2-edge x=180 -->
+      <rect x="158" y="341.0" width="20" height="39.0" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
+      <rect x="180" y="371.5" width="20" height="8.5" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <text x="168" y="335" fill="#ffb454" font-size="9" text-anchor="middle">295</text>
+      <text x="190" y="365" fill="#6fd08c" font-size="9" text-anchor="middle">65</text>
+
+      <!-- multi-ue-4-edge x=340 -->
+      <rect x="318" y="275.3" width="20" height="104.7" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
+      <rect x="340" y="365.8" width="20" height="14.2" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <text x="328" y="269" fill="#ffb454" font-size="9" text-anchor="middle">793</text>
+      <text x="350" y="359" fill="#6fd08c" font-size="9" text-anchor="middle">107</text>
+
+      <!-- graph-6-edge x=500 -->
+      <rect x="478" y="270.1" width="20" height="109.9" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
+      <rect x="500" y="367.8" width="20" height="12.2" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <text x="488" y="264" fill="#ffb454" font-size="9" text-anchor="middle">833</text>
+      <text x="510" y="361" fill="#6fd08c" font-size="9" text-anchor="middle">93</text>
+
+      <!-- multi-gnb-8-edge x=660 -->
+      <rect x="638" y="288.0" width="20" height="92.0" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
+      <rect x="660" y="366.8" width="20" height="13.2" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <text x="648" y="282" fill="#ffb454" font-size="9" text-anchor="middle">697</text>
+      <text x="670" y="360" fill="#6fd08c" font-size="9" text-anchor="middle">100</text>
+
+      <!-- stress-16-edge x=820 -->
+      <rect x="798" y="84.6" width="20" height="295.4" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
+      <rect x="820" y="350.1" width="20" height="29.9" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <text x="808" y="78" fill="#ffb454" font-size="9" text-anchor="middle">2236</text>
+      <text x="830" y="344" fill="#6fd08c" font-size="9" text-anchor="middle">227</text>
+    </g>
+
+    <!-- Legend -->
+    <g font-size="11">
+      <rect x="160" y="442" width="14" height="10" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
+      <text x="180" y="451" fill="#9aa7bd">CPU backend (loop+sum on the host)</text>
+      <rect x="540" y="442" width="14" height="10" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <text x="560" y="451" fill="#9aa7bd">CUDA backend (one fused superposition call per RX node)</text>
+    </g>
+  </svg>
+  <figcaption>Diagram O — p99 model_mix latency per config, CPU vs CUDA on
+  the unified <code>process_superposition</code> path. CPU crosses the 500 µs
+  slot deadline at 4+ edges. CUDA stays in green through 8 edges and yellow
+  at 16. The CPU/CUDA speedup widens with edge count — from 4.6× at the
+  single-link config to 9.9× at the 16-edge stress topology — because the
+  CUDA path fuses all edges into one launch while CPU loops linearly.</figcaption>
+  </figure>
+
+  <h3 id="perf-bottleneck">21.3 Where the latency goes — per-phase breakdown</h3>
+  <p>The CUDA per-call cost decomposes into three components that scale
+  very differently with edge count:</p>
+  <ul class="tight">
+    <li><b>H2D dominates and scales linearly with N</b> — staged buffer is
+        <span class="mono">N × 23 040 × 8 B</span>; transfer time grows
+        ~1:1 with edge count (26 µs at N=1 → 119 µs at N=8 → 884 µs at N=64).
+        At large N it saturates the PCIe link
+        (<a href="#perf-pcie">§21.5</a>).</li>
+    <li><b>Kernel grows sub-linearly</b> — one fused launch per RX node;
+        each thread loops N incoming edges in registers. The reported
+        <code>kernel_us</code> p99 grows 5 µs → 11 µs → 54 µs as N goes
+        1 → 8 → 64, but most of that is queueing behind the H2D — actual
+        kernel runtime measured by nsys is 1.7 µs median at N=8 (see
+        <a href="#perf-resource">§21.4</a>).</li>
+    <li><b>D2H is a fixed floor</b> ≈ 19 µs — the output is one batch
+        regardless of N.</li>
+    <li><b>CPU backend</b> grows linearly with incoming-edge count
+        (295 → 800 → 700 → 2 240 µs as N goes 2 → 4 → 8 → 16). Bounded by
+        the per-sample chain loop — CFO's <code>sin/cos</code>, gain/phase
+        multiplies, AWGN's Philox draw if present. Saturates realtime at
+        ~2 edges per RX. Reference path only.</li>
+  </ul>
+  <p>Diagram T quantifies all three phases against N out to 64. The N=4
+  config is the last <b>green</b> point (p99 = 135 µs); N=16 is the last
+  <b>yellow</b> point (425 µs, just under the 500 µs slot); <b>N=32 is the
+  first red</b> (810 µs).</p>
+
+  <!-- ============ Diagram T : Set 1 latency vs N ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 450" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <text x="20" y="22" fill="#9aa7bd" font-size="11">Diagram T · Set 1 (1-to-N) · p99 latency vs N · CUDA · RTX 5090 · slot = 500 µs</text>
+
+    <!-- axes -->
+    <line x1="100" y1="50" x2="100" y2="380" stroke="#9aa7bd"/>
+    <line x1="100" y1="380" x2="960" y2="380" stroke="#9aa7bd"/>
+
+    <!-- Y ticks: 0, 250, 500, 750, 1000, 1250, 1500, 1750 (linear scale, max 1750) -->
+    <g fill="#9aa7bd" font-size="10" text-anchor="end">
+      <text x="94" y="383">0</text>
+      <text x="94" y="335">250</text>
+      <text x="94" y="288">500</text>
+      <text x="94" y="241">750</text>
+      <text x="94" y="194">1000</text>
+      <text x="94" y="147">1250</text>
+      <text x="94" y="100">1500</text>
+      <text x="94" y="55">1750</text>
+    </g>
+    <text x="32" y="220" fill="#9aa7bd" font-size="11" transform="rotate(-90 32 220)">p99 latency (µs)</text>
+
+    <!-- Reference lines: 500 µs slot, 125 µs green -->
+    <line x1="100" y1="288" x2="900" y2="288" stroke="#ffb454" stroke-dasharray="4 3" stroke-width="1"/>
+    <text x="990" y="291" fill="#ffb454" font-size="10" text-anchor="end">500 µs = 1 slot (red threshold)</text>
+    <line x1="100" y1="356.5" x2="900" y2="356.5" stroke="#6fd08c" stroke-dasharray="3 3" stroke-width="1"/>
+    <text x="990" y="359" fill="#6fd08c" font-size="10" text-anchor="end">125 µs = 25 % slot (green threshold)</text>
+
+    <!-- X axis: log2-spaced N values 1, 2, 4, 8, 16, 32, 64 mapped to x=140, 280, 410, 530, 650, 770, 890 -->
+    <g fill="#cdd6e6" font-size="11" text-anchor="middle">
+      <text x="140" y="403">1</text>
+      <text x="280" y="403">2</text>
+      <text x="410" y="403">4</text>
+      <text x="530" y="403">8</text>
+      <text x="650" y="403">16</text>
+      <text x="770" y="403">32</text>
+      <text x="890" y="403">64</text>
+    </g>
+    <text x="520" y="425" fill="#9aa7bd" font-size="11" text-anchor="middle">N = incoming edges at the gNB (log scale)</text>
+
+    <!-- Helper: y(us) = 380 - us * 0.189
+         total:    64,90,135,228,425,810,1616  -> 368.0,363.0,354.5,336.9,299.6,226.7,74.5
+         h2d:      26,40,68,119,229,445,884    -> 375.1,372.4,367.1,357.5,336.7,295.8,212.9
+         kernel:    5,5,7,10,17,29,54          -> 379.1,379.1,378.7,378.1,376.8,374.5,369.8
+         d2h:     18,20,20,18,18,18,18         -> 376.6,376.2,376.2,376.6,376.6,376.6,376.6 -->
+
+    <!-- total (orange thick) -->
+    <polyline points="140,368.0 280,363.0 410,354.5 530,336.9 650,299.6 770,226.7 890,74.5"
+              fill="none" stroke="#ffb454" stroke-width="2.4"/>
+    <g fill="#ffb454">
+      <circle cx="140" cy="368.0" r="4"/><circle cx="280" cy="363.0" r="4"/>
+      <circle cx="410" cy="354.5" r="4"/><circle cx="530" cy="336.9" r="4"/>
+      <circle cx="650" cy="299.6" r="4"/><circle cx="770" cy="226.7" r="4"/>
+      <circle cx="890" cy="74.5" r="4"/>
+    </g>
+    <text x="890" y="68" fill="#ffb454" font-size="9" text-anchor="middle">1616</text>
+    <text x="770" y="220" fill="#ffb454" font-size="9" text-anchor="middle">810</text>
+    <text x="650" y="293" fill="#ffb454" font-size="9" text-anchor="middle">425</text>
+    <text x="530" y="330" fill="#ffb454" font-size="9" text-anchor="middle">228</text>
+    <text x="410" y="348" fill="#ffb454" font-size="9" text-anchor="middle">135</text>
+
+    <!-- h2d (blue) -->
+    <polyline points="140,375.1 280,372.4 410,367.1 530,357.5 650,336.7 770,295.8 890,212.9"
+              fill="none" stroke="#5db1ff" stroke-width="1.8"/>
+    <g fill="#5db1ff">
+      <circle cx="140" cy="375.1" r="3"/><circle cx="280" cy="372.4" r="3"/>
+      <circle cx="410" cy="367.1" r="3"/><circle cx="530" cy="357.5" r="3"/>
+      <circle cx="650" cy="336.7" r="3"/><circle cx="770" cy="295.8" r="3"/>
+      <circle cx="890" cy="212.9" r="3"/>
+    </g>
+
+    <!-- kernel (purple) -->
+    <polyline points="140,379.1 280,379.1 410,378.7 530,378.1 650,376.8 770,374.5 890,369.8"
+              fill="none" stroke="#c98bff" stroke-width="1.6"/>
+    <!-- d2h (gray) -->
+    <polyline points="140,376.6 280,376.2 410,376.2 530,376.6 650,376.6 770,376.6 890,376.6"
+              fill="none" stroke="#9aa7bd" stroke-width="1.6" stroke-dasharray="2 2"/>
+
+    <!-- Legend -->
+    <g font-size="11">
+      <line x1="140" y1="438" x2="170" y2="438" stroke="#ffb454" stroke-width="2.4"/>
+      <text x="178" y="442" fill="#9aa7bd">total model_mix p99</text>
+      <line x1="340" y1="438" x2="370" y2="438" stroke="#5db1ff" stroke-width="1.8"/>
+      <text x="378" y="442" fill="#9aa7bd">H2D p99 (dominates)</text>
+      <line x1="540" y1="438" x2="570" y2="438" stroke="#c98bff" stroke-width="1.6"/>
+      <text x="578" y="442" fill="#9aa7bd">kernel p99 (scales mildly)</text>
+      <line x1="760" y1="438" x2="790" y2="438" stroke="#9aa7bd" stroke-width="1.6" stroke-dasharray="2 2"/>
+      <text x="798" y="442" fill="#9aa7bd">D2H p99 (flat)</text>
+    </g>
+  </svg>
+  <figcaption>Diagram T — Set 1 fan-in scaling at one RX node. Total p99
+  is roughly linear in N: doubles for each doubling of N. H2D dominates
+  (~55 % of total at every N); kernel grows but stays small (5 → 54 µs);
+  D2H is flat at ~19 µs. The 1-to-N sweep confirms the bench-mode boundary
+  exactly: <b>N = 16 is the last yellow point (425 µs), N = 32 is the
+  first red (810 µs)</b>.</figcaption>
+  </figure>
+
+  <h3 id="perf-resource">21.4 Compute &amp; memory utilisation — the GPU is half idle</h3>
+  <p>A deep profile run on the stress-16 config (16-edge fan-in at one sink)
+  measures what's actually limiting the GPU. Captured via
+  <code>scripts/remote/perf-deep-profile.sh</code> with
+  <code>nvidia-smi dmon</code> sampled at 1 Hz alongside
+  <code>nsys profile</code> for kernel-level tracing.</p>
+
+  <h4>Memory footprint — measured vs. analytical</h4>
+  <table>
+    <tr><th>Where</th><th>Idle</th><th>During stress-16 bench</th><th>Postrun</th><th>Notes</th></tr>
+    <tr><td>GPU VRAM (32 607 MiB total)</td><td>547 MiB</td><td><b>1 061 MiB</b></td><td>547 MiB</td><td>Bench's device allocation = 514 MiB. Postrun returns to idle — clean teardown.</td></tr>
+    <tr><td>Host RSS (bench process)</td><td>—</td><td><b>122 MiB</b></td><td>—</td><td>Includes pinned host_staged, host_output, plus bench scratch + libzmq + libcuda.</td></tr>
+  </table>
+  <p>Compared to the analytical estimate in <a href="#signal-memory">§14</a>:
+  the stress-16 sink alone needs ~1.4 MiB staged host + 1.4 MiB device +
+  180 KiB output = under 3 MiB per node. With 9 nodes preallocated by
+  <code>prepare()</code>, the live working set is well under 30 MiB. The
+  rest of the 514 MiB device alloc is CUDA runtime context, libcudart
+  arenas, and pinned-host mirror buffers — overhead, not signal.
+  <b>Capacity is never close to a constraint</b> at any realistic scale.</p>
+
+  <h4>Parallel resource utilisation — compute headroom</h4>
+  <table>
+    <tr><th>Metric</th><th>Value during stress-16 bench</th><th>Source</th></tr>
+    <tr><td>SM utilisation (median)</td><td><b>56 %</b></td><td><code>nvidia-smi dmon -s u</code></td></tr>
+    <tr><td>Memory subsystem utilisation</td><td>0 %</td><td><code>nvidia-smi dmon -s u</code> — kernel doesn't stress GDDR7</td></tr>
+    <tr><td>Graphics clock (active boost)</td><td>2 392 MHz</td><td><code>nvidia-smi --query-gpu=clocks.current.graphics</code></td></tr>
+    <tr><td>Memory clock</td><td>13 801 MHz (full GDDR7 boost)</td><td><code>nvidia-smi</code></td></tr>
+    <tr><td>Power draw (active)</td><td>54 W (vs 575 W TDP — 9 %)</td><td><code>nvidia-smi --query-gpu=power.draw</code></td></tr>
+    <tr><td><code>superpose_kernel</code> actual GPU runtime</td><td><b>1.7 µs median, 2.3 µs avg, 7.6 µs max</b> (30 309 launches over 3 s)</td><td><code>nsys cuda_gpu_kern_sum</code></td></tr>
+    <tr><td><code>cudaMemcpyAsync</code> avg call overhead</td><td>1.5 µs (host side)</td><td><code>nsys cuda_api_sum</code></td></tr>
+    <tr><td><code>cudaLaunchKernel</code> avg call overhead</td><td>2.2 µs (host side)</td><td><code>nsys cuda_api_sum</code></td></tr>
+    <tr><td><code>cudaStreamSynchronize</code> avg wait</td><td>45 µs (waiting for the GPU pipeline to drain)</td><td><code>nsys cuda_api_sum</code></td></tr>
+  </table>
+  <p class="key"><b>Compute is wildly underused on this kernel</b>. SMs sit
+  at 56 %, GDDR7 is untouched, power draw is 9 % of TDP, graphics clock is
+  at boost. The kernel runs in 1.7 µs and uses ~720 warps (23 040 threads
+  / 32) — fits on 6 of the 170 SMs at 100 % occupancy, leaving 164 SMs idle
+  per launch. Host API overhead is small too (~9 µs/call). <b>The
+  bottleneck is everywhere except the GPU.</b></p>
+  <p class="key">ncu (Nsight Compute) per-kernel deep metrics
+  (SM throughput, warp-issue rate, achieved occupancy) require setting
+  <code>NVreg_RestrictProfilingToAdminUsers=0</code> or running with root —
+  not available on the measurement workstation. The numbers above come from
+  <code>nsys profile</code> + <code>nvidia-smi dmon</code>, which work
+  unprivileged.</p>
+
+  <h3 id="perf-pcie">21.5 The PCIe bottleneck — host↔device link is the wall</h3>
+  <p class="key"><b>Hardware finding: the link negotiated as gen 5 x4, not x16</b>,
+  on this workstation. The RTX 5090 silicon supports x16 (sysfs
+  <code>max_link_width = 16</code>), so the cap is the slot's electrical
+  routing or BIOS bifurcation. This cuts the theoretical ceiling 4× from
+  what an RTX 5090 could otherwise do — and our per-call H2D growth
+  saturates against the x4 ceiling well before the slot deadline.</p>
+  <table>
+    <tr><th>Direction</th><th>Bytes / call</th><th>Bench p99 µs</th><th>Achieved Gbps (p99)</th><th>nsys sustained</th><th>Ceiling (gen 5 x4)</th><th>Utilisation</th></tr>
+    <tr><td>H2D (staged buffer)</td><td>1.40 MiB (8 edges × 23 040 × 8 B)</td><td>119.4</td><td>98.7</td><td>12.4 GB/s = 98.9 Gbps</td><td>≈ 126 Gbps</td><td><b>78 %</b></td></tr>
+    <tr><td>D2H (RX output)</td><td>180 KiB (23 040 × 8 B)</td><td>18.7</td><td>78.9</td><td>15.0 GB/s = 120 Gbps</td><td>≈ 126 Gbps</td><td><b>95 %</b></td></tr>
+  </table>
+  <p>D2H runs at 95 % of the PCIe x4 ceiling — essentially saturated. H2D
+  is at 78 % because each <code>process_superposition</code> call issues
+  three H2D memcpys (<code>device_staged</code>, <code>device_steps</code>,
+  <code>device_step_meta</code>); the two small ones don't amortise.
+  Diagram W traces the saturation curve across the full 1-to-N sweep.
+  <b>On a gen 5 x16 link the ceiling would jump to ~504 Gbps</b>, and the
+  H2D phase at stress-16 would drop to ~30 µs — pulling even N = 32 well
+  under the slot.</p>
+
+  <!-- ============ Diagram W : H2D achieved Gbps with x4 ceiling ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 380" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <text x="20" y="22" fill="#9aa7bd" font-size="11">Diagram W · 1-N achieved H2D Gbps vs N · negotiated PCIe 5.0 x4 ceiling = 126 Gbps</text>
+
+    <!-- axes -->
+    <line x1="100" y1="50" x2="100" y2="320" stroke="#9aa7bd"/>
+    <line x1="100" y1="320" x2="960" y2="320" stroke="#9aa7bd"/>
+
+    <!-- Y ticks: 0, 25, 50, 75, 100, 125 (Gbps) -->
+    <g fill="#9aa7bd" font-size="10" text-anchor="end">
+      <text x="94" y="323">0</text>
+      <text x="94" y="269">25</text>
+      <text x="94" y="215">50</text>
+      <text x="94" y="161">75</text>
+      <text x="94" y="107">100</text>
+      <text x="94" y="53">125</text>
+    </g>
+    <text x="32" y="200" fill="#9aa7bd" font-size="11" transform="rotate(-90 32 200)">H2D achieved Gbps (p99)</text>
+
+    <!-- Reference line at 126 Gbps = y = 320 - 126/125 * 270 = 320 - 272 = 48 -->
+    <line x1="100" y1="48" x2="900" y2="48" stroke="#ff8aa3" stroke-dasharray="4 3" stroke-width="1.4"/>
+    <text x="990" y="44" fill="#ff8aa3" font-size="10" text-anchor="end">126 Gbps = PCIe 5.0 x4 effective ceiling (gen 5 x16 would be ~504 Gbps, 4× off-chart)</text>
+
+    <!-- X same as before -->
+    <g fill="#cdd6e6" font-size="11" text-anchor="middle">
+      <text x="140" y="343">1</text>
+      <text x="280" y="343">2</text>
+      <text x="410" y="343">4</text>
+      <text x="530" y="343">8</text>
+      <text x="650" y="343">16</text>
+      <text x="770" y="343">32</text>
+      <text x="890" y="343">64</text>
+    </g>
+    <text x="500" y="365" fill="#9aa7bd" font-size="11" text-anchor="middle">N = incoming edges (log scale) · bytes per H2D = N × 180 KiB</text>
+
+    <!-- y(gbps) = 320 - gbps * 270 / 125 = 320 - gbps * 2.16
+       Gbps achieved: 56.9, 73.2, 86.3, 99.2, 103.2, 106.0, 106.7
+       y:             197.1, 161.9, 133.5, 105.7, 97.1, 91.0, 89.5 -->
+    <polyline points="140,197.1 280,161.9 410,133.5 530,105.7 650,97.1 770,91.0 890,89.5"
+              fill="none" stroke="#6fd08c" stroke-width="2.4"/>
+    <g fill="#6fd08c">
+      <circle cx="140" cy="197.1" r="4"/><circle cx="280" cy="161.9" r="4"/>
+      <circle cx="410" cy="133.5" r="4"/><circle cx="530" cy="105.7" r="4"/>
+      <circle cx="650" cy="97.1" r="4"/><circle cx="770" cy="91.0" r="4"/>
+      <circle cx="890" cy="89.5" r="4"/>
+    </g>
+    <g fill="#6fd08c" font-size="9" text-anchor="middle">
+      <text x="140" y="190">57</text>
+      <text x="280" y="155">73</text>
+      <text x="410" y="127">86</text>
+      <text x="530" y="99">99</text>
+      <text x="650" y="91">103</text>
+      <text x="770" y="85">106</text>
+      <text x="890" y="83">107</text>
+    </g>
+
+    <!-- Annotation: saturation regime (placed mid-chart to avoid the rightmost label) -->
+    <path d="M 380 130 Q 500 110 620 100" fill="none" stroke="#ff8aa3" stroke-width="1.2" stroke-dasharray="3 2"/>
+    <text x="470" y="142" fill="#ff8aa3" font-size="10" text-anchor="middle">saturating ~85 % of x4 ceiling by N=8</text>
+  </svg>
+  <figcaption>Diagram W — achieved H2D bandwidth on the gNB's
+  superposition call. At N = 1 the per-call transfer is 180 KiB and the
+  link is launch-latency-bound (57 Gbps achieved). As N grows the payload
+  grows linearly (180 KiB × N) and the link approaches its x4 ceiling.
+  From N = 8 onwards, achieved bandwidth asymptotes at <b>~107 Gbps ≈ 85 %
+  of the 126 Gbps PCIe 5.0 x4 effective ceiling</b>. Latency past this
+  point is set purely by transfer size: doubling N doubles H2D µs almost
+  exactly, because the link is already running near maximum throughput.
+  A gen 5 x16 link would lift the ceiling to ~504 Gbps and unlock another
+  ~2× of headroom before saturation; on this workstation we're stuck here.</figcaption>
+  </figure>
+
+  <h3 id="perf-fanin">21.6 What the bench measures — and what it can't</h3>
+  <p>§21.1 noted that the bench is single-threaded and runs each RX node's
+  <code>process_superposition</code> call sequentially, so its
+  <code>p99</code> is the cost of the <i>worst single call</i> rather than
+  the per-slot wall-clock. The 21-config fan-in sweep proves this
+  empirically: every (M, N) configuration collapses onto the
+  <code>max(M, N)</code> curve.</p>
+
+  <!-- ============ Diagram U : latency vs max(M,N) collapse plot ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 430" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <text x="20" y="22" fill="#9aa7bd" font-size="11">Diagram U · 1-N and M-N latency vs max(M, N) · all 21 configs collapse to one curve</text>
+
+    <!-- axes -->
+    <line x1="100" y1="50" x2="100" y2="360" stroke="#9aa7bd"/>
+    <line x1="100" y1="360" x2="960" y2="360" stroke="#9aa7bd"/>
+
+    <!-- Y ticks: 0, 125, 250, 500, 1000, 1500, 2000 (linear to 2000) -->
+    <g fill="#9aa7bd" font-size="10" text-anchor="end">
+      <text x="94" y="363">0</text>
+      <text x="94" y="343">125</text>
+      <text x="94" y="324">250</text>
+      <text x="94" y="284">500</text>
+      <text x="94" y="205">1000</text>
+      <text x="94" y="125">1500</text>
+      <text x="94" y="46">2000</text>
+    </g>
+    <text x="32" y="200" fill="#9aa7bd" font-size="11" transform="rotate(-90 32 200)">p99 latency (µs)</text>
+
+    <!-- Reference: 500 µs slot, 125 µs green -->
+    <line x1="100" y1="284" x2="900" y2="284" stroke="#ffb454" stroke-dasharray="4 3" stroke-width="1"/>
+    <text x="990" y="287" fill="#ffb454" font-size="10" text-anchor="end">500 µs slot</text>
+    <line x1="100" y1="343" x2="900" y2="343" stroke="#6fd08c" stroke-dasharray="3 3" stroke-width="1"/>
+    <text x="990" y="346" fill="#6fd08c" font-size="10" text-anchor="end">125 µs</text>
+
+    <!-- X: log2(max), labels 1, 2, 4, 8, 16, 32, 64 -->
+    <g fill="#cdd6e6" font-size="11" text-anchor="middle">
+      <text x="140" y="383">1</text>
+      <text x="280" y="383">2</text>
+      <text x="410" y="383">4</text>
+      <text x="530" y="383">8</text>
+      <text x="650" y="383">16</text>
+      <text x="770" y="383">32</text>
+      <text x="890" y="383">64</text>
+    </g>
+    <text x="500" y="405" fill="#9aa7bd" font-size="11" text-anchor="middle">max(M, N) — the largest fan-in at any RX node in the topology</text>
+
+    <!-- Helper: y(us) = 360 - us * 0.157 -->
+    <!-- 1-N points (orange circles): max=1..64 -> p99 64,90,135,228,425,810,1616
+         y: 350,346,339,324,293,233,107 -->
+    <g fill="#ffb454">
+      <circle cx="140" cy="349.9" r="5"/>
+      <circle cx="280" cy="345.9" r="5"/>
+      <circle cx="410" cy="338.8" r="5"/>
+      <circle cx="530" cy="324.2" r="5"/>
+      <circle cx="650" cy="293.3" r="5"/>
+      <circle cx="770" cy="232.8" r="5"/>
+      <circle cx="890" cy="106.3" r="5"/>
+    </g>
+    <!-- 1-N connecting line for visual anchor -->
+    <polyline points="140,349.9 280,345.9 410,338.8 530,324.2 650,293.3 770,232.8 890,106.3"
+              fill="none" stroke="#ffb454" stroke-width="1.2" stroke-dasharray="3 2"/>
+
+    <!-- m-n symmetric (green squares): max=2,4,8,16 -> p99 92,137,231,429 -> y 345.6,338.5,323.7,292.7 -->
+    <g fill="#6fd08c">
+      <rect x="284" y="341.4" width="10" height="9"/>
+      <rect x="414" y="334.6" width="10" height="9"/>
+      <rect x="534" y="319.4" width="10" height="9"/>
+      <rect x="654" y="288.6" width="10" height="9"/>
+    </g>
+    <!-- m-n asym N-larger (blue triangles): (2,4)max=4:135, (2,8)max=8:228, (2,16)max=16:424, (4,8)max=8:230, (4,16)max=16:427 -->
+    <!-- y for these: 338.8, 324.2, 293.4, 323.9, 292.9 -->
+    <g fill="#5db1ff">
+      <polygon points="404,344 414,328 424,344"/>           <!-- (2,4) max=4 -->
+      <polygon points="524,329 534,313 544,329"/>           <!-- (2,8) max=8 -->
+      <polygon points="644,298 654,282 664,298"/>           <!-- (2,16) max=16 -->
+      <polygon points="520,329 530,313 540,329"/>           <!-- (4,8) max=8 (overlap with above) -->
+      <polygon points="640,298 650,282 660,298"/>           <!-- (4,16) max=16 -->
+    </g>
+    <!-- m-n asym M-larger (purple diamonds): (4,2)max=4:136, (8,2)max=8:228, (16,2)max=16:421, (8,4)max=8:229, (16,4)max=16:423 -->
+    <g fill="#c98bff">
+      <polygon points="396,340 404,332 412,340 404,348"/>   <!-- (4,2) max=4 -->
+      <polygon points="516,325 524,317 532,325 524,333"/>   <!-- (8,2) max=8 -->
+      <polygon points="636,294 644,286 652,294 644,302"/>   <!-- (16,2) max=16 -->
+      <polygon points="520,325 528,317 536,325 528,333"/>   <!-- (8,4) max=8 -->
+      <polygon points="640,294 648,286 656,294 648,302"/>   <!-- (16,4) max=16 -->
+    </g>
+
+    <!-- Legend -->
+    <g font-size="11">
+      <circle cx="148" cy="418" r="5" fill="#ffb454"/>
+      <text x="160" y="421" fill="#9aa7bd">1-N (Set 1)</text>
+      <rect x="280" y="414" width="10" height="9" fill="#6fd08c"/>
+      <text x="294" y="421" fill="#9aa7bd">M-N symmetric (M=N)</text>
+      <polygon points="490,422 500,406 510,422" fill="#5db1ff"/>
+      <text x="514" y="421" fill="#9aa7bd">M-N many-N (N&gt;M)</text>
+      <polygon points="716,418 724,410 732,418 724,426" fill="#c98bff"/>
+      <text x="738" y="421" fill="#9aa7bd">M-N many-M (M&gt;N)</text>
+    </g>
+  </svg>
+  <figcaption>Diagram U — every (M, N) configuration's bench p99 latency
+  collapses onto the 1-N curve when plotted against max(M, N). The bench is
+  single-threaded sequential, so its p99 is the cost of the slowest single
+  <code>process_superposition</code> call — which is the device with the
+  largest fan-in (a gNB with N incoming UL, or a UE with M incoming DL).
+  <b>This is a property of the bench, not the broker.</b> The live broker
+  dispatches per-node calls on parallel CUDA streams (Diagram I) which
+  overlaps the work across the GPU; the per-slot wall-clock cost is
+  ≤ max(M, N) + small overlap residual, not (M + N).</figcaption>
+  </figure>
+
+  <p>The bench is therefore an <i>upper bound</i> on the live broker's
+  per-slot cost. Confirmed indirectly by the OCUDU smoke run on the 8-edge
+  topology, where the broker measured
+  <span class="mono">h2d ≈ 22 µs · kernel ≈ 5 µs · d2h ≈ 14 µs</span> per
+  slot — better than the bench's 41 / 6 / 20, because the broker isn't
+  oversubscribing the GPU and gets idle time from the throttle between
+  slots.</p>
+
+  <h3 id="perf-boundary">21.7 Boundary synthesis on RTX 5090</h3>
+  <p>Pulling everything together — what's realtime, what isn't, and where
+  the wall is:</p>
+  <ul class="tight">
+    <li><b>CPU realtime ceiling</b>: ≈ 2 incoming edges per RX node at
+        23.04 MS/s with this model chain (yellow at 2 edges, red beyond).
+        Reference path only — never the production target.</li>
+    <li><b>CUDA bench ceiling (this workstation, gen 5 x4)</b>:
+        <b>N ≈ 16 incoming edges</b> at one RX node is the last yellow
+        point (p99 = 425 µs). At N = 32 the H2D phase alone exceeds the
+        slot. The bench p99 also collapses to <code>max(M, N)</code> for
+        M-N topologies (Diagram U), so the same boundary applies to every
+        Set 2 config.</li>
+    <li><b>CUDA broker ceiling</b> (estimated): the live broker dispatches
+        per-node calls on parallel CUDA streams (Diagram I) and overlaps
+        them with the throttle's idle time. The OCUDU smoke run at 8 edges
+        measured <span class="mono">h2d ≈ 22 µs · kernel ≈ 5 µs ·
+        d2h ≈ 14 µs</span> per slot in the broker, vs. the bench's
+        41 / 6 / 20 — confirming the broker isn't oversubscribing the GPU.
+        Extrapolating, the broker on this hardware should handle ~32 incoming
+        edges per RX node before H2D saturation hits.</li>
+    <li><b>What hits the wall first</b>: H2D copy latency, growing
+        ~15 µs per staged-buffer edge under the x4 link. Kernel stays
+        ≤ 15 µs even at N = 64 (per-thread inner loop only). D2H is a
+        fixed ~19 µs floor. Compute is wildly underused (56 % SM,
+        9 % power — see <a href="#perf-resource">§21.4</a>).</li>
+    <li><b>Memory is never the constraint</b> — busiest config uses
+        ~3 MiB per RX node in live working set; total bench footprint
+        under 30 MiB. The 514 MiB device alloc is mostly CUDA runtime
+        context overhead (<a href="#perf-resource">§21.4</a>).</li>
+    <li><b>What unlocks more headroom</b>: <b>(a) a gen 5 x16 link</b> —
+        4× the H2D ceiling, lifts the bench boundary from N ≈ 16 to
+        N ≈ 64 (the GPU has the compute for it, the link is the only
+        thing in the way). <b>(b) H2D pipelining</b> (split staged buffer
+        + ping-pong copy) — overlaps copy with the previous slot's
+        kernel; listed in <a href="#scope">§19</a> planned work for
+        single-mega-node topologies if such a workload becomes interesting.
+        <b>(c) Heavier per-edge chains</b> — adds compute work that the
+        GPU has lots of headroom for, doesn't grow PCIe traffic.</li>
+  </ul>
+
+  <p class="sub" style="margin-top:34px">ocudu-gpu-channel · GPU-accelerated real-time
+  channel emulator for live srsRAN and OCUDU stacks · broker in
+  <span class="mono">src/broker.cpp</span> · kernels in
+  <span class="mono">src/cuda_backend.cu</span></p>
 
 </div>
 </body>

@@ -22,3 +22,5 @@
 
 # Local editor and OS noise.
 .DS_Store
+.claude/
+.playwright-mcp/

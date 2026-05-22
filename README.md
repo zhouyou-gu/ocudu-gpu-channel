@@ -1,31 +1,103 @@
 # ocudu-gpu-channel
 
-`ocudu-gpu-channel` is a GPU-targeted standalone ZMQ IQ channel emulator for OCUDU Split 8 SDR workflows. It is designed to sit between OCUDU-compatible ZMQ endpoints, route `cf32` IQ streams across multi-gNB and multi-UE topologies, and apply deterministic channel models on CUDA while measuring the added real-time latency.
+**GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks.**
+Drops between two ZMQ radios, routes `cf32` IQ across multi-gNB / multi-UE
+topologies, and applies CUDA channel models inside a hard 1&nbsp;ms slot deadline.
 
-The project target is real-time GPU channel emulation. CPU code exists only as a correctness reference, local development path, and baseline for proving when CUDA helps.
+This is the project landing page. For architecture, broker internals, GPU
+kernel design, profiling, and performance numbers, see the
+[**technical reference**](docs/ocudu-gpu-channel-doc.html).
 
-The current implementation is an initial GPU-first community scaffold:
+## Status
 
-- C++20/CMake project with libzmq.
-- Standalone broker CLI: `ocudu-gpu-channel`.
-- Benchmark CLI: `ocudu-gpu-channel-bench`.
-- Synthetic OCUDU-style ZMQ source/sink tools.
-- CUDA backend for gain, path loss, fixed phase, CFO, and AWGN. Delay models are rejected on CUDA until kernels exist.
-- Explicit CPU reference backend for local tests, CPU/GPU comparison, and models not yet ported to CUDA.
+What's proven end-to-end on an RTX 5090 against the OCUDU + srsUE stack:
+
+- **Milestone A — single UE attach.** OCUDU gNB ↔ CUDA broker ↔ srsUE:
+  `rrc_connected=1`, `pdu_session_established=1`, IP ping OK; broker
+  data-integrity counters all zero; 0 gNB `Real-time failure in RF: overflow`.
+- **Milestone B — multi-UE on one cell.** Two srsUEs through one gNB over a
+  realistic per-UE channel (per-link path-loss + phase + AWGN); both attached
+  with distinct C-RNTIs and PDU sessions.
+- **Milestone C — multi-gNB with interference.** Two OCUDU gNBs + two srsUEs
+  (one per cell) on a 4-node / 8-link inter-cell-interference topology; each
+  gNB's RX is the GPU superposition of its serving UE plus the other cell's
+  interferer; both UEs attach to their own cell.
+
+**Supported chain steps today:** `gain`, `path_loss`, `phase`, `cfo`, `awgn`,
+`integer_delay`, `fractional_delay` — CUDA and CPU, bit-exact.
+
+**Next:** multi-tap channels with Doppler-spread fading via a unified `tdl`
+chain step (3GPP CDL/TDL profiles). See
+[technical reference §19](docs/ocudu-gpu-channel-doc.html#scope) for the
+architecture and decisions.
+
+## Where this fits
+
+Adjacent tools cover offline link-level simulation, offline channel-impulse-response generation, offline 3D ray-tracing, system-level discrete-event simulation, SDR flowgraph toolkits, in-loop CPU simulators tied to specific 5G stacks, and commercial RF↔RF hardware emulators. ocudu-gpu-channel fills the gap they leave — *the GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks at slot cadence.*
+
+| Tool | Category | Stack | Channel models | In-loop with live radio stacks? |
+|---|---|---|---|---|
+| **ocudu-gpu-channel** | Real-time GPU emulator | C++ / CUDA + ZMQ | Gain, path-loss, phase, CFO, AWGN, delay; fading + Doppler planned | **Yes** — OCUDU / srsRAN via ZMQ on a 1 ms slot budget |
+| [OAI rfsimulator](https://github.com/OPENAIRINTERFACE/openairinterface5g/blob/develop/radio/rfsimulator/README.md) | In-loop CPU simulator | C | AWGN + OAI Raytracing Channel Emulator | Yes — only inside the OAI 5G stack, CPU-bound |
+| [GNU Radio](https://www.gnuradio.org/) | SDR flowgraph toolkit | C++ / Python | Composable `channels.*` blocks (DIY) | Yes — bring your own SDR or virtual sink |
+| [Keysight PROPSIM](https://www.keysight.com/us/en/products/channel-emulators/propsim-platforms.html) / [Spirent Vertex](https://www.spirent.com/products/vertex-channel-emulator) | Commercial RF hardware emulator | Proprietary firmware | 3GPP CDL/TDL, MIMO, full fading at RF | Yes — RF↔RF, commercial pricing |
+| [5G-LENA](https://5g-lena.cttc.es/) (ns-3) / [Simu5G](https://github.com/Unipisa/Simu5G) (OMNeT++) | System-level simulator | C++ / Python | TR 38.901 statistical, packet-level | Limited — real-time emulation modes exist but not slot-paced IQ |
+| [Sionna](https://github.com/NVlabs/sionna) (NVIDIA) | Offline GPU link-level + ray tracing | Python + TensorFlow / Keras | 3GPP CDL/TDL, MIMO / OFDM, differentiable ray tracing (Sionna RT) | No — research / ML training in notebooks |
+| [MATLAB 5G Toolbox](https://www.mathworks.com/products/5g.html) | Offline link-level simulator | MATLAB | 3GPP CDL/TDL/NTN/HST, MIMO, beamforming | No — commercial license |
+| [QuaDRiGa](https://quadriga-channel-model.de/) (Fraunhofer HHI) | Offline channel-impulse-response generator | MATLAB / Octave | 3GPP CDL/TDL, dual-mobility, satellite / NTN, industrial | No |
+| [Remcom Wireless InSite](https://www.remcom.com/wireless-insite-em-propagation-software) | Offline 3D ray tracer | Proprietary | Site-specific CIR from 3D scene geometry, mmWave | No — commercial license |
+
+Note: srsRAN's own ZMQ driver is a raw IQ pipe with no channel impairments — ocudu-gpu-channel is what you drop into that pipe to make it interesting.
+
+## What's inside
+
+- C++20 + CMake project on libzmq.
+- **`ocudu-gpu-channel`** — the broker CLI; sits between two ZMQ endpoints and
+  serves processed IQ at slot cadence.
+- **`ocudu-gpu-channel-bench`** — per-topology latency benchmark (H2D / kernel /
+  D2H, CPU stage timings).
+- **`ocudu-zmq-source` / `ocudu-zmq-sink`** — synthetic IQ tools for
+  hardware-free validation.
+- **CUDA backend** — fused `superpose_kernel` that walks every incoming edge of
+  a node and accumulates per-edge channel shaping into one RX signal per slot.
+- **CPU reference backend** — same step set, used by tests and local development.
+- Example topologies in [`examples/`](examples/): single-link MVP, 3-node
+  interference + crosstalk graph, 2-cell / 4-node multi-gNB, multi-UE OCUDU
+  Docker, 16-edge stress.
+
+## Quick start — local synthetic loop
+
+Open four terminals: two synthetic IQ sources, the broker, two paced sinks.
+
+```sh
+# Terminal 1: source for TX endpoint 1
+./build/ocudu-zmq-source --endpoint tcp://*:2000 --duration 20s
+
+# Terminal 2: source for TX endpoint 2
+./build/ocudu-zmq-source --endpoint tcp://*:2101 --duration 20s
+
+# Terminal 3: broker — runs CUDA channel kernels per slot
+./build/ocudu-gpu-channel --config examples/topology.local.yaml --duration 20s
+
+# Terminal 4: paced sinks (one request per 1 ms at 23.04 MS/s)
+./build/ocudu-zmq-sink --endpoint tcp://127.0.0.1:2001 --duration 10s --request-interval-us 1000
+./build/ocudu-zmq-sink --endpoint tcp://127.0.0.1:2100 --duration 10s --request-interval-us 1000
+```
+
+`--request-interval-us 1000` is the strict-realtime pace. Drop it for a free-running test.
 
 ## Build
 
 Ubuntu 22.04+:
 
 ```sh
-sudo apt-get update
 sudo apt-get install -y cmake g++ pkg-config libzmq3-dev
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
 
-macOS with Homebrew:
+macOS (Homebrew):
 
 ```sh
 brew install cmake zeromq pkg-config
@@ -34,86 +106,70 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Run a Local Synthetic Loop
+The **CUDA backend builds automatically when `nvcc` is on PATH** at configure
+time. Without CUDA, only the CPU backend is built and a `backend: cuda` config
+is rejected at load.
 
-Terminal 1:
-
-```sh
-./build/ocudu-zmq-source --endpoint tcp://*:2000 --duration 20s
-```
-
-Terminal 2:
+## Benchmark
 
 ```sh
-./build/ocudu-zmq-source --endpoint tcp://*:2101 --duration 20s
-```
-
-Terminal 3:
-
-```sh
-./build/ocudu-gpu-channel --config examples/topology.local.yaml --duration 20s
-```
-
-Terminal 4:
-
-```sh
-./build/ocudu-zmq-sink --endpoint tcp://127.0.0.1:2001 --duration 10s
-./build/ocudu-zmq-sink --endpoint tcp://127.0.0.1:2100 --duration 10s
-```
-
-For strict realtime validation, pace sink requests to the configured batch duration. With `batch_samples: auto` at 23.04 MS/s, that is one request per 1 ms:
-
-```sh
-./build/ocudu-zmq-sink --endpoint tcp://127.0.0.1:2001 --duration 10s --request-interval-us 1000
-```
-
-## Model Benchmark
-
-```sh
+# CPU reference (any platform)
 ./build/ocudu-gpu-channel-bench --config examples/topology.local.yaml --duration 10s --scs-khz 30
-```
 
-The CPU topology is a baseline/reference run. The project-facing benchmark target is the CUDA MVP topology below. The benchmark reports latency percentiles for in-memory model mixing only. It does not include ZMQ receive/send time or full broker scheduling overhead. The gate is intentionally conservative and is useful for model-path triage before full interop benchmarking:
-
-- green: p99 added processing latency is at most 25% of the configured NR slot duration;
-- yellow: stable but at most one slot;
-- red: more than one slot or unstable.
-
-On a CUDA build, use the MVP topology to collect the GPU transfer and kernel timing rows:
-
-```sh
+# CUDA MVP (adds per-stage GPU timings)
 ./build/ocudu-gpu-channel-bench --config examples/topology.cuda-mvp.yaml --duration 10s --scs-khz 30
 ```
 
-CUDA output keeps `model_mix_latency` and adds `h2d_us`, `kernel_us`, `d2h_us`, and `gpu_process_us`.
+CUDA output emits `model_mix_latency` plus `h2d_us`, `kernel_us`, `d2h_us`,
+`gpu_process_us`. The per-slot gate (green / yellow / red), the methodology,
+and the measured fan-in scaling live in
+[technical reference §21](docs/ocudu-gpu-channel-doc.html#perf).
 
-For validation runs where zero flow, starvation, or continuity failures should fail the process:
+Strict-realtime validation (fails the process on any flow / starvation /
+continuity error):
 
 ```sh
 ./build/ocudu-gpu-channel --config examples/topology.cuda-mvp.yaml --duration 20s --strict-realtime
 ```
 
-## Remote RTX Workstation
+## Remote RTX workstation
 
-The remote GPU path is intentionally user-space only:
+The remote GPU path is user-space only — no root needed:
 
 ```sh
-./scripts/remote/bootstrap-user-tools.sh
-./scripts/remote/probe.sh
-./scripts/remote/build-and-bench-cuda-mvp.sh
-./scripts/remote/gpu-test-sequence.sh
+./scripts/remote/bootstrap-user-tools.sh        # CMake + CUDA 12.8.1 + ZeroMQ under ~/ocudu-gpu-channel-workspace/tools/
+./scripts/remote/probe.sh                       # sanity-check the toolchain
+./scripts/remote/build-and-bench-cuda-mvp.sh    # rsync, build, run the CUDA MVP benchmark
+./scripts/remote/gpu-test-sequence.sh           # full validation: build + ctest + relay sanity + interference graph + multi-gNB
 ```
 
-The bootstrap installs CMake, CUDA Toolkit 12.8.1, and ZeroMQ if needed under `~/ocudu-gpu-channel-workspace/tools/`, then writes `tools/env.sh` on the remote host. Source that file before remote CMake builds.
+`gpu-test-sequence.sh` is the locked-in GPU validation run; it must pass before
+any change to the broker or CUDA backend ships.
 
-`gpu-test-sequence.sh` is the locked-in GPU validation run: it rsyncs the working tree, then builds, runs `ctest`, and drives the CUDA broker through a clean-channel and an AWGN synthetic relay loop on the GPU.
+## OCUDU + srsRAN interop
 
-For OCUDU runtime interop, use the Docker gNB runbook and smoke helpers in [docs/ocudu-interop.md](docs/ocudu-interop.md). The first milestone proves OCUDU ZMQ sample flow through the CUDA broker; the second attempts srsUE attach and ping through the same broker path.
+Full OCUDU Docker gNB ↔ broker ↔ srsUE runbook with attach + ping verification:
+[**docs/ocudu-interop.md**](docs/ocudu-interop.md).
 
-## Known Limits
+End-to-end-validated topologies:
 
-- CUDA is the target backend. CPU mode is a reference/baseline path and should not be used for GPU scale claims.
-- The CUDA backend currently covers gain, path loss, phase, CFO, and AWGN; delay models are intentionally rejected on CUDA until kernels exist.
-- The broker is a standalone external process, not an OCUDU patch.
-- Scale is reported as a measured envelope by topology, sample rate, model chain, CPU affinity, and backend. The project does not promise fixed multi-UE or multi-gNB counts before benchmark data exists.
-- Distributed IQ over Wi-Fi or VPN is not considered viable. See [docs/distributed.md](docs/distributed.md).
+- Single-cell, single-UE: [`examples/topology.ocudu-docker.cuda.yaml`](examples/topology.ocudu-docker.cuda.yaml)
+- Multi-UE, one cell, realistic per-UE channel: [`examples/topology.ocudu-docker.multi-ue.cuda.yaml`](examples/topology.ocudu-docker.multi-ue.cuda.yaml)
+- 3-node interference + crosstalk graph: [`examples/topology.graph.cuda.yaml`](examples/topology.graph.cuda.yaml)
+- 2-cell / 4-node / 8-link multi-gNB: [`examples/topology.multi-gnb.cuda.yaml`](examples/topology.multi-gnb.cuda.yaml)
+
+Synthetic-loop validation matches the analytic superposition to < 0.3 % on real
+GPU runs, with all broker data-integrity counters at zero.
+
+## Deeper docs
+
+- [Technical reference](docs/ocudu-gpu-channel-doc.html) — architecture,
+  topology and YAML model, broker per-slot loop, signal alignment, GPU compute,
+  signal memory, multi-stream concurrency, profiling, performance, planned
+  work. **Start here for design questions.**
+- [OCUDU interop runbook](docs/ocudu-interop.md) — Docker gNB + srsUE attach
+  procedure.
+- [Distributed IQ over network](docs/distributed.md) — bandwidth, jitter, and
+  packet-loss requirements when broker and radios run on different hosts.
+- [Project structure](docs/project-structure.md) — local repo and remote RTX
+  workstation layout.

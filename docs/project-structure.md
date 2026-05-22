@@ -11,7 +11,7 @@ Tracked project content belongs in:
 - `src/` for implementation.
 - `tests/` for unit and integration tests.
 - `examples/` for small reproducible config examples.
-- `docs/` for feasibility, network, release, and OCUDU notes.
+- `docs/` for the technical reference (`ocudu-gpu-channel-doc.html`), OCUDU interop runbook, and distributed-IQ network notes.
 - `scripts/` for reproducible local and remote workflows.
 - `cmake/` for CMake helper modules when needed.
 - `tools/` for developer utilities that are not shipped as main CLIs.
