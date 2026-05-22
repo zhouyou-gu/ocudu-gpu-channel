@@ -36,7 +36,8 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
   auto it = states_.find(key);
   if (it == states_.end()) {
     // Lazy creation only happens for single-shot use; the broker preallocates
-    // every link in prepare() so process_into() never inserts concurrently.
+    // every link in prepare() so process_superposition() never inserts
+    // concurrently.
     it = states_.emplace(key, LinkState{}).first;
   }
 
@@ -80,14 +81,14 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
   }
 }
 
-void CpuChannelProcessor::process_into(const std::string& link_key_value,
-                                       const ModelConfig& model,
-                                       std::span<const IqSample> input,
-                                       std::span<IqSample> output,
-                                       std::uint64_t sample_rate_hz)
+void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
+                                              const ModelConfig& model,
+                                              std::span<const IqSample> input,
+                                              std::span<IqSample> output,
+                                              std::uint64_t sample_rate_hz)
 {
   if (output.size() != input.size()) {
-    throw std::runtime_error("process_into input and output sizes must match");
+    throw std::runtime_error("apply_chain_to_link input and output sizes must match");
   }
   if (input.empty()) {
     return;
@@ -157,21 +158,13 @@ void CpuChannelProcessor::process_into(const std::string& link_key_value,
         }
         break;
       }
+      case ModelStepType::Tdl:
+        throw std::runtime_error("tdl chain step is not yet implemented on the CPU backend");
     }
     std::swap(current, next);
   }
 
   std::copy(current.begin(), current.end(), output.begin());
-}
-
-IqBuffer CpuChannelProcessor::process(const std::string& link_key_value,
-                                      const ModelConfig& model,
-                                      const IqBuffer& input,
-                                      std::uint64_t sample_rate_hz)
-{
-  IqBuffer output(input.size());
-  process_into(link_key_value, model, input, output, sample_rate_hz);
-  return output;
 }
 
 void CpuChannelProcessor::process_superposition(const std::string& dst_key,
@@ -195,7 +188,7 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
     if (edge.model == nullptr || edge.samples.size() != output.size()) {
       throw std::runtime_error("CPU superposition input is malformed");
     }
-    process_into(edge.link_key, *edge.model, edge.samples, shaped, sample_rate_hz);
+    apply_chain_to_link(edge.link_key, *edge.model, edge.samples, shaped, sample_rate_hz);
     for (std::size_t s = 0; s != output.size(); ++s) {
       output[s] += scratch[s];
     }
@@ -203,7 +196,7 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   // Receiver model (noise floor) applied once to the summed signal.
   if (rx_model != nullptr) {
     const std::span<const IqSample> summed(output.data(), output.size());
-    process_into(dst_key + ">rx", *rx_model, summed, output, sample_rate_hz);
+    apply_chain_to_link(dst_key + ">rx", *rx_model, summed, output, sample_rate_hz);
   }
 }
 

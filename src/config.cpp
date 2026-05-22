@@ -1,10 +1,13 @@
 #include "ocudu_gpu_channel/config.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
+#include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace ocg {
 namespace {
@@ -130,6 +133,8 @@ void apply_device(DeviceConfig& device, const std::string& key, const std::strin
     device.rx_endpoint = value;
   } else if (key == "rx_model") {
     device.rx_model = value;
+  } else if (key == "tx_timing_offset_samples") {
+    device.tx_timing_offset_samples = parse_double(value, key);
   } else {
     throw std::runtime_error("unknown device key: " + key);
   }
@@ -143,6 +148,8 @@ void apply_link(LinkConfig& link, const std::string& key, const std::string& val
     link.to = value;
   } else if (key == "model") {
     link.model = value;
+  } else if (key == "propagation_delay_samples") {
+    link.propagation_delay_samples = parse_double(value, key);
   } else {
     throw std::runtime_error("unknown link key: " + key);
   }
@@ -156,6 +163,19 @@ void apply_step(ModelStep& step, const std::string& key, const std::string& valu
     step.params[key] = parse_double(value, key);
   } else {
     throw std::runtime_error("unknown empty model step key: " + key);
+  }
+}
+
+void apply_tap(TapSpec& tap, const std::string& key, const std::string& value)
+{
+  if (key == "delay_samples") {
+    tap.delay_samples = parse_double(value, key);
+  } else if (key == "gain_db") {
+    tap.gain_db = parse_double(value, key);
+  } else if (key == "phase_rad") {
+    tap.phase_rad = parse_double(value, key);
+  } else {
+    throw std::runtime_error("unknown tap key: " + key);
   }
 }
 
@@ -175,6 +195,11 @@ bool is_allowed_param(ModelStepType type, const std::string& key)
       return key == "phase_rad";
     case ModelStepType::Cfo:
       return key == "cfo_hz" || key == "phase_rad";
+    case ModelStepType::Tdl:
+      // tdl carries its tap data in `taps`, not in `params`. No scalar params
+      // are valid for it today; per-tap fading config will arrive as a nested
+      // map under each TapSpec, not as flat scalars at the step level.
+      return false;
   }
   return false;
 }
@@ -194,6 +219,11 @@ TopologyConfig load_config_file(const std::string& path)
   LinkConfig* current_link = nullptr;
   ModelConfig* current_model = nullptr;
   ModelStep* current_step = nullptr;
+  // Set when the parser is inside a `taps:` block of `current_step`. Subsequent
+  // `- ` lines at the tap indent open new taps; key-value lines at a deeper
+  // indent continue the most recent tap. Reset on every new step / model.
+  bool current_step_in_taps = false;
+  TapSpec* current_tap = nullptr;
 
   std::string raw_line;
   unsigned line_number = 0;
@@ -242,6 +272,8 @@ TopologyConfig load_config_file(const std::string& path)
       current_link = nullptr;
       current_model = nullptr;
       current_step = nullptr;
+      current_step_in_taps = false;
+      current_tap = nullptr;
       if (line == "runtime:") {
         section = Section::Runtime;
       } else if (line == "devices:") {
@@ -293,6 +325,10 @@ TopologyConfig load_config_file(const std::string& path)
     }
 
     if (section == Section::Models) {
+      // Two structural levels live below `models:` — `chain:` lists steps, and
+      // a `tdl` step may carry its own nested `taps:` list. The parser keys
+      // structural decisions off the indent column so a `- delay_samples:` line
+      // at the tap level is not misread as a new step at the step level.
       if (indent == 2 && line.ends_with(':')) {
         std::string model_id = line.substr(0, line.size() - 1);
         ModelConfig model;
@@ -300,14 +336,38 @@ TopologyConfig load_config_file(const std::string& path)
         auto [it, _] = config.models.emplace(model_id, std::move(model));
         current_model = &it->second;
         current_step = nullptr;
+        current_step_in_taps = false;
+        current_tap = nullptr;
       } else if (current_model != nullptr && line == "chain:") {
         current_step = nullptr;
-      } else if (current_model != nullptr && line.rfind("- ", 0) == 0) {
+        current_step_in_taps = false;
+        current_tap = nullptr;
+      } else if (current_model != nullptr && indent == 6 && line.rfind("- ", 0) == 0) {
         current_model->chain.emplace_back();
         current_step = &current_model->chain.back();
+        current_step_in_taps = false;
+        current_tap = nullptr;
         auto [key, value] = split_key_value(trim(line.substr(2)));
         apply_step(*current_step, key, value);
-      } else if (current_step != nullptr) {
+      } else if (current_step != nullptr && indent == 8 && line == "taps:") {
+        // Open the nested tap list. Subsequent `- ` lines at indent 10 push
+        // new TapSpec entries onto current_step->taps. Record that a `taps:`
+        // key appeared on this step so the validator can reject an empty
+        // block on a non-tdl step (the parser cannot, because step.type may
+        // be declared on a later line).
+        current_step_in_taps = true;
+        current_tap = nullptr;
+        current_step->taps_declared = true;
+      } else if (current_step != nullptr && current_step_in_taps && indent == 10 &&
+                 line.rfind("- ", 0) == 0) {
+        current_step->taps.emplace_back();
+        current_tap = &current_step->taps.back();
+        auto [key, value] = split_key_value(trim(line.substr(2)));
+        apply_tap(*current_tap, key, value);
+      } else if (current_tap != nullptr && current_step_in_taps && indent == 12) {
+        auto [key, value] = split_key_value(line);
+        apply_tap(*current_tap, key, value);
+      } else if (current_step != nullptr && indent == 8 && !current_step_in_taps) {
         auto [key, value] = split_key_value(line);
         apply_step(*current_step, key, value);
       } else {
@@ -315,6 +375,8 @@ TopologyConfig load_config_file(const std::string& path)
       }
     }
   }
+
+  fold_link_leading_delays(config);
 
   auto errors = validate_config(config);
   if (!errors.empty()) {
@@ -370,6 +432,9 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     if (!device.rx_model.empty() && find_model(config, device.rx_model) == nullptr) {
       errors.emplace_back("device " + device.id + " rx_model does not exist: " + device.rx_model);
     }
+    if (device.tx_timing_offset_samples < 0.0) {
+      errors.emplace_back("device " + device.id + " tx_timing_offset_samples must be non-negative");
+    }
   }
 
   for (const auto& link : config.links) {
@@ -387,6 +452,10 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     if (source != nullptr && destination != nullptr && source->sample_rate_hz != destination->sample_rate_hz) {
       errors.emplace_back("link " + link.from + "->" + link.to +
                           " has mixed sample rates but no resampler is implemented");
+    }
+    if (link.propagation_delay_samples < 0.0) {
+      errors.emplace_back("link " + link.from + "->" + link.to +
+                          " propagation_delay_samples must be non-negative");
     }
   }
 
@@ -425,10 +494,130 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
       if (noise_it != step.params.end() && noise_it->second < 0.0) {
         errors.emplace_back("model " + model_id + " noise_power must be non-negative");
       }
+      // tdl-specific: tap array shape and per-tap sanity. The processor will
+      // collapse a single-tap tdl into the equivalent gain/delay path, but the
+      // tap data itself must round-trip cleanly through the schema.
+      if (step.type == ModelStepType::Tdl) {
+        if (step.taps.empty()) {
+          errors.emplace_back("model " + model_id + " tdl step must have at least one tap");
+        }
+        // Cap tap count so a YAML typo cannot launch a kernel with 10000
+        // reads per output sample. 3GPP CDL profiles top out at 23 taps;
+        // 64 leaves generous headroom for custom profiles and the LOS-plus-
+        // scatterer-clusters compositions that show up in TR 38.901.
+        constexpr std::size_t kMaxTdlTaps = 64;
+        if (step.taps.size() > kMaxTdlTaps) {
+          errors.emplace_back("model " + model_id + " tdl has " +
+                              std::to_string(step.taps.size()) +
+                              " taps; the validator caps tdl at " +
+                              std::to_string(kMaxTdlTaps) + " taps per step");
+        }
+        // Cap per-tap delay so a YAML typo cannot demand a multi-GB delay-line
+        // ring. 1e6 samples is ~43 ms at 23.04 MS/s -- far past any cellular
+        // delay spread, but still bounded so a kernel sizing pass cannot blow
+        // up.
+        constexpr double kMaxTapDelaySamples = 1.0e6;
+        std::set<double> seen_delays;
+        for (const auto& tap : step.taps) {
+          if (tap.delay_samples < 0.0) {
+            errors.emplace_back("model " + model_id +
+                                " tdl tap delay_samples must be non-negative");
+          }
+          if (tap.delay_samples > kMaxTapDelaySamples) {
+            errors.emplace_back("model " + model_id +
+                                " tdl tap delay_samples=" +
+                                std::to_string(tap.delay_samples) +
+                                " exceeds the validator cap of " +
+                                std::to_string(kMaxTapDelaySamples) + " samples");
+          }
+          if (!seen_delays.insert(tap.delay_samples).second) {
+            errors.emplace_back("model " + model_id +
+                                " tdl has duplicate tap delay_samples=" +
+                                std::to_string(tap.delay_samples) +
+                                "; collapse into a single tap with summed complex gain");
+          }
+        }
+      } else if (!step.taps.empty() || step.taps_declared) {
+        // taps_declared catches the parser-silent case where a non-tdl step
+        // carries a `taps:` key with no items underneath; step.taps alone is
+        // empty so the non-empty branch above would miss it.
+        errors.emplace_back("model " + model_id + " step " + to_string(step.type) +
+                            " has a taps block but only tdl steps may carry one");
+      }
     }
   }
 
   return errors;
+}
+
+void fold_link_leading_delays(TopologyConfig& config)
+{
+  // Cache by (total_delay, base_model_id) so two links with the same composed
+  // delay and same base model share one synthesized clone. The composed delay
+  // is `device.tx_timing_offset_samples + link.propagation_delay_samples`; we
+  // key on the sum because the leading-delay step doesn't care which knob
+  // contributed which sample — both effects look identical at the receiver.
+  std::map<std::pair<double, std::string>, std::string> synthesized;
+  for (auto& link : config.links) {
+    auto src_it = std::find_if(config.devices.begin(), config.devices.end(),
+                               [&](const DeviceConfig& d) { return d.id == link.from; });
+    const double tx_timing_offset =
+        src_it == config.devices.end() ? 0.0 : src_it->tx_timing_offset_samples;
+    const double propagation_delay = link.propagation_delay_samples;
+    const double total_delay = tx_timing_offset + propagation_delay;
+    if (total_delay == 0.0) {
+      continue;
+    }
+    const std::string base = link.model;
+    const auto cache_key = std::make_pair(total_delay, base);
+    auto cached = synthesized.find(cache_key);
+    if (cached != synthesized.end()) {
+      link.model = cached->second;
+      continue;
+    }
+    auto base_it = config.models.find(base);
+    if (base_it == config.models.end()) {
+      continue; // validate_config will report the missing base model
+    }
+    // Name the synthesized clone so it carries which physical effects it
+    // composes. Logs and error messages will show this name, so make it
+    // self-documenting rather than opaque.
+    std::ostringstream id_oss;
+    id_oss << "__ocg_lead_delay__" << base;
+    if (tx_timing_offset != 0.0 && propagation_delay != 0.0) {
+      id_oss << "__txoff_" << tx_timing_offset << "__prop_" << propagation_delay;
+    } else if (tx_timing_offset != 0.0) {
+      id_oss << "__txoff_" << tx_timing_offset;
+    } else {
+      id_oss << "__prop_" << propagation_delay;
+    }
+    const std::string effective_id = id_oss.str();
+
+    ModelConfig clone = base_it->second;
+    clone.id = effective_id;
+    if (!clone.chain.empty() &&
+        (clone.chain.front().type == ModelStepType::IntegerDelay ||
+         clone.chain.front().type == ModelStepType::FractionalDelay)) {
+      auto& first = clone.chain.front();
+      auto existing_it = first.params.find("delay_samples");
+      const double existing = existing_it == first.params.end() ? 0.0 : existing_it->second;
+      const double combined = existing + total_delay;
+      first.params["delay_samples"] = combined;
+      const double combined_frac = combined - std::floor(combined);
+      if (combined_frac > 0.0) {
+        first.type = ModelStepType::FractionalDelay;
+      }
+    } else {
+      ModelStep step;
+      const double total_frac = total_delay - std::floor(total_delay);
+      step.type = total_frac > 0.0 ? ModelStepType::FractionalDelay : ModelStepType::IntegerDelay;
+      step.params["delay_samples"] = total_delay;
+      clone.chain.insert(clone.chain.begin(), step);
+    }
+    config.models.emplace(effective_id, std::move(clone));
+    synthesized[cache_key] = effective_id;
+    link.model = effective_id;
+  }
 }
 
 std::string to_string(Backend backend)
@@ -453,6 +642,8 @@ std::string to_string(ModelStepType type)
       return "phase";
     case ModelStepType::Cfo:
       return "cfo";
+    case ModelStepType::Tdl:
+      return "tdl";
   }
   return "unknown";
 }
@@ -490,6 +681,9 @@ ModelStepType parse_model_step_type(const std::string& value)
   }
   if (value == "cfo") {
     return ModelStepType::Cfo;
+  }
+  if (value == "tdl") {
+    return ModelStepType::Tdl;
   }
   throw std::runtime_error("unsupported model step type: " + value);
 }

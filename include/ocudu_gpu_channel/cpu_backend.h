@@ -21,12 +21,6 @@ class CpuChannelProcessor final : public ChannelProcessor {
 public:
   void prepare(const TopologyConfig& config) override;
 
-  void process_into(const std::string& link_key,
-                    const ModelConfig& model,
-                    std::span<const IqSample> input,
-                    std::span<IqSample> output,
-                    std::uint64_t sample_rate_hz) override;
-
   void process_superposition(const std::string& dst_key,
                              const std::vector<SuperpositionInput>& inputs,
                              const ModelConfig* rx_model,
@@ -35,12 +29,6 @@ public:
 
   ProcessorTimings last_timings() const override { return {}; }
   const char* backend_name() const override { return "cpu"; }
-
-  // Convenience wrapper for single-shot use (tests, local development).
-  IqBuffer process(const std::string& link_key,
-                   const ModelConfig& model,
-                   const IqBuffer& input,
-                   std::uint64_t sample_rate_hz);
 
 private:
   // Per-model-step running state (CFO phase, delay history, AWGN RNG).
@@ -63,6 +51,16 @@ private:
   LinkState& ensure_link_state(const std::string& link_key,
                                const ModelConfig& model,
                                std::size_t sample_count);
+
+  // Internal helper used by process_superposition() to shape one edge's
+  // input through its model chain into the provided output span. This is
+  // what process_into() used to be -- now private since the public API only
+  // exposes the per-node superposition entry point.
+  void apply_chain_to_link(const std::string& link_key,
+                           const ModelConfig& model,
+                           std::span<const IqSample> input,
+                           std::span<IqSample> output,
+                           std::uint64_t sample_rate_hz);
 
   std::unordered_map<std::string, LinkState> states_;
 };

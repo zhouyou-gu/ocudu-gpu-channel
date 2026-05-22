@@ -203,7 +203,37 @@ struct WorkerDiag {
   std::atomic<std::uint64_t> idle_waits{0};    // ZMQ timeouts waiting on the peer
   std::atomic<std::uint64_t> blocked_iters{0}; // puller room stalls / server data spins
   std::atomic<std::uint64_t> last_samples{0};  // samples in the last pull / serve
+  // Per-stage CPU timings for the last completed serve, in microseconds.
+  // wait_req covers the ZMQ recv of the next request (idle wait); align is the
+  // first-serve cursor co-init; read is the common-window computation plus the
+  // ring reads and cursor advance; process is the entire processor call (which
+  // on the CUDA backend includes the host-side delay, packing, H2D, kernel,
+  // D2H -- the GPU sub-phases are emitted separately by event=gpu_timings);
+  // throttle is sleep_until duration; send is the ZMQ reply duration. The
+  // heartbeat publishes these as event=cpu_stage_timings. Atomically stored as
+  // bit-cast uint64 so they can be read lock-free by the heartbeat thread.
+  std::atomic<std::uint64_t> last_wait_req_us_bits{0};
+  std::atomic<std::uint64_t> last_align_us_bits{0};
+  std::atomic<std::uint64_t> last_read_us_bits{0};
+  std::atomic<std::uint64_t> last_process_us_bits{0};
+  std::atomic<std::uint64_t> last_throttle_us_bits{0};
+  std::atomic<std::uint64_t> last_send_us_bits{0};
 };
+
+inline void store_us(std::atomic<std::uint64_t>& slot, double us)
+{
+  std::uint64_t bits;
+  std::memcpy(&bits, &us, sizeof(bits));
+  slot.store(bits, std::memory_order_relaxed);
+}
+
+inline double load_us(const std::atomic<std::uint64_t>& slot)
+{
+  const std::uint64_t bits = slot.load(std::memory_order_relaxed);
+  double us;
+  std::memcpy(&us, &bits, sizeof(us));
+  return us;
+}
 
 } // namespace
 
@@ -414,12 +444,14 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
       std::uint64_t served = 0;
       bool throttle_anchored = false;
       bool epoch_set = false;
-      const auto batch_duration =
-          std::chrono::nanoseconds((dev.batch * 1000000000ULL) / std::max<std::uint64_t>(1, dev.config->sample_rate_hz));
+      const auto batch_duration = std::chrono::nanoseconds(
+          (dev.batch * 1000000000ULL) /
+          std::max<std::uint64_t>(1, dev.config->sample_rate_hz));
       const auto starvation_deadline = batch_duration * 5;
 
       while (!stop_requested.load()) {
         diag.state.store("wait_req");
+        const auto t_wait_req_start = std::chrono::steady_clock::now();
         std::uint8_t dummy = 0;
         const int received = zmq_recv(dev.rx_rep.get(), &dummy, sizeof(dummy), 0);
         if (received < 0) {
@@ -430,6 +462,9 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           }
           throw std::runtime_error(std::string("rx request failed: ") + zmq_strerror(err));
         }
+        const auto t_align_start = std::chrono::steady_clock::now();
+        const double wait_req_us =
+            std::chrono::duration<double, std::micro>(t_align_start - t_wait_req_start).count();
 
         // First serve: co-initialise every incoming edge's cursor to its
         // source's earliest buffered sample in one pass. No ring discards
@@ -449,6 +484,9 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           }
           epoch_set = true;
         }
+        const auto t_read_start = std::chrono::steady_clock::now();
+        const double align_us =
+            std::chrono::duration<double, std::micro>(t_read_start - t_align_start).count();
 
         // A request was accepted; it must be answered with real processed IQ.
         //
@@ -521,8 +559,14 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         // concurrent process_superposition() calls touch disjoint state.
         const std::span<IqSample> reply(rx_reply.data(), serve);
         diag.state.store("process");
+        const auto t_process_start = std::chrono::steady_clock::now();
+        const double read_us =
+            std::chrono::duration<double, std::micro>(t_process_start - t_read_start).count();
         processor_->process_superposition(dev.config->id, superposition, rx_model, dev.config->sample_rate_hz,
                                           reply);
+        const auto t_throttle_start = std::chrono::steady_clock::now();
+        const double process_us =
+            std::chrono::duration<double, std::micro>(t_throttle_start - t_process_start).count();
 
         // Throttle: cap the serve cadence at the device sample rate so the
         // lock-step radio runs at real time, not faster.
@@ -534,11 +578,22 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           const auto target = throttle_anchor + std::chrono::nanoseconds((served * 1000000000ULL) / rate);
           std::this_thread::sleep_until(target);
         }
+        const auto t_send_start = std::chrono::steady_clock::now();
+        const double throttle_us =
+            std::chrono::duration<double, std::micro>(t_send_start - t_throttle_start).count();
 
         diag.state.store("send");
         while (!stop_requested.load() && !send_samples(dev.rx_rep.get(), reply)) {
           // send timed out; retry so the REP socket stays in a valid state
         }
+        const double send_us =
+            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_send_start).count();
+        store_us(diag.last_wait_req_us_bits, wait_req_us);
+        store_us(diag.last_align_us_bits, align_us);
+        store_us(diag.last_read_us_bits, read_us);
+        store_us(diag.last_process_us_bits, process_us);
+        store_us(diag.last_throttle_us_bits, throttle_us);
+        store_us(diag.last_send_us_bits, send_us);
         served += serve;
         // Re-base the throttle origin every ~1 s of served IQ so the
         // (served * 1e9) product cannot overflow on a long-running relay.
@@ -588,6 +643,22 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     const ProcessorTimings t = processor_->last_timings();
     std::cout << "event=gpu_timings t=" << elapsed_s << " h2d_us=" << t.h2d_us << " kernel_us=" << t.kernel_us
               << " d2h_us=" << t.d2h_us << "\n";
+    // Per-device CPU stage timings from the last completed serve. process_us
+    // is the WHOLE processor call -- on the CUDA backend its h2d/kernel/d2h
+    // subset is reported separately by event=gpu_timings above. wait_req_us
+    // and throttle_us are mostly idle time waiting for the next REP request
+    // and the wall-clock anchor respectively; align_us is non-zero only on
+    // the first serve.
+    for (std::size_t d = 0; d != devices.size(); ++d) {
+      const WorkerDiag& s = server_diag[d];
+      std::cout << "event=cpu_stage_timings t=" << elapsed_s << " dev=" << devices[d]->config->id
+                << " wait_req_us=" << load_us(s.last_wait_req_us_bits)
+                << " align_us=" << load_us(s.last_align_us_bits)
+                << " read_us=" << load_us(s.last_read_us_bits)
+                << " process_us=" << load_us(s.last_process_us_bits)
+                << " throttle_us=" << load_us(s.last_throttle_us_bits)
+                << " send_us=" << load_us(s.last_send_us_bits) << "\n";
+    }
     std::cout.flush();
   };
 

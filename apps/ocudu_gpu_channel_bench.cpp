@@ -15,7 +15,10 @@ namespace {
 
 void usage()
 {
-  std::cout << "usage: ocudu-gpu-channel-bench --config topology.yaml [--duration 10s] [--scs-khz 30]\n";
+  std::cout << "usage: ocudu-gpu-channel-bench --config topology.yaml [--duration 10s] [--scs-khz 30]\n"
+            << "  Drives ChannelProcessor::process_superposition() once per RX node per slot,\n"
+            << "  the same call the live broker makes. One fused H2D + kernel + D2H on CUDA\n"
+            << "  regardless of edge count.\n";
 }
 
 void add_us(ocg::LatencyRecorder& recorder, double value_us)
@@ -85,16 +88,26 @@ int main(int argc, char** argv)
     ocg::LatencyRecorder d2h_recorder;
     ocg::LatencyRecorder gpu_process_recorder;
     std::unordered_map<std::string, ocg::IqBuffer> mixed_by_destination;
-    std::unordered_map<std::string, ocg::IqBuffer> processed_by_link;
     for (const auto& device : config.devices) {
       mixed_by_destination[device.id].resize(ocg::resolve_batch_samples(config.runtime, device.sample_rate_hz));
     }
-    for (const auto& link : config.links) {
-      const auto* destination = ocg::find_device(config, link.to);
-      if (destination != nullptr) {
-        processed_by_link[ocg::link_key(link)].resize(
-            ocg::resolve_batch_samples(config.runtime, destination->sample_rate_hz));
+
+    // Precompute the SuperpositionInput template per RX device. Inside the hot
+    // loop we only need to re-point `samples` at the current latest_tx batch.
+    std::unordered_map<std::string, std::vector<ocg::SuperpositionInput>> sup_by_destination;
+    for (const auto& device : config.devices) {
+      std::vector<ocg::SuperpositionInput> edges;
+      for (const auto& link : config.links) {
+        if (link.to != device.id) {
+          continue;
+        }
+        const auto* model = ocg::find_model(config, link.model);
+        if (model == nullptr) {
+          continue;
+        }
+        edges.push_back({.link_key = ocg::link_key(link), .model = model, .samples = {}});
       }
+      sup_by_destination[device.id] = std::move(edges);
     }
 
     const auto deadline = std::chrono::steady_clock::now() + duration;
@@ -103,29 +116,28 @@ int main(int argc, char** argv)
       for (const auto& device : config.devices) {
         const auto start = std::chrono::steady_clock::now();
         auto& mixed = mixed_by_destination[device.id];
-        std::fill(mixed.begin(), mixed.end(), ocg::IqSample{});
-        for (const auto& link : config.links) {
-          if (link.to != device.id) {
-            continue;
+
+        // Fused path: one process_superposition call per RX node per slot,
+        // matching the broker. The CUDA backend issues one H2D + one kernel
+        // + one D2H regardless of edge count; the CPU backend loops per edge
+        // internally and sums.
+        auto sup_it = sup_by_destination.find(device.id);
+        if (sup_it != sup_by_destination.end() && !sup_it->second.empty()) {
+          for (auto& edge : sup_it->second) {
+            auto tx_it = latest_tx.find(edge.link_key.substr(0, edge.link_key.find('>')));
+            if (tx_it != latest_tx.end()) {
+              edge.samples = std::span<const ocg::IqSample>(tx_it->second.data(), mixed.size());
+            }
           }
-          auto tx_it = latest_tx.find(link.from);
-          const auto* source = ocg::find_device(config, link.from);
-          const auto* model = ocg::find_model(config, link.model);
-          if (tx_it == latest_tx.end() || source == nullptr || model == nullptr) {
-            continue;
-          }
-          const std::string key = ocg::link_key(link);
-          auto& processed = processed_by_link[key];
-          processor->process_into(key, *model, tx_it->second, processed, source->sample_rate_hz);
+          const auto* rx = device.rx_model.empty() ? nullptr : ocg::find_model(config, device.rx_model);
+          processor->process_superposition(device.id, sup_it->second, rx, device.sample_rate_hz,
+                                           std::span<ocg::IqSample>(mixed.data(), mixed.size()));
           const auto timings = processor->last_timings();
           if (config.runtime.backend == ocg::Backend::Cuda) {
             add_us(h2d_recorder, timings.h2d_us);
             add_us(kernel_recorder, timings.kernel_us);
             add_us(d2h_recorder, timings.d2h_us);
             add_us(gpu_process_recorder, timings.gpu_process_us);
-          }
-          for (std::size_t i = 0; i != mixed.size(); ++i) {
-            mixed[i] += processed[i];
           }
         }
         recorder.add(std::chrono::steady_clock::now() - start);

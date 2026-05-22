@@ -207,82 +207,12 @@ void apply_leading_delay(LinkModelState& state, const IqSample* in, IqSample* ou
   }
 }
 
-// One link's broker-side CUDA state: its model-chain state plus the per-call
-// device scratch (input/output/steps buffers, stream, events). Only
-// process_into() uses the device scratch; it is allocated lazily.
-struct CudaLinkState {
-  std::size_t capacity = 0;
+// Per-link model state (chain phase / AWGN counter / delay_line ring) held
+// alongside the per-destination superposition state. Every incoming edge of
+// a destination contributes one of these to the staged buffer.
+struct CudaLinkSlot {
   LinkModelState model;
-  IqSample* host_input = nullptr;
-  IqSample* host_output = nullptr;
-  IqSample* device_input = nullptr;
-  IqSample* device_output = nullptr;
-  GpuStep* device_steps = nullptr;
-  cudaStream_t stream = nullptr;
-  cudaEvent_t h2d_start = nullptr;
-  cudaEvent_t h2d_done = nullptr;
-  cudaEvent_t kernel_done = nullptr;
-  cudaEvent_t d2h_done = nullptr;
 };
-
-void free_state(CudaLinkState& state)
-{
-  if (state.h2d_start != nullptr) {
-    cudaEventDestroy(state.h2d_start);
-  }
-  if (state.h2d_done != nullptr) {
-    cudaEventDestroy(state.h2d_done);
-  }
-  if (state.kernel_done != nullptr) {
-    cudaEventDestroy(state.kernel_done);
-  }
-  if (state.d2h_done != nullptr) {
-    cudaEventDestroy(state.d2h_done);
-  }
-  if (state.stream != nullptr) {
-    cudaStreamDestroy(state.stream);
-  }
-  if (state.device_steps != nullptr) {
-    cudaFree(state.device_steps);
-  }
-  if (state.device_output != nullptr) {
-    cudaFree(state.device_output);
-  }
-  if (state.device_input != nullptr) {
-    cudaFree(state.device_input);
-  }
-  if (state.host_output != nullptr) {
-    cudaFreeHost(state.host_output);
-  }
-  if (state.host_input != nullptr) {
-    cudaFreeHost(state.host_input);
-  }
-  state = {};
-}
-
-// Lazily allocates a link's per-call device scratch. Only process_into() needs
-// it; a processor used purely for superposition never pays for it.
-void ensure_link_device(CudaLinkState& state)
-{
-  if (state.device_input != nullptr) {
-    return;
-  }
-  const std::size_t sample_bytes = state.capacity * sizeof(IqSample);
-  check(cudaHostAlloc(reinterpret_cast<void**>(&state.host_input), sample_bytes, cudaHostAllocDefault),
-        "cudaHostAlloc input");
-  check(cudaHostAlloc(reinterpret_cast<void**>(&state.host_output), sample_bytes, cudaHostAllocDefault),
-        "cudaHostAlloc output");
-  check(cudaMalloc(reinterpret_cast<void**>(&state.device_input), sample_bytes), "cudaMalloc input");
-  check(cudaMalloc(reinterpret_cast<void**>(&state.device_output), sample_bytes), "cudaMalloc output");
-  check(cudaMalloc(reinterpret_cast<void**>(&state.device_steps),
-                   std::max<std::size_t>(1, state.model.step_capacity) * sizeof(GpuStep)),
-        "cudaMalloc steps");
-  check(cudaStreamCreateWithFlags(&state.stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags");
-  check(cudaEventCreate(&state.h2d_start), "cudaEventCreate h2d_start");
-  check(cudaEventCreate(&state.h2d_done), "cudaEventCreate h2d_done");
-  check(cudaEventCreate(&state.kernel_done), "cudaEventCreate kernel_done");
-  check(cudaEventCreate(&state.d2h_done), "cudaEventCreate d2h_done");
-}
 
 // Per-destination-node state for the fused superposition kernel: one pinned
 // staging buffer holding every incoming edge's input batch back to back, one
@@ -359,9 +289,6 @@ public:
 
   ~CudaChannelProcessor() override
   {
-    for (auto& [_, state] : states_) {
-      free_state(state);
-    }
     for (auto& [_, sp] : superpose_states_) {
       free_superpose_state(sp);
     }
@@ -372,18 +299,17 @@ public:
     check(cudaSetDevice(config.runtime.gpu_device), "cudaSetDevice");
     device_ = config.runtime.gpu_device;
 
-    // Per-link model state. Device scratch is allocated lazily by process_into().
+    // Per-link model state (chain phase / AWGN counter / delay_line). One
+    // slot per link, looked up by link_key when packing the staged buffer.
     for (const auto& link : config.links) {
       const auto* destination = find_device(config, link.to);
       const auto* model = find_model(config, link.model);
       if (destination == nullptr || model == nullptr) {
         continue;
       }
-      auto& state = states_[link_key(link)];
-      free_state(state);
-      state.capacity = resolve_batch_samples(config.runtime, destination->sample_rate_hz);
-      init_model_state(state.model, model->chain.size(), link_key(link));
-      configure_delay(state.model, *model);
+      auto& slot = link_slots_[link_key(link)];
+      init_model_state(slot.model, model->chain.size(), link_key(link));
+      configure_delay(slot.model, *model);
     }
 
     // Per-destination superposition state: one entry per node that is the
@@ -443,64 +369,6 @@ public:
     }
   }
 
-  void process_into(const std::string& link_key_value,
-                    const ModelConfig& model,
-                    std::span<const IqSample> input,
-                    std::span<IqSample> output,
-                    std::uint64_t sample_rate_hz) override
-  {
-    if (output.size() != input.size()) {
-      throw std::runtime_error("CUDA process_into input and output sizes must match");
-    }
-    if (input.empty()) {
-      std::lock_guard<std::mutex> lock(timings_mutex_);
-      last_timings_ = {};
-      return;
-    }
-    auto it = states_.find(link_key_value);
-    if (it == states_.end()) {
-      throw std::runtime_error("CUDA link state was not preallocated: " + link_key_value);
-    }
-    auto& state = it->second;
-    if (input.size() > state.capacity) {
-      throw std::runtime_error("CUDA input batch exceeds preallocated link capacity");
-    }
-    if (model.chain.size() > state.model.step_capacity) {
-      throw std::runtime_error("CUDA model chain exceeds preallocated step capacity");
-    }
-    ensure_link_device(state);
-
-    const auto total_start = std::chrono::steady_clock::now();
-    apply_leading_delay(state.model, input.data(), state.host_input, input.size());
-    build_steps(state.model, model, state.host_input, input.size(), sample_rate_hz);
-
-    const std::size_t sample_bytes = input.size() * sizeof(IqSample);
-    const std::size_t step_bytes = std::max<std::size_t>(1, model.chain.size()) * sizeof(GpuStep);
-    check(cudaEventRecord(state.h2d_start, state.stream), "cudaEventRecord h2d_start");
-    check(cudaMemcpyAsync(state.device_steps, state.model.host_steps.data(), step_bytes, cudaMemcpyHostToDevice,
-                          state.stream),
-          "cudaMemcpyAsync steps H2D");
-    check(cudaMemcpyAsync(state.device_input, state.host_input, sample_bytes, cudaMemcpyHostToDevice, state.stream),
-          "cudaMemcpyAsync samples H2D");
-    check(cudaEventRecord(state.h2d_done, state.stream), "cudaEventRecord h2d_done");
-
-    constexpr int block_size = 256;
-    const int grid_size = static_cast<int>((input.size() + block_size - 1) / block_size);
-    apply_steps_kernel<<<grid_size, block_size, 0, state.stream>>>(
-        state.device_input, state.device_output, input.size(), state.device_steps,
-        static_cast<int>(model.chain.size()));
-    check(cudaGetLastError(), "apply_steps_kernel launch");
-    check(cudaEventRecord(state.kernel_done, state.stream), "cudaEventRecord kernel_done");
-
-    check(cudaMemcpyAsync(state.host_output, state.device_output, sample_bytes, cudaMemcpyDeviceToHost, state.stream),
-          "cudaMemcpyAsync samples D2H");
-    check(cudaEventRecord(state.d2h_done, state.stream), "cudaEventRecord d2h_done");
-    check(cudaStreamSynchronize(state.stream), "cudaStreamSynchronize");
-    std::copy(state.host_output, state.host_output + input.size(), output.begin());
-
-    record_timings(state.h2d_start, state.h2d_done, state.kernel_done, state.d2h_done, total_start);
-  }
-
   void process_superposition(const std::string& dst_key,
                              const std::vector<SuperpositionInput>& inputs,
                              const ModelConfig* rx_model,
@@ -531,7 +399,7 @@ public:
     }
 
     // Stage every incoming edge's input batch contiguously and build its model
-    // chain. Per-edge CFO/AWGN state lives in the edge's own CudaLinkState.
+    // chain. Per-edge CFO/AWGN state lives in the edge's own CudaLinkSlot.
     const int link_count = static_cast<int>(inputs.size());
     int total_steps = 0;
     for (std::size_t k = 0; k != inputs.size(); ++k) {
@@ -542,8 +410,8 @@ public:
       if (edge.model->chain.size() > sp.max_steps) {
         throw std::runtime_error("CUDA superposition model chain exceeds preallocated capacity");
       }
-      auto ls_it = states_.find(edge.link_key);
-      if (ls_it == states_.end()) {
+      auto ls_it = link_slots_.find(edge.link_key);
+      if (ls_it == link_slots_.end()) {
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
       IqSample* slot = sp.host_staged + k * count;
@@ -589,6 +457,11 @@ public:
     }
     check(cudaEventRecord(sp.h2d_done, sp.stream), "cudaEventRecord superpose h2d_done");
 
+    // 256 threads/block is a portable default across the architectures we
+    // target today (sm_80, sm_89, sm_120); the per-sample kernel is fully
+    // memory-bound at any reasonable choice, so this stays a constant rather
+    // than an auto-tuned knob. Revisit when the multi-tap `tdl` kernel lands
+    // and tap-count fan-out changes the register pressure picture.
     constexpr int block_size = 256;
     const int grid_size = static_cast<int>((count + block_size - 1) / block_size);
     superpose_kernel<<<grid_size, block_size, 0, sp.stream>>>(sp.device_output, count, link_count, sp.device_staged,
@@ -632,8 +505,8 @@ private:
     check(cudaEventElapsedTime(&kernel_ms, h2d_done, kernel_done), "cudaEventElapsedTime kernel");
     check(cudaEventElapsedTime(&d2h_ms, kernel_done, d2h_done), "cudaEventElapsedTime D2H");
     const auto total_elapsed = std::chrono::steady_clock::now() - total_start;
-    // process_into()/process_superposition() can run concurrently for distinct
-    // links/nodes; guard the shared last-timings snapshot.
+    // process_superposition() can run concurrently for distinct destination
+    // nodes; guard the shared last-timings snapshot.
     std::lock_guard<std::mutex> lock(timings_mutex_);
     last_timings_.h2d_us = static_cast<double>(h2d_ms) * 1000.0;
     last_timings_.kernel_us = static_cast<double>(kernel_ms) * 1000.0;
@@ -714,6 +587,12 @@ private:
           // on the device the delay is a no-op pass-through.
           gpu_step = make_step(Scale, 1.0F, 0.0F);
           break;
+        case ModelStepType::Tdl:
+          // Phase 1.0 lands only the schema and parser for `tdl`. The CUDA
+          // multi-tap convolution kernel arrives in Phase 1.1; until then a
+          // configured `tdl` step fails fast at processor build time.
+          throw std::runtime_error(
+              "tdl chain step is not yet implemented on the CUDA backend");
       }
     }
   }
@@ -721,7 +600,7 @@ private:
   int device_ = 0;
   mutable std::mutex timings_mutex_;
   ProcessorTimings last_timings_;
-  std::unordered_map<std::string, CudaLinkState> states_;
+  std::unordered_map<std::string, CudaLinkSlot> link_slots_;
   std::unordered_map<std::string, CudaSuperposeState> superpose_states_;
 };
 

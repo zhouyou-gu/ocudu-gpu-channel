@@ -19,12 +19,61 @@ bool cuda_step_supported(ModelStepType type)
          type == ModelStepType::Cfo || type == ModelStepType::Awgn;
 }
 
+// Per-sample steps the CPU backend's chain loop knows how to execute. Mirrors
+// `cuda_step_supported` so a topology with an unimplemented step (currently
+// only `tdl`) fails at processor build time on either backend, not deep inside
+// the first slot's process loop.
+bool cpu_step_supported(ModelStepType type)
+{
+  return type == ModelStepType::Gain || type == ModelStepType::PathLoss || type == ModelStepType::Phase ||
+         type == ModelStepType::Cfo || type == ModelStepType::Awgn ||
+         type == ModelStepType::IntegerDelay || type == ModelStepType::FractionalDelay;
+}
+
 bool is_sample_delay(ModelStepType type)
 {
   return type == ModelStepType::IntegerDelay || type == ModelStepType::FractionalDelay;
 }
 
 } // namespace
+
+std::vector<std::string> validate_cpu_support(const TopologyConfig& config)
+{
+  // Symmetric to validate_cuda_support: refuse a topology whose chain references
+  // a step the CPU backend has no implementation for. Today the only such step
+  // is `tdl` (Phase 1.0 lands the schema, Phase 1.1 lands the kernel). Sample-
+  // delay steps are accepted at any position on CPU -- the CPU loop materialises
+  // intermediates between steps so a mid-chain delay is well-defined here.
+  std::vector<std::string> errors;
+  for (const auto& link : config.links) {
+    const auto* model = find_model(config, link.model);
+    if (model == nullptr) {
+      continue;
+    }
+    for (const auto& step : model->chain) {
+      if (!cpu_step_supported(step.type)) {
+        errors.emplace_back("CPU backend does not support model " + model->id + " step " +
+                            to_string(step.type) + " yet");
+      }
+    }
+  }
+  for (const auto& device : config.devices) {
+    if (device.rx_model.empty()) {
+      continue;
+    }
+    const auto* rx = find_model(config, device.rx_model);
+    if (rx == nullptr) {
+      continue;
+    }
+    for (const auto& step : rx->chain) {
+      if (!cpu_step_supported(step.type)) {
+        errors.emplace_back("CPU backend does not support receiver model " + rx->id + " step " +
+                            to_string(step.type) + " yet");
+      }
+    }
+  }
+  return errors;
+}
 
 std::vector<std::string> validate_cuda_support(const TopologyConfig& config)
 {
@@ -80,6 +129,15 @@ std::vector<std::string> validate_cuda_support(const TopologyConfig& config)
 std::unique_ptr<ChannelProcessor> create_channel_processor(const TopologyConfig& config)
 {
   if (config.runtime.backend == Backend::Cpu) {
+    auto cpu_errors = validate_cpu_support(config);
+    if (!cpu_errors.empty()) {
+      std::ostringstream oss;
+      oss << "invalid CPU topology:";
+      for (const auto& error : cpu_errors) {
+        oss << "\n- " << error;
+      }
+      throw std::runtime_error(oss.str());
+    }
     auto processor = std::make_unique<CpuChannelProcessor>();
     processor->prepare(config);
     return processor;
