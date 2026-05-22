@@ -162,8 +162,18 @@ inline void apply_tdl_step(const IqSample* in,
                            const std::vector<std::array<float, kTdlFracFilterTaps>>& polyphase,
                            std::vector<IqSample>& delay_line)
 {
+  const auto count_pd = static_cast<std::ptrdiff_t>(count);
   const auto ring_size = static_cast<std::ptrdiff_t>(delay_line.size());
+  // Window-sinc forward look: the filter centred at i=3 reads up to n + 3 in
+  // the worst case (tau_int = 0, last sample of slot). Those samples are
+  // future-of-current-slot and not yet available -- treat them as zero, the
+  // same way pre-stream history reads from before delay_line is zero. Bug
+  // surfaced by remote RTX 5090 / gcc validation (the Mac/clang build was
+  // hiding it because OOB reads happened to return zero in practice).
   const auto read = [&](std::ptrdiff_t idx) -> IqSample {
+    if (idx >= count_pd) {
+      return IqSample{0.0F, 0.0F};
+    }
     if (idx >= 0) {
       return in[static_cast<std::size_t>(idx)];
     }
