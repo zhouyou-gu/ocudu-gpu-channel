@@ -518,8 +518,13 @@ int main()
 
     const auto* compose_model = ocg::find_model(compose_cfg, compose_cfg.links[0].model);
     require(compose_model != nullptr, "composed effective model must exist");
-    require(compose_model->chain.front().params.at("delay_samples") == 6.0,
-            "composed leading delay must be tx_timing_offset + propagation_delay");
+    // After Phase 1.3 retargeting, fold synthesizes a single-tap tdl when the
+    // source chain has no leading propagation step. The legacy
+    // params["delay_samples"] field is replaced by taps[0].delay_samples.
+    require(compose_model->chain.front().type == ocg::ModelStepType::Tdl,
+            "composed leading step must be a single-tap tdl");
+    require(compose_model->chain.front().taps.front().delay_samples == 6.0,
+            "composed leading tdl tap delay must be tx_timing_offset + propagation_delay");
     ocg::CpuChannelProcessor compose_proc;
     compose_proc.prepare(compose_cfg);
     ocg::IqBuffer compose_out(8);

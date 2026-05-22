@@ -597,9 +597,20 @@ void fold_link_leading_delays(TopologyConfig& config)
 
     ModelConfig clone = base_it->second;
     clone.id = effective_id;
-    if (!clone.chain.empty() &&
-        (clone.chain.front().type == ModelStepType::IntegerDelay ||
-         clone.chain.front().type == ModelStepType::FractionalDelay)) {
+    if (!clone.chain.empty() && clone.chain.front().type == ModelStepType::Tdl) {
+      // Existing leading tdl: compose by shifting every tap's delay. This is
+      // the physically correct merge -- a chain-leading propagation delay
+      // affects all multipath taps uniformly.
+      for (auto& tap : clone.chain.front().taps) {
+        tap.delay_samples += total_delay;
+      }
+      clone.chain.front().taps_declared = true;
+    } else if (!clone.chain.empty() &&
+               (clone.chain.front().type == ModelStepType::IntegerDelay ||
+                clone.chain.front().type == ModelStepType::FractionalDelay)) {
+      // Legacy compose path -- kept until the Gain/IntegerDelay/FractionalDelay
+      // enum values are deleted (commit C of the Phase 1.3 sequence). YAMLs in
+      // the repo are migrated off this path by commit B.
       auto& first = clone.chain.front();
       auto existing_it = first.params.find("delay_samples");
       const double existing = existing_it == first.params.end() ? 0.0 : existing_it->second;
@@ -610,10 +621,15 @@ void fold_link_leading_delays(TopologyConfig& config)
         first.type = ModelStepType::FractionalDelay;
       }
     } else {
+      // No leading propagation step in the source chain: prepend a single-tap
+      // tdl with the composed delay and unit gain. This is the new canonical
+      // form -- a leading tdl plays the role the legacy integer/fractional
+      // delay step used to.
       ModelStep step;
-      const double total_frac = total_delay - std::floor(total_delay);
-      step.type = total_frac > 0.0 ? ModelStepType::FractionalDelay : ModelStepType::IntegerDelay;
-      step.params["delay_samples"] = total_delay;
+      step.type = ModelStepType::Tdl;
+      step.taps.push_back(
+          TapSpec{.delay_samples = total_delay, .gain_db = 0.0, .phase_rad = 0.0});
+      step.taps_declared = true;
       clone.chain.insert(clone.chain.begin(), step);
     }
     config.models.emplace(effective_id, std::move(clone));

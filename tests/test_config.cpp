@@ -233,22 +233,29 @@ models:
   }
   auto tx_offset_config = ocg::load_config_file(tx_offset_path);
 
-  // Link gnb0 -> ue0 had no chain-leading delay; offset 3 was prepended as
-  // integer_delay 3.
+  // Link gnb0 -> ue0 had no chain-leading delay; offset 3 was prepended as a
+  // single-tap tdl with delay 3 (was integer_delay 3 before the Phase 1.3
+  // retargeting of fold_link_leading_delays).
   const auto* gnb0_ue0 = ocg::find_model(tx_offset_config, tx_offset_config.links[0].model);
   require(gnb0_ue0 != nullptr, "gnb0>ue0 effective model must exist");
-  require(gnb0_ue0->chain.size() == 2, "gnb0>ue0 should have a prepended leading delay");
-  require(gnb0_ue0->chain.front().type == ocg::ModelStepType::IntegerDelay,
-          "gnb0>ue0 prepended step must be integer_delay");
-  require(gnb0_ue0->chain.front().params.at("delay_samples") == 3.0,
-          "gnb0>ue0 prepended delay must equal the source offset");
+  require(gnb0_ue0->chain.size() == 2, "gnb0>ue0 should have a prepended leading tdl");
+  require(gnb0_ue0->chain.front().type == ocg::ModelStepType::Tdl,
+          "gnb0>ue0 prepended step must be a tdl");
+  require(gnb0_ue0->chain.front().taps.size() == 1,
+          "gnb0>ue0 prepended tdl must be single-tap");
+  require(gnb0_ue0->chain.front().taps.front().delay_samples == 3.0,
+          "gnb0>ue0 prepended tdl tap delay must equal the source offset");
+  require(gnb0_ue0->chain.front().taps.front().gain_db == 0.0,
+          "gnb0>ue0 prepended tdl tap must have unit gain (0 dB)");
 
-  // Link gnb0 -> ue1 already had integer_delay 5; offset 3 was added to it -> 8.
+  // Link gnb0 -> ue1 already had integer_delay 5; offset 3 still merges into
+  // the legacy integer_delay until Commit C drops that enum entirely. The
+  // synthesized chain is still 2 steps with integer_delay 8 at the front.
   const auto* gnb0_ue1 = ocg::find_model(tx_offset_config, tx_offset_config.links[1].model);
   require(gnb0_ue1 != nullptr, "gnb0>ue1 effective model must exist");
   require(gnb0_ue1->chain.size() == 2, "gnb0>ue1 chain length unchanged when offset merges");
   require(gnb0_ue1->chain.front().type == ocg::ModelStepType::IntegerDelay,
-          "gnb0>ue1 leading step stays integer_delay when both are integer");
+          "gnb0>ue1 leading step stays integer_delay until Commit C removes the legacy enum");
   require(gnb0_ue1->chain.front().params.at("delay_samples") == 8.0,
           "gnb0>ue1 leading delay must be sum of existing + offset");
 
@@ -295,10 +302,15 @@ models:
   auto tx_frac_config = ocg::load_config_file(tx_frac_path);
   const auto* frac_model = ocg::find_model(tx_frac_config, tx_frac_config.links[0].model);
   require(frac_model != nullptr, "fractional-offset effective model must exist");
-  require(frac_model->chain.front().type == ocg::ModelStepType::FractionalDelay,
-          "fractional offset should produce a FractionalDelay leading step");
-  require(frac_model->chain.front().params.at("delay_samples") == 2.5,
-          "fractional offset delay_samples preserved");
+  // No leading propagation step in the source chain -> synthesized as a
+  // single-tap tdl with the fractional delay preserved as the tap's
+  // delay_samples (which may be fractional).
+  require(frac_model->chain.front().type == ocg::ModelStepType::Tdl,
+          "fractional offset should synthesize a leading tdl step");
+  require(frac_model->chain.front().taps.size() == 1,
+          "fractional offset synthesized tdl must be single-tap");
+  require(frac_model->chain.front().taps.front().delay_samples == 2.5,
+          "fractional offset tap delay_samples preserved");
 
   // Link-level propagation_delay_samples must also fold into the chain-leading
   // delay, summing with any tx_timing_offset on the source.
@@ -348,20 +360,23 @@ models:
 )yaml";
   }
   auto prop_config = ocg::load_config_file(prop_path);
-  // gnb0->ue0: tx_timing_offset 2 + propagation_delay 4 = 6 (integer).
+  // gnb0->ue0: tx_timing_offset 2 + propagation_delay 4 = 6. Synthesized as a
+  // single-tap tdl now (was integer_delay before Phase 1.3).
   const auto* prop_ue0 = ocg::find_model(prop_config, prop_config.links[0].model);
   require(prop_ue0 != nullptr, "gnb0>ue0 effective model must exist");
-  require(prop_ue0->chain.front().type == ocg::ModelStepType::IntegerDelay,
-          "gnb0>ue0 leading step must be integer_delay for an integer total");
-  require(prop_ue0->chain.front().params.at("delay_samples") == 6.0,
-          "gnb0>ue0 leading delay must be tx_timing_offset + propagation_delay");
+  require(prop_ue0->chain.front().type == ocg::ModelStepType::Tdl,
+          "gnb0>ue0 leading step must be a single-tap tdl");
+  require(prop_ue0->chain.front().taps.front().delay_samples == 6.0,
+          "gnb0>ue0 tdl tap delay must be tx_timing_offset + propagation_delay");
   // gnb0->ue1: tx_timing_offset 2 + propagation_delay 1.5 = 3.5 (fractional).
+  // Same single-tap tdl synthesis path; the tap's delay_samples just carries
+  // the fractional value.
   const auto* prop_ue1 = ocg::find_model(prop_config, prop_config.links[1].model);
   require(prop_ue1 != nullptr, "gnb0>ue1 effective model must exist");
-  require(prop_ue1->chain.front().type == ocg::ModelStepType::FractionalDelay,
-          "gnb0>ue1 leading step must be fractional_delay for fractional total");
-  require(prop_ue1->chain.front().params.at("delay_samples") == 3.5,
-          "gnb0>ue1 leading delay must compose to 3.5");
+  require(prop_ue1->chain.front().type == ocg::ModelStepType::Tdl,
+          "gnb0>ue1 leading step must be a single-tap tdl (carries fractional delay)");
+  require(prop_ue1->chain.front().taps.front().delay_samples == 3.5,
+          "gnb0>ue1 tdl tap delay_samples must compose to 3.5");
   // The two synthesized clones must be DIFFERENT models even though both
   // sources are gnb0 with the same base "clean" — propagation_delay differs.
   require(prop_config.links[0].model != prop_config.links[1].model,
@@ -403,10 +418,77 @@ models:
   auto link_only = ocg::load_config_file(link_only_path);
   const auto* link_only_model = ocg::find_model(link_only, link_only.links[0].model);
   require(link_only_model != nullptr, "link-only effective model must exist");
-  require(link_only_model->chain.front().type == ocg::ModelStepType::IntegerDelay,
-          "link-only integer propagation_delay must produce integer_delay leading step");
-  require(link_only_model->chain.front().params.at("delay_samples") == 7.0,
+  require(link_only_model->chain.front().type == ocg::ModelStepType::Tdl,
+          "link-only propagation_delay must synthesize a single-tap tdl leading step");
+  require(link_only_model->chain.front().taps.front().delay_samples == 7.0,
           "link-only propagation_delay should pass through unchanged");
+
+  // Tdl-merge: an existing leading multi-tap tdl combined with a per-source
+  // tx_timing_offset_samples must shift every tap's delay by that offset
+  // (rather than prepending a second tdl step, which would create two
+  // leading-propagation steps and break the CUDA chain-leading-only rule).
+  const char* tdl_merge_path = "test_tdl_merge_topology.yaml";
+  {
+    std::ofstream f(tdl_merge_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+    tx_timing_offset_samples: 5
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+links:
+  - from: gnb0
+    to: ue0
+    model: two_tap
+    propagation_delay_samples: 2
+  - from: ue0
+    to: gnb0
+    model: two_tap
+models:
+  two_tap:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+          - delay_samples: 3.0
+            gain_db: -6.0
+)yaml";
+  }
+  auto tdl_merge_config = ocg::load_config_file(tdl_merge_path);
+  // Forward link composes tx_timing_offset 5 + propagation_delay 2 = 7
+  // shift on every tap. Original taps were at delay 0 and 3; merged taps
+  // should be at 7 and 10.
+  const auto* forward_model = ocg::find_model(tdl_merge_config, tdl_merge_config.links[0].model);
+  require(forward_model != nullptr, "gnb0->ue0 effective model must exist");
+  require(forward_model->chain.front().type == ocg::ModelStepType::Tdl,
+          "gnb0->ue0 leading step must remain tdl after merge");
+  require(forward_model->chain.front().taps.size() == 2,
+          "gnb0->ue0 tap count must not change after merge");
+  require(forward_model->chain.front().taps[0].delay_samples == 7.0,
+          "gnb0->ue0 first tap delay must be original 0 + composed offset 7");
+  require(forward_model->chain.front().taps[1].delay_samples == 10.0,
+          "gnb0->ue0 second tap delay must be original 3 + composed offset 7");
+  // Reverse link (ue0->gnb0) has no offset on its source and no
+  // propagation_delay; the model name must stay the unsynthesized "two_tap"
+  // and its original tap delays are preserved (0 and 3).
+  require(tdl_merge_config.links[1].model == "two_tap",
+          "ue0->gnb0 source has no offset; model must be the original two_tap");
+  const auto* reverse_model = ocg::find_model(tdl_merge_config, "two_tap");
+  require(reverse_model != nullptr && reverse_model->chain.front().taps.size() == 2,
+          "original two_tap must still exist with 2 taps");
+  require(reverse_model->chain.front().taps[0].delay_samples == 0.0 &&
+              reverse_model->chain.front().taps[1].delay_samples == 3.0,
+          "original two_tap delays must be untouched by the gnb0->ue0 merge");
 
   // Negative offset is rejected.
   const char* neg_path = "test_tx_neg_offset_topology.yaml";
@@ -1097,5 +1179,6 @@ models:
   std::remove(empty_taps_on_gain_path);
   std::remove(tdl_too_many_taps_path);
   std::remove(tdl_huge_delay_path);
+  std::remove(tdl_merge_path);
   return 0;
 }
