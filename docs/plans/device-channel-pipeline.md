@@ -1,0 +1,254 @@
+# Plan — move the per-edge channel work to the device
+
+Status: **draft** · Phase target: **2.x** (after Phase 1.5 ships) · Effort estimate: **~3–4 focused days** · Risk: **medium-high** (architectural shift, bit-exact parity gives way to statistical parity)
+
+## Goal in one sentence
+
+Move `apply_tdl_step_fading()` (multipath + Jakes + LOS) from host-side `stage_link()` to a new device kernel, while keeping topology resolution on host. The device pipeline becomes **raw-source-IQ → channel kernel → superpose kernel → out**, eliminating the per-edge H2D fan-out that currently dominates PCIe.
+
+## What changes and what stays
+
+| Component | Today | After |
+|---|---|---|
+| Node ↔ edge mapping resolution | Host, once at startup ([broker.cpp:420-435](../../src/broker.cpp#L420-L435)) | Host, once at startup *(unchanged)* |
+| `superposition[]` vector per server thread | Host *(unchanged)* | Host *(unchanged)* |
+| Per-link state (`tdl_taps`, `tdl_polyphase`, `tdl_fading`) | Host (`LinkModelState` in [cuda_backend.cu:60-78](../../src/cuda_backend.cu#L60-L78)) | **Device** — one `DeviceLinkState` per (dst_node, edge) in global memory, populated once at startup |
+| Per-edge channel application (`apply_tdl_step_fading`) | Host, per edge per slot ([delay.h](../../include/ocudu_gpu_channel/delay.h)) | **Device kernel** `apply_channel_kernel<<<...>>>` |
+| Cross-slot `delay_line` ring | Host vector ([delay.h:480-492](../../include/ocudu_gpu_channel/delay.h#L480-L492)) | **Device global memory**, rolled by kernel at end of slot |
+| H2D payload | N edges × 23 040 × 8 bytes = N × 180 KiB pre-shaped | **M sources × 23 040 × 8 bytes = M × 180 KiB raw**, where M ≤ N (and often M ≪ N) |
+| `superpose_kernel` | Reads `device_staged[k·count + idx]` | *Unchanged* — reads what `apply_channel_kernel` wrote |
+| CPU backend | Unchanged | Unchanged (remains the reference for parity, statistically) |
+| CPU↔CUDA bit-exact parity test | Asserts bit-exact match on TDL fading ([test_processing.cpp](../../tests/test_processing.cpp)) | Replaced with **statistical parity** (mean power, autocorrelation match, K-factor recovery) — bit-exact dropped |
+
+## Why this is the version worth building
+
+Two payoffs make this worth the cost:
+
+1. **PCIe bandwidth reduction at fan-out.** Today every edge ships its own pre-shaped IQ to the device. For a 1 gNB → N UEs downlink, the broker stages N identical-input-different-channel buffers and ships all N. If we ship raw source IQ and apply the channel on device, we ship **M_sources × 180 KiB** instead of **N_edges × 180 KiB**. At 1-to-8 fan-out, that's **8× H2D reduction**. PCIe is the wall today (§21.5 of the technical reference) — this directly buys headroom.
+
+2. **Host headroom for the broker loop.** `stage_link()` currently runs ~50 µs per link per slot. At 16 edges that's ~800 µs of host work per slot, eating into the broker's ZMQ + alignment budget. Pushing it to the device frees the host for the I/O and scheduling work that already dominates `cpu_stage_timings`.
+
+The cost is real but bounded: **lose bit-exact CPU↔CUDA parity**. The replacement (statistical parity) is what wireless emulators normally assert anyway; bit-exact parity is a debugging luxury we've enjoyed because the host runs the math.
+
+## Architectural overview
+
+### Data flow (before vs after)
+
+```
+BEFORE
+─────────────────────────────────────────────────────────────────────────────────
+broker rings (host)  ──►  for each edge: stage_link()  ──►  host_staged[k·N·count]
+                          (apply_tdl_step_fading)              │
+                                                               │  H2D: N·180 KiB
+                                                               ▼
+                                                          device_staged
+                                                               │
+                                                               ▼
+                                                          superpose_kernel
+                                                          (apply_chain + sum)
+
+
+AFTER
+─────────────────────────────────────────────────────────────────────────────────
+broker rings (host)  ──►  pack per source                ──►  host_source_iq[M·count]
+                          (no channel work)                    │
+                                                               │  H2D: M·180 KiB   ◄── ~8× smaller at fan-out
+                                                               ▼
+                                                          device_source_iq
+                                                               │
+                                                               ▼
+                                                          apply_channel_kernel
+                                                          (multipath + Jakes + LOS)
+                                                               │
+                                                               ▼
+                                                          device_staged       ◄── unchanged shape
+                                                               │
+                                                               ▼
+                                                          superpose_kernel    ◄── unchanged
+                                                          (apply_chain + sum)
+```
+
+### Per-link state lives entirely on device
+
+```cpp
+// New: include/ocudu_gpu_channel/device_channel.h
+struct DeviceLinkState {
+  // Topology (fixed for the run; ship once at startup)
+  int   src_index;             // index into device_source_iq
+  int   n_taps;                // 1..K_MAX (default K_MAX=32)
+  TapSpec  taps[K_MAX];        // delay_samples, gain_db, phase_rad, is_los, los_k_db, los_angle_rad
+  float    polyphase[K_MAX][8];// precomputed Hamming-windowed sinc, shipped once
+
+  // Fading config
+  bool     fading_enabled;
+  float    f_d_max_hz;
+  float    grid_us;
+  float    alpha[K_MAX][M_RAYS]; // M_RAYS=20 sub-ray angles per tap, drawn host-side
+  float    phi[K_MAX][M_RAYS];   // sub-ray initial phases
+  float    phi_los[K_MAX];       // per-tap LOS initial phase
+
+  // Cross-slot state (kernel reads + updates each serve)
+  IqSample delay_line[K_MAX + 8 + R_MAX]; // ring with R_MAX = ceil(max tau)
+  uint64_t slot_start_samples;  // advances by count per serve
+};
+```
+
+For K_MAX=32, M_RAYS=20, R_MAX=64 (= ceil(max-delay-samples + headroom)):
+- Per-link state ≈ 4 KB
+- Per-node total (N=16 edges) ≈ 64 KB
+- Per-broker total (4 nodes, 16 edges each) ≈ 256 KB device global memory
+
+Tiny, by GPU standards.
+
+### Kernel design
+
+Two-pass: `apply_channel_kernel` then `superpose_kernel` (existing). The new kernel is the load-bearing addition.
+
+```
+Grid: dim3(N_edges_total, ceil(count / 256))
+Block: 256 threads
+
+Block (k, b):
+  Load DeviceLinkState[k] into shared memory cooperatively (~4 KB)
+  Materialize per-tap coarse-grid g_k(t) into shared memory:
+    For each tap with fading_enabled:
+      For each grid point g in [0, grid_count):
+        g_k_rayleigh[k_tap][g] = (1/√M_RAYS) · Σ_m exp(j(ω_m·t_g + φ_m))
+  Sync block.
+  For thread idx in this block's sample range [b*256, b*256+256):
+    For each tap k_tap in 0..n_taps:
+      Read x at delay τ_k via polyphase + delay_line (block-shared)
+      Interpolate g_k_rayleigh at sample idx
+      If is_los: compose Rician (K/(K+1))·specular + (1/(K+1))·rayleigh
+      Accumulate y[idx] += 10^(g/20) · e^(jφ) · g_k(t_idx) · x[idx - τ_k]
+    device_staged[k·count + idx] = y[idx]
+  Sync block. Update delay_line ring in global memory (block leader thread).
+  Update slot_start_samples (block leader thread).
+```
+
+Then `superpose_kernel` runs as before, reading `device_staged` and summing into output.
+
+### What gets shared, what stays per-block
+
+| Data | Where | Why |
+|---|---|---|
+| `DeviceLinkState` topology fields (taps, polyphase, alpha, phi) | Shared memory after one-time global load | Read many times per slot by every thread in the block |
+| Per-tap coarse-grid g_k(t) (~grid_count × M complex floats) | Shared memory | Built once at slot start, read O(count) times by all threads |
+| `delay_line` ring | Global memory, loaded into shared memory at slot start, written back at slot end | Cross-slot continuity requires global persistence; per-slot access is fast via shared |
+| `slot_start_samples` | Global memory, one int per link | Updated by block leader at slot end |
+| Per-sample (i,q) | Registers | Per-thread work, never spills |
+
+## RNG strategy decision
+
+The host today uses `std::mt19937_64` seeded by `hash("<link_key>:fading:<step_idx>")` to draw alpha (sub-ray angles) and phi (initial phases) once at startup. The device needs the same per-link draws to produce the same channel realisations.
+
+**Two choices:**
+
+| Strategy | Pros | Cons |
+|---|---|---|
+| **A. Draw alpha/phi on host, ship to device** *(recommended)* | Identical draws as today (parity remains for the random structure, even if per-sample bit-exactness drops). One H2D copy at startup. No need to reimplement mt19937_64 on device. | None significant — adds ~K · M · 2 × 4 bytes per link to startup H2D. Trivial. |
+| B. Reimplement mt19937_64 on device | Self-contained device | mt19937_64 is hard to implement efficiently on GPU; would need to port the state engine; no real benefit |
+
+**Recommendation: A.** The host's `prepare_tdl_fading_state` already does this draw; just ship the result.
+
+## Per-link state memory placement decision
+
+| Field | Placement | Rationale |
+|---|---|---|
+| `taps`, `polyphase`, `alpha`, `phi`, `phi_los` | Global memory, loaded to shared at block start | Read-only per slot, hot during slot, ~3 KB per link |
+| `delay_line` ring | Global memory, mirrored into shared at slot start, written back at slot end | Cross-slot persistence required; shared memory access during slot for fast convolution |
+| `slot_start_samples` | Global memory, single 8-byte word | Updated once per slot per link by block leader |
+| Per-tap coarse-grid `g_k(t)` | Built in shared memory at slot start; never persisted | Recomputable from alpha/phi/slot_start_samples; cheap to regenerate |
+
+Total shared memory budget per block: ~6-8 KB (link state + grid). Within all modern SM shared memory budgets (~48-100 KB available).
+
+## Phased rollout — D1 through D6
+
+### D1 — scaffold (~0.5 day)
+- Add `include/ocudu_gpu_channel/device_channel.h` with `DeviceLinkState` and the kernel declaration.
+- Add `src/device_channel.cu` with the empty kernel.
+- Extend `cuda_backend.cu`'s `prepare()` to allocate `DeviceLinkState[]` on device, populate from each link's host state (including the alpha/phi draws from `prepare_tdl_fading_state`).
+- Build clean. No behavioural change yet.
+
+### D2 — static channel (no fading) on device (~1 day)
+- Implement `apply_channel_kernel` for the no-fading path only: multi-tap convolution + polyphase, cross-slot `delay_line`.
+- Wire `cuda_backend.cu::process_superposition` to use `apply_channel_kernel` instead of host-side `stage_link` **for links with `fading_enabled == false`** (gate by config).
+- Validate: existing `test_processing` static TDL tests should still pass within statistical tolerance.
+- Run `gpu-test-sequence.sh` steps 3-6 (which use no-fading models) — must still pass.
+
+### D3 — fading on device (~1 day)
+- Add the coarse-grid `g_k(t)` materialization (in shared memory at block start).
+- Add Rician LOS composition for `is_los` taps.
+- Wire the fading path through `apply_channel_kernel`.
+- Validate: replace bit-exact parity test with a statistical parity test (mean power within tolerance, autocorrelation within Bessel J₀ envelope).
+- Run `gpu-test-sequence.sh` step 7 (TDL-A profile relay) — must pass.
+
+### D4 — source-side rebuffering (~0.5 day)
+- Currently the host packs per-edge slots into `host_staged`. Replace with per-source packing: `host_source_iq[src_index][count]`.
+- H2D copies `host_source_iq` instead of `host_staged`. Bandwidth reduction kicks in here.
+- `apply_channel_kernel` reads `device_source_iq[link.src_index]` instead of `device_staged[k * count]`.
+- Validate: same as D3 plus `perf-fanin-sweep.sh` to measure H2D reduction.
+
+### D5 — performance measurement (~0.5 day)
+- Run `perf-fanin-sweep.sh` and compare H2D bandwidth + kernel µs against the pre-D4 baseline.
+- Update `docs/blueprint-generated/perf-W-pcie-h2d.svg` companion figure with the new H2D curve.
+- Update HTML doc §21.5 PCIe bottleneck with the new measurement.
+
+### D6 — full migration + doc sweep (~0.5 day)
+- Drop the host-side `stage_link()` path on the CUDA backend (CPU backend unchanged — it still uses `apply_chain_to_link` with the `delay.h` helper).
+- Update §11 of the technical reference: the channel now runs **device-side**, not host-side. The narrative we worked so hard to establish ("host-side stage_link before H2D") gets rewritten for Phase 2.
+- Update Diagram S to show the new flow.
+- Add a §11 historical note that the host-side path is still available on the CPU reference backend.
+- Final `gpu-test-sequence.sh` 7/7.
+- `ocudu-attach-smoke.sh` to verify real OCUDU + srsUE attach still works.
+
+## Risks and mitigations
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| **Loss of bit-exact CPU↔CUDA parity** | Medium — it's an explicit project invariant today | Document the change; add statistical parity tests that capture the same wireless behaviour (mean power, autocorrelation J₀, K-factor recovery). Keep CPU backend as the reference for those statistics. |
+| **Device RNG drift** (different alpha/phi than host) | Medium-high | Mitigated by Strategy A: draw on host, ship to device. Identical sub-ray realisation by construction. |
+| **Cross-slot `delay_line` continuity bugs** | High | Add a determinism test: run the kernel for 100 slots on a fixed input, compare every slot's output across two runs. Must be bit-identical (same kernel, same input → same output). |
+| **Shared memory pressure for large K or large M** | Low at current scales; could bite for K_MAX=64 | Profile shared memory occupancy; fall back to global memory for the coarse grid if needed. |
+| **Coarse-grid Jakes generator off by a sub-ray phase** | Medium — easy to introduce, hard to spot | Validate against the CPU-generated `g_k(t)` array for at least one slot (ship the CPU result to device and diff). |
+| **Two-kernel launch overhead** | Low | Two `cudaMemcpyAsync` are already separate calls; one extra kernel launch is <1 µs. Measure but expect negligible. |
+| **CPU backend lags behind in correctness** if device kernel ships a fix | Medium | Keep the `delay.h` helper as the canonical math spec. Any change to device kernel must update `delay.h` and the CPU `apply_chain_to_link` simultaneously. |
+| **Real OCUDU path regression** | High — Milestone A is the load-bearing demo | `ocudu-attach-smoke.sh` is mandatory before merging D6. |
+
+## Validation matrix per phase
+
+| Phase | Local ctest | gpu-test-sequence.sh | perf-fanin-sweep.sh | ocudu-attach-smoke.sh |
+|---|---|---|---|---|
+| D1 | 4/4 | 7/7 (no change) | — | — |
+| D2 | 4/4 (statistical parity for static path) | 7/7 (no-fading steps 3-6 must pass) | — | — |
+| D3 | 4/4 (statistical parity for fading) | 7/7 (incl. TDL-A) | — | — |
+| D4 | 4/4 | 7/7 | run + compare to baseline | — |
+| D5 | 4/4 | 7/7 | publish new curves | — |
+| D6 | 4/4 | 7/7 | — | must pass |
+
+## Open design questions to resolve before D1
+
+1. **K_MAX, M_RAYS, R_MAX constants** — pick concrete max sizes for the device-side state. Suggested K_MAX=32 (covers all TR 38.901 profiles + headroom), M_RAYS=20 (Zheng-Xiao default, already in delay.h), R_MAX = ⌈max_delay_samples⌉ + 8 (~32 at 100 ns DS, 23.04 MS/s).
+2. **Grid materialization strategy** — build the full per-tap coarse grid at slot start (~10 grid points per tap at f_d=100 Hz / grid=100µs over a 1ms slot), or compute lazily during convolution? Recommendation: precompute at slot start. Cheap, simple, no per-sample trig.
+3. **CSR vs flat layout for `DeviceLinkState[]`** — keep flat (one struct per link, indexed by global link index) for simplicity. CSR only buys anything if we plan dynamic topology, which is out of scope here.
+4. **Constant memory vs global** — `polyphase` is small (~256 bytes per link) and read-only; tempting to put in constant memory. Skip for now — global memory + shared memory caching is simpler and fast enough.
+5. **Bypass for `tdl_fading.enabled == false`** — keep the static-channel kernel path simpler than the fading path? Or one unified kernel with a branch? Recommendation: one kernel, branch on `link.fading_enabled`. The fast path costs an extra register or two; complexity stays low.
+
+## What stays unchanged
+
+- CPU backend (`cpu_backend.cpp`) — keeps using `apply_chain_to_link` and `delay.h` helpers verbatim. CPU stays the reference.
+- `delay.h` — keeps its current public API. The device kernel implementation may diverge in numerical details (FMA, transcendental approximations) but conforms to the same math spec.
+- Topology resolution (`broker.cpp:420-435`) — still host-only, still once at startup. Diagram V's host-side resolution panel is correct as-is.
+- `superpose_kernel` — unchanged.
+- Broker hot-path — unchanged except for the source-rebuffering in D4.
+- All YAML topology examples — unchanged.
+
+## When to actually do this
+
+This plan is queued at **Phase 2** in the roadmap (`AGENT_PROGRESS.md`). The trigger conditions would be:
+
+- A real perf measurement shows PCIe is the dominant bottleneck at the configurations we care about (already true at N≥4 per §21.5).
+- We have a real use case for fan-out ≥ 8 in production (e.g., multi-UE OCUDU deployments).
+- The bit-exact CPU↔CUDA parity test value is outweighed by the PCIe headroom we'd gain.
+
+Until those trigger, the current host-side design is the right one. This plan is the path we'd take when the trigger fires.
