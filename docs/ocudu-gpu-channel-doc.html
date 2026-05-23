@@ -1791,6 +1791,22 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   because the cross-slot history is one ring per link rather than one
   per tap.</p>
 
+  <!-- ============ DIAGRAM P : TDL profile power-delay profiles ============ -->
+  <figure>
+  <img src="figures/diag-P-tdl-pdp.svg"
+       alt="Power-delay profiles for TR 38.901 §7.7.2 TDL-A through TDL-E"
+       style="width:100%;max-width:760px;display:block;margin:0 auto;">
+  <figcaption>Diagram P — power-delay profiles (PDP) for the five
+  TR 38.901 §7.7.2 TDL profiles, plotted on the published normalised-delay
+  axis. <b>NLOS profiles</b> (TDL-A, B, C) carry only Rayleigh-Jakes taps;
+  <b>LOS profiles</b> (TDL-D, E) have an orange-highlighted first tap whose
+  <code>los_k_db</code> sets the Rician K-factor (13.3 dB for TDL-D,
+  22 dB for TDL-E). Scaling to samples at the project's 23.04 MS/s
+  reference rate and 100 ns delay spread multiplies the x-axis by 2.304.
+  Regenerated from the same Sionna JSON our example YAMLs use; produced by
+  <code>scripts/figures/regen_fading_figures.py</code>.</figcaption>
+  </figure>
+
   <h4>Time-varying tap gain — the <code>fading</code> sub-config (Phase 1.4, landed)</h4>
 
   <p>The <code>fading</code> sub-config shipped in Phase 1.4 (commits
@@ -1880,6 +1896,45 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <code>FadingSpectrum</code> enum (so YAMLs can already declare them) but
   their generator math is not implemented; the kernel throws on
   encountering them — a later-phase drop-in.</p>
+
+  <!-- ============ DIAGRAM Q : Jakes spectrum + Bessel J_0 ============ -->
+  <figure>
+  <img src="figures/diag-Q-jakes-spectrum.svg"
+       alt="Jakes' classical Doppler spectrum and its Bessel J_0 autocorrelation"
+       style="width:100%;max-width:840px;display:block;margin:0 auto;">
+  <figcaption>Diagram Q — Jakes' classical Doppler spectrum and its
+  temporal autocorrelation. <b>Left:</b> the U-shaped PSD
+  <span class="mono">S(f) = 1 / (π·f<sub>d</sub>·√(1 − (f / f<sub>d</sub>)²))</span>
+  on <span class="mono">|f| &lt; f<sub>d</sub></span>; the energy is
+  concentrated at the band edges — broadside scatterers (the bulk of the
+  ring under uniform-AoA) contribute near-zero Doppler shift, while
+  forward and backward scatterers contribute ±f<sub>d</sub>. <b>Right:</b>
+  the time autocorrelation
+  <span class="mono">R(τ) = J<sub>0</sub>(2π·f<sub>d</sub>·τ)</span>;
+  the marked blue points at τ ∈ {1, 3, 5} ms are exactly the lags the
+  Bessel J<sub>0</sub> statistical test asserts (test (d) in
+  <code>tests/test_processing.cpp</code>). f<sub>d</sub> = 100 Hz
+  matches the project default.</figcaption>
+  </figure>
+
+  <!-- ============ DIAGRAM R : WSSUS scattering function (TDL-A) ============ -->
+  <figure>
+  <img src="figures/diag-R-wssus-scattering.svg"
+       alt="WSSUS scattering function on the delay-Doppler plane for TDL-A"
+       style="width:100%;max-width:840px;display:block;margin:0 auto;">
+  <figcaption>Diagram R — the <b>WSSUS scattering function</b> for TDL-A
+  at f<sub>d_max</sub> = 100 Hz on the (delay τ, Doppler f) plane. Each
+  tap occupies a horizontal slice at its own delay, shaped along the
+  Doppler axis by Jakes' U; the bulk of the energy hugs the green
+  ±f<sub>d</sub> envelope. This is the figure that unifies the two prior
+  diagrams: <b>frequency selectivity</b> shows up as multiple tap rows
+  along the delay axis (Diagram P's vertical stems become rows here), and
+  <b>time variation</b> shows up as the Doppler spread of each row
+  (Diagram Q's U-shape becomes the column profile). A static channel
+  collapses to vertical stripes at f = 0; a time-flat channel collapses
+  to one row at τ = 0; TDL-A sits in the doubly-spread quadrant.
+  Generated from the same TDL-A tap data the example YAML carries.</figcaption>
+  </figure>
 
   <h4>TDL profile YAMLs (Phase 1.5, landed)</h4>
 
