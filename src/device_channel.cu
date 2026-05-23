@@ -12,11 +12,136 @@
 #include "ocudu_gpu_channel/device_channel.h"
 #include <cmath>
 #include <cstring>
+#include <cuda_runtime.h>
 
 namespace ocg {
 namespace {
 
 constexpr double kPiDev = 3.14159265358979323846;
+
+// Per-sample, per-edge multi-tap polyphase convolution (static channel; no
+// fading). Mirrors apply_tdl_step() in delay.h: each output sample sums K
+// taps' (gain · phase-rotation · windowed-sinc-delayed input), reading
+// past-batch history from the per-link delay_line ring.
+//
+// Launch: grid = dim3(ceil(count / 256), n_links), block = dim3(256).
+//   blockIdx.x → sample block within slot
+//   blockIdx.y → edge index k
+__global__ void apply_channel_kernel(
+    const DeviceLinkState* __restrict__ states,
+    const IqSample* __restrict__ in_buffer,
+    IqSample* __restrict__ out_buffer,
+    int n_links,
+    int count)
+{
+  const int k = blockIdx.y;
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (k >= n_links || idx >= count) {
+    return;
+  }
+  const DeviceLinkState* s = &states[k];
+
+  // Non-tdl link: pass-through (the kernel still runs on these for uniformity;
+  // the cost is one global-memory read + write per sample, negligible).
+  if (s->has_tdl == 0) {
+    out_buffer[k * count + idx] = in_buffer[k * count + idx];
+    return;
+  }
+
+  const int n_taps = s->n_taps;
+  const int dl_size = s->delay_line_size;
+
+  float acc_i = 0.0f;
+  float acc_q = 0.0f;
+
+  for (int kt = 0; kt < n_taps; ++kt) {
+    const int tau_int = s->tap_delay_int[kt];
+
+    // 8-tap polyphase windowed-sinc read centered around (idx - tau_int).
+    float x_i = 0.0f;
+    float x_q = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < kTdlFracFilterTaps; ++i) {
+      const int read_idx = idx - tau_int + 3 - i;
+      float si = 0.0f;
+      float sq = 0.0f;
+      if (read_idx >= count) {
+        // Future read: zero (matches delay.h's apply_tdl_step bound).
+      } else if (read_idx >= 0) {
+        const IqSample sam = in_buffer[k * count + read_idx];
+        si = sam.i;
+        sq = sam.q;
+      } else {
+        // Negative index: read from the per-link delay_line ring tail.
+        const int ring_idx = dl_size + read_idx;
+        if (ring_idx >= 0 && ring_idx < dl_size) {
+          const IqSample sam = s->delay_line[ring_idx];
+          si = sam.i;
+          sq = sam.q;
+        }
+        // ring_idx < 0 (pre-history): zero (matches host kernel)
+      }
+      const float h = s->tap_polyphase[kt][i];
+      x_i += h * si;
+      x_q += h * sq;
+    }
+
+    // Static phase rotation + per-tap gain.
+    const float c = s->tap_cos_phi[kt];
+    const float sn = s->tap_sin_phi[kt];
+    const float rot_i = x_i * c - x_q * sn;
+    const float rot_q = x_i * sn + x_q * c;
+    const float gain = s->tap_gain_amp[kt];
+    acc_i += gain * rot_i;
+    acc_q += gain * rot_q;
+  }
+
+  IqSample out;
+  out.i = acc_i;
+  out.q = acc_q;
+  out_buffer[k * count + idx] = out;
+}
+
+// Roll the per-link delay_line ring forward and advance slot_start_samples.
+// Mirrors the post-loop ring update at the bottom of apply_tdl_step() in
+// delay.h. One block per link; one thread per block (work per link is at
+// most kDeviceMaxDelayLine memory ops, trivially serial).
+__global__ void update_delay_line_kernel(
+    DeviceLinkState* __restrict__ states,
+    const IqSample* __restrict__ in_buffer,
+    int n_links,
+    int count)
+{
+  const int k = blockIdx.x;
+  if (k >= n_links) {
+    return;
+  }
+  DeviceLinkState* s = &states[k];
+  if (s->has_tdl == 0) {
+    return;
+  }
+  const int dl_size = s->delay_line_size;
+  if (dl_size <= 0) {
+    return;
+  }
+
+  if (count >= dl_size) {
+    // Last dl_size samples of input become the new ring.
+    for (int i = 0; i < dl_size; ++i) {
+      s->delay_line[i] = in_buffer[k * count + (count - dl_size) + i];
+    }
+  } else {
+    // Shift ring left by `count`, append all of input at the end.
+    const int keep_old = dl_size - count;
+    for (int i = 0; i < keep_old; ++i) {
+      s->delay_line[i] = s->delay_line[i + count];
+    }
+    for (int i = 0; i < count; ++i) {
+      s->delay_line[keep_old + i] = in_buffer[k * count + i];
+    }
+  }
+  s->slot_start_samples += static_cast<unsigned long long>(count);
+}
 
 } // namespace
 
@@ -102,6 +227,39 @@ bool build_device_link_state(
 
   out.slot_start_samples = 0ULL;
   return true;
+}
+
+void launch_apply_channel_kernel_static(
+    const DeviceLinkState* states,
+    const IqSample* in_buffer,
+    IqSample* out_buffer,
+    int n_links,
+    int count,
+    void* stream)
+{
+  if (n_links <= 0 || count <= 0) {
+    return;
+  }
+  constexpr int kBlockThreads = 256;
+  const int blocks_x = (count + kBlockThreads - 1) / kBlockThreads;
+  const dim3 grid(blocks_x, n_links, 1);
+  const dim3 block(kBlockThreads, 1, 1);
+  cudaStream_t s = static_cast<cudaStream_t>(stream);
+  apply_channel_kernel<<<grid, block, 0, s>>>(states, in_buffer, out_buffer, n_links, count);
+}
+
+void launch_update_delay_line_kernel(
+    DeviceLinkState* states,
+    const IqSample* in_buffer,
+    int n_links,
+    int count,
+    void* stream)
+{
+  if (n_links <= 0) {
+    return;
+  }
+  cudaStream_t s = static_cast<cudaStream_t>(stream);
+  update_delay_line_kernel<<<n_links, 1, 0, s>>>(states, in_buffer, n_links, count);
 }
 
 } // namespace ocg

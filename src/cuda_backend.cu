@@ -268,6 +268,14 @@ struct CudaSuperposeState {
   // per-serve channel work). See docs/plans/device-channel-pipeline.md.
   DeviceLinkState* device_link_states = nullptr;
   std::vector<DeviceLinkState> host_link_states;
+  // Phase 2 D2 scaffold: paired host (pinned) + device buffers that will
+  // carry the *raw* (pre-channel) IQ to the GPU when the on-device channel
+  // kernel is dispatched. Same shape as host_staged / device_staged
+  // (incoming * capacity IqSamples). Allocated in prepare(); not yet wired
+  // into process_superposition() — the kernel exists but is not dispatched.
+  // See docs/plans/device-channel-pipeline.md.
+  IqSample* host_pre_kernel = nullptr;
+  IqSample* device_pre_kernel = nullptr;
   cudaStream_t stream = nullptr;
   cudaEvent_t h2d_start = nullptr;
   cudaEvent_t h2d_done = nullptr;
@@ -294,6 +302,12 @@ void free_superpose_state(CudaSuperposeState& state)
   }
   if (state.stream != nullptr) {
     cudaStreamDestroy(state.stream);
+  }
+  if (state.device_pre_kernel != nullptr) {
+    cudaFree(state.device_pre_kernel);
+  }
+  if (state.host_pre_kernel != nullptr) {
+    cudaFreeHost(state.host_pre_kernel);
   }
   if (state.device_link_states != nullptr) {
     cudaFree(state.device_link_states);
@@ -417,6 +431,15 @@ public:
       check(cudaMalloc(reinterpret_cast<void**>(&sp.device_link_states),
                        incoming * sizeof(DeviceLinkState)),
             "cudaMalloc superpose device_link_states");
+      // Paired pinned-host + device buffers for the raw-IQ-into-channel-kernel
+      // path. Same shape as host_staged / device_staged. Not yet used at
+      // serve time; the dispatch wiring is deferred to D2b.
+      check(cudaHostAlloc(reinterpret_cast<void**>(&sp.host_pre_kernel),
+                          staged_bytes, cudaHostAllocDefault),
+            "cudaHostAlloc superpose pre_kernel");
+      check(cudaMalloc(reinterpret_cast<void**>(&sp.device_pre_kernel),
+                       staged_bytes),
+            "cudaMalloc superpose pre_kernel");
       std::size_t k_idx = 0;
       for (const auto& link : config.links) {
         if (link.to != device.id) {

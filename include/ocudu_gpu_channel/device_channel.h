@@ -103,4 +103,51 @@ bool build_device_link_state(
     int delay_line_size,
     DeviceLinkState& out);
 
+// Phase 2 D2: static (non-fading) per-edge channel kernel.
+//
+// For each (edge k, output sample idx), computes the multi-tap polyphase
+// convolution
+//     y[k][idx] = sum_{kt=0..n_taps-1} gain_kt · e^{j·phi_kt}
+//                     · sum_{i=0..7} h_kt[i] · x[k][idx − tau_int_kt + 3 − i]
+// where `h_kt` is the 8-tap windowed-sinc polyphase coefficient set
+// precomputed host-side, and x reads come from `in_buffer` for indices in
+// [0, count) or from `states[k].delay_line` for negative indices. Future
+// indices (idx − tau_int + 3 − i >= count) read as zero, matching the host
+// kernel.
+//
+// `in_buffer`  : `n_links * count` IqSamples (raw, per-edge slots)
+// `out_buffer` : `n_links * count` IqSamples (shaped, per-edge slots)
+// `states`     : `n_links` DeviceLinkStates (topology, read-only)
+//
+// Non-tdl links (`states[k].has_tdl == 0`) pass-through unchanged.
+//
+// Launch: dim3(ceil(count / 256), n_links), dim3(256, 1, 1).
+//
+// D2 status: kernel compiled but NOT dispatched from the broker hot-path
+// yet. process_superposition() still uses host-side stage_link(). A future
+// D2b commit wires the dispatch behind a per-link gate.
+// `stream` is a `cudaStream_t` passed as `void*` so this header stays
+// includable without a CUDA toolchain. The implementation casts back.
+void launch_apply_channel_kernel_static(
+    const DeviceLinkState* states,
+    const IqSample* in_buffer,
+    IqSample* out_buffer,
+    int n_links,
+    int count,
+    void* stream);
+
+// Phase 2 D2: roll the per-link delay_line ring forward and advance
+// slot_start_samples by `count`. Called after launch_apply_channel_kernel
+// so the cross-slot continuity matches the host-side apply_tdl_step's
+// post-loop ring update in delay.h.
+//
+// Launch: dim3(n_links), dim3(1) — serial per link. The work per link is
+// at most kDeviceMaxDelayLine memory ops, trivial.
+void launch_update_delay_line_kernel(
+    DeviceLinkState* states,
+    const IqSample* in_buffer,
+    int n_links,
+    int count,
+    void* stream);
+
 } // namespace ocg
