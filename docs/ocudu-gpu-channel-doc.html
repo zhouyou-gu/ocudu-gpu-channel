@@ -1423,6 +1423,28 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <code>stage_link</code>, so on the device it is a no-op pass-through, leaving phase
   and CFO as the actual per-sample work); "crosstalk" is path-loss + phase; the
   receiver <code>noise_floor</code> is a single AWGN step.</p>
+
+  <p class="key"><b>Where are multipath and Doppler?</b> They are NOT on the
+  device-side per-sample chain shown in Diagram E. The
+  <code>tdl</code> step — which carries the multi-tap convolution
+  <span class="mono">y[n] = Σ a<sub>k</sub>(t) · x[n − τ<sub>k</sub>]</span>
+  and, when <code>fading_enabled = true</code>, the Jakes-shaped time-varying
+  tap gains <span class="mono">a<sub>k</sub>(t)</span> plus the optional
+  Rician LOS specular — runs <b>host-side during staging</b>, inside the
+  shared <code>apply_tdl_step</code> / <code>apply_tdl_step_fading</code>
+  helpers in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>include/ocudu_gpu_channel/delay.h</code></a>.
+  The device kernel reads the already-shaped IQ out of the staged buffer.
+  Two architectural reasons drove that choice: (1) the convolution and
+  fading generator both need cross-sample state (a per-link delay-line
+  ring and a coarse-grid <span class="mono">g<sub>k</sub>(t)</span> array)
+  that the SIMT per-sample model would have to materialise per thread,
+  defeating the parallelism; and (2) running the same helper on CPU and
+  CUDA is what makes the bit-exact backend parity test (test_processing
+  CPU↔CUDA fading) possible. The actual math and figures live in
+  <a href="#staged">§7 (staging)</a> for the convolution mechanics,
+  <a href="#alignment">§6 Diagram M</a> for the per-link delay shift,
+  and <a href="#scope">§19 Diagrams P / Q / R</a> for the static PDP,
+  Jakes spectrum, and WSSUS scattering function.</p>
   <figure>
   <svg viewBox="0 0 1000 410" font-family="SF Mono,Menlo,monospace" font-size="12">
     <defs>
@@ -1471,8 +1493,12 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <figcaption>Diagram E — <span class="mono">apply_chain()</span> on one (i, q) sample.
   Each loop iteration picks ONE branch by <code>step.type</code>; (i, q) live in
   registers throughout, no shared memory needed. The chain's order and length come from
-  the YAML config. Propagation delay is not shown — it is the chain's leading step,
-  handled host-side before staging.</figcaption>
+  the YAML config. <b>What's not shown here:</b> the leading <code>tdl</code> step —
+  multi-tap convolution, per-tap Jakes fading, and Rician LOS specular — runs host-side
+  in <code>stage_link()</code> before staging, so the kernel reads already-shaped IQ
+  out of the staged buffer. See <a href="#staged">§7</a> for the staging mechanics
+  and <a href="#scope">§19 Diagrams P / Q / R</a> for the multipath / Doppler /
+  scattering-function picture.</figcaption>
   </figure>
 
   <!-- ============ DIAGRAM D : signal memory layout ============ -->
