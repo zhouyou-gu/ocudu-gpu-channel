@@ -1445,6 +1445,97 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <a href="#alignment">§6 Diagram M</a> for the per-link delay shift,
   and <a href="#scope">§19 Diagrams P / Q / R</a> for the static PDP,
   Jakes spectrum, and WSSUS scattering function.</p>
+
+  <!-- ============ DIAGRAM S : host-side tdl vs device-side per-sample chain ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 520" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="ars" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+
+    <rect x="20" y="20" width="960" height="200" rx="8" fill="#13391f" stroke="#6fd08c"/>
+    <text x="500" y="42" fill="#6fd08c" text-anchor="middle">HOST · runs in stage_link() per link, before the H2D copy</text>
+
+    <rect x="40" y="60" width="180" height="140" rx="6" fill="#1a2233" stroke="#2c3850"/>
+    <text x="130" y="84" fill="#cdd6e6" text-anchor="middle">per-source IqRing</text>
+    <text x="130" y="104" fill="#9aa7bd" text-anchor="middle" font-size="11">raw IQ from radio</text>
+    <text x="130" y="124" fill="#9aa7bd" text-anchor="middle" font-size="11">(sequence-numbered)</text>
+    <text x="130" y="158" fill="#cdd6e6" text-anchor="middle" font-size="11">x[n − τ_k] reads via</text>
+    <text x="130" y="174" fill="#cdd6e6" text-anchor="middle" font-size="11">per-link delay_line ring</text>
+
+    <line x1="222" y1="130" x2="262" y2="130" stroke="#5db1ff" marker-end="url(#ars)"/>
+
+    <rect x="264" y="60" width="466" height="140" rx="6" fill="#1a2233" stroke="#ffb454"/>
+    <text x="497" y="84" fill="#ffb454" text-anchor="middle">apply_tdl_step_fading() — delay.h</text>
+    <text x="497" y="104" fill="#9aa7bd" text-anchor="middle" font-size="11">multi-tap convolution + Jakes Doppler + Rician LOS</text>
+    <line x1="284" y1="116" x2="710" y2="116" stroke="#2c3850"/>
+    <text x="284" y="138" fill="#e7ecf5" font-size="12">y[n] = Σ_k  10^(g_k/20) · e^(jφ_k) · g_k(t_n) · x_polyphase[n − τ_k]</text>
+    <text x="284" y="158" fill="#e7ecf5" font-size="11">g_k(t) = (1/√M) · Σ_m exp(j(ω_m t + φ_m))      [M = 20 sub-rays, Jakes]</text>
+    <text x="284" y="174" fill="#e7ecf5" font-size="11">LOS tap: g_k = √(K/(K+1)) · e^(j ω_LOS t)  +  √(1/(K+1)) · g_rayleigh</text>
+    <text x="284" y="190" fill="#9aa7bd" font-size="10">cross-slot state: delay_line ring · coarse-grid g_k(t) · slot_start_samples</text>
+
+    <line x1="732" y1="130" x2="772" y2="130" stroke="#5db1ff" marker-end="url(#ars)"/>
+
+    <rect x="774" y="60" width="180" height="140" rx="6" fill="#1a2233" stroke="#2c3850"/>
+    <text x="864" y="84" fill="#cdd6e6" text-anchor="middle">pinned host_staged</text>
+    <text x="864" y="104" fill="#9aa7bd" text-anchor="middle" font-size="11">shaped IQ, packed</text>
+    <text x="864" y="124" fill="#9aa7bd" text-anchor="middle" font-size="11">[k · count + idx]</text>
+    <text x="864" y="158" fill="#cdd6e6" text-anchor="middle" font-size="11">multipath + Doppler</text>
+    <text x="864" y="174" fill="#cdd6e6" text-anchor="middle" font-size="11">already applied</text>
+
+    <line x1="500" y1="232" x2="500" y2="282" stroke="#5db1ff" stroke-width="1.6" marker-end="url(#ars)"/>
+    <text x="510" y="262" fill="#5db1ff" font-size="11">cudaMemcpyAsync H2D · device_staged</text>
+
+    <rect x="20" y="296" width="960" height="200" rx="8" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="500" y="318" fill="#5db1ff" text-anchor="middle">DEVICE · superpose_kernel · per output sample idx ∈ [0, 23039]</text>
+
+    <rect x="40" y="336" width="180" height="140" rx="6" fill="#1a2233" stroke="#2c3850"/>
+    <text x="130" y="360" fill="#cdd6e6" text-anchor="middle">device_staged</text>
+    <text x="130" y="380" fill="#9aa7bd" text-anchor="middle" font-size="11">read by 23 040 threads</text>
+    <text x="130" y="400" fill="#9aa7bd" text-anchor="middle" font-size="11">i = staged[k·count+idx].i</text>
+    <text x="130" y="416" fill="#9aa7bd" text-anchor="middle" font-size="11">q = staged[k·count+idx].q</text>
+    <text x="130" y="450" fill="#cdd6e6" text-anchor="middle" font-size="11">no cross-sample reads</text>
+    <text x="130" y="466" fill="#cdd6e6" text-anchor="middle" font-size="11">no shared memory</text>
+
+    <line x1="222" y1="406" x2="262" y2="406" stroke="#5db1ff" marker-end="url(#ars)"/>
+
+    <rect x="264" y="336" width="466" height="140" rx="6" fill="#1a2233" stroke="#ffb454"/>
+    <text x="497" y="360" fill="#ffb454" text-anchor="middle">apply_chain() — per sample, see Diagram E</text>
+    <text x="497" y="380" fill="#9aa7bd" text-anchor="middle" font-size="11">tdl is a no-op pass-through here (Scale by 1.0)</text>
+    <line x1="284" y1="392" x2="710" y2="392" stroke="#2c3850"/>
+    <text x="284" y="416" fill="#e7ecf5" font-size="12">Scale         · path_loss · tdl no-op</text>
+    <text x="284" y="434" fill="#e7ecf5" font-size="12">Phase / CFO   · sincos + complex multiply</text>
+    <text x="284" y="452" fill="#e7ecf5" font-size="12">AddNoise      · counter-based Philox (AWGN)</text>
+    <text x="284" y="470" fill="#9aa7bd" font-size="10">(i, q) stay in registers; iterations mutate them in place</text>
+
+    <line x1="732" y1="406" x2="772" y2="406" stroke="#5db1ff" marker-end="url(#ars)"/>
+
+    <rect x="774" y="336" width="180" height="140" rx="6" fill="#1a2233" stroke="#2c3850"/>
+    <text x="864" y="360" fill="#cdd6e6" text-anchor="middle">device_output</text>
+    <text x="864" y="380" fill="#9aa7bd" text-anchor="middle" font-size="11">acc_i / acc_q summed</text>
+    <text x="864" y="400" fill="#9aa7bd" text-anchor="middle" font-size="11">over all N edges</text>
+    <text x="864" y="434" fill="#cdd6e6" text-anchor="middle" font-size="11">node's RX signal</text>
+    <text x="864" y="450" fill="#cdd6e6" text-anchor="middle" font-size="11">→ D2H → ZMQ reply</text>
+  </svg>
+  <figcaption>Diagram S — the channel math by execution side. <b>Top
+  (host):</b> <code>apply_tdl_step_fading()</code> in <code>delay.h</code>
+  does the multi-tap convolution, the Jakes sum-of-sinusoids that generates
+  <span class="mono">g<sub>k</sub>(t)</span>, and the Rician LOS
+  composition — all per link, all before the H2D copy. The shaped IQ is
+  packed into <code>host_staged[k · count + idx]</code> (the layout
+  Diagram J details). <b>Bottom (device):</b> the kernel reads the
+  already-shaped IQ and applies only the SIMT-friendly per-sample steps
+  from Diagram E. The split is deliberate: the cross-sample state the
+  tdl step needs (delay-line ring, coarse-grid
+  <span class="mono">g<sub>k</sub>(t)</span>, slot accumulator) would
+  defeat the per-thread parallelism, and keeping the math on the host in
+  one shared helper is what lets the CPU and CUDA backends produce
+  bit-identical output (asserted by the "CUDA tdl fading (Jakes + LOS)
+  must match CPU bit-exactly" parity test).</figcaption>
+  </figure>
+
   <figure>
   <svg viewBox="0 0 1000 410" font-family="SF Mono,Menlo,monospace" font-size="12">
     <defs>
