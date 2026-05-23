@@ -288,8 +288,8 @@
   operations → scope. §11 / §12 / §13 split the GPU compute around the wireless
   decomposition — per-edge channel work, per-sample RF impairments, and the
   superposition that aggregates them. The GPU-internal diagrams (A, B, D, E, S) sit in
-  that middle; the system-level diagrams (F, G, K, H, L, M, J, I, N) frame them, and the
-  channel-physics figures (P, Q, R) appear in §19 alongside the TR 38.901 profiles.</p>
+  that middle; the system-level diagrams (F, G, K, V, H, L, M, J, I, N) frame them, and
+  the channel-physics figures (P, Q, R) appear in §19 alongside the TR 38.901 profiles.</p>
 
   <h2>2. Key terms — quick reference</h2>
   <p>The diagrams below name buffers, indices, and struct fields directly from
@@ -526,6 +526,110 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   per-thread inner loop walks <span class="mono">k = 0 … incoming.size()−1</span>
   to sum across edges (§13). The mapping is computed once at broker startup
   and is fixed for the run; the per-slot loop never re-resolves it.</p>
+
+  <!-- ============ DIAGRAM V : node ↔ edge mapping, host vs device ============ -->
+  <figure>
+  <svg viewBox="0 0 1000 470" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="arv" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+
+    <text x="500" y="18" fill="#cdd6e6" text-anchor="middle">Node ↔ edge mapping: built host-side at startup, consumed by host every serve, exposed to the device as packed indices</text>
+
+    <!-- Column 1: YAML topology (config-time, input) -->
+    <rect x="20" y="36" width="300" height="190" rx="8" fill="#1a2233" stroke="#2c3850"/>
+    <text x="170" y="58" fill="#cdd6e6" text-anchor="middle" font-size="11">YAML topology (config-time input)</text>
+    <line x1="30" y1="68" x2="310" y2="68" stroke="#2c3850"/>
+    <text x="34" y="86"  fill="#9aa7bd" font-size="11">devices:</text>
+    <text x="46" y="102" fill="#e7ecf5" font-size="11">- id: gnb0</text>
+    <text x="46" y="116" fill="#e7ecf5" font-size="11">- id: ue0</text>
+    <text x="46" y="130" fill="#e7ecf5" font-size="11">- id: ue1</text>
+    <text x="34" y="152" fill="#9aa7bd" font-size="11">links:</text>
+    <text x="46" y="168" fill="#e7ecf5" font-size="11">- {from: ue0,  to: gnb0, …}</text>
+    <text x="46" y="182" fill="#e7ecf5" font-size="11">- {from: ue1,  to: gnb0, …}</text>
+    <text x="46" y="196" fill="#e7ecf5" font-size="11">- {from: gnb0, to: ue0,  …}</text>
+    <text x="46" y="210" fill="#e7ecf5" font-size="11">- {from: gnb0, to: ue1,  …}</text>
+
+    <line x1="324" y1="130" x2="354" y2="130" stroke="#5db1ff" marker-end="url(#arv)"/>
+
+    <!-- Column 2: Host runtime resolution at broker startup -->
+    <rect x="356" y="36" width="324" height="190" rx="8" fill="#13391f" stroke="#6fd08c"/>
+    <text x="518" y="58" fill="#6fd08c" text-anchor="middle" font-size="11">HOST · Broker::prepare() · runs ONCE at startup</text>
+    <line x1="366" y1="68" x2="670" y2="68" stroke="#2c3850"/>
+    <text x="370" y="86"  fill="#cdd6e6" font-size="11">for each destination device d:</text>
+    <text x="386" y="104" fill="#ffb454" font-size="12">incoming = { i : links[i].to == d.id }</text>
+    <text x="386" y="124" fill="#9aa7bd" font-size="10">(filter the global links[] list once)</text>
+    <line x1="370" y1="138" x2="660" y2="138" stroke="#2c3850" stroke-dasharray="2 2"/>
+    <text x="370" y="158" fill="#cdd6e6" font-size="11">build per-server vector:</text>
+    <text x="386" y="178" fill="#e7ecf5" font-size="11">superposition[k] = {</text>
+    <text x="402" y="194" fill="#e7ecf5" font-size="11">link_key,  model*</text>
+    <text x="386" y="210" fill="#e7ecf5" font-size="11">}   for k in 0 .. N−1</text>
+
+    <line x1="684" y1="130" x2="714" y2="130" stroke="#5db1ff" marker-end="url(#arv)"/>
+
+    <!-- Column 3: gnb0's resolved incoming set -->
+    <rect x="716" y="36" width="264" height="190" rx="8" fill="#1a2233" stroke="#ffb454"/>
+    <text x="848" y="58" fill="#ffb454" text-anchor="middle" font-size="11">e.g. for d = gnb0</text>
+    <line x1="724" y1="68" x2="972" y2="68" stroke="#2c3850"/>
+    <text x="728" y="86"  fill="#cdd6e6" font-size="11">incoming = [0, 1]    (N=2)</text>
+    <text x="728" y="108" fill="#cdd6e6" font-size="11">superposition:</text>
+    <text x="744" y="126" fill="#e7ecf5" font-size="11">[0] ue0→gnb0  model:far</text>
+    <text x="744" y="142" fill="#e7ecf5" font-size="11">[1] ue1→gnb0  model:near</text>
+    <text x="728" y="170" fill="#9aa7bd" font-size="10">fixed for the life of the run;</text>
+    <text x="728" y="184" fill="#9aa7bd" font-size="10">per-slot loop never re-resolves it.</text>
+
+    <!-- Vertical arrows: this drives per-slot host + device work -->
+    <line x1="170" y1="240" x2="170" y2="270" stroke="#5db1ff" marker-end="url(#arv)"/>
+    <line x1="848" y1="240" x2="848" y2="270" stroke="#5db1ff" marker-end="url(#arv)"/>
+
+    <!-- Bottom row: per-slot consumption -->
+    <rect x="20" y="280" width="660" height="174" rx="8" fill="#13391f" stroke="#6fd08c"/>
+    <text x="350" y="302" fill="#6fd08c" text-anchor="middle" font-size="11">HOST · server thread · runs EVERY slot · walks superposition[k]</text>
+    <line x1="30" y1="312" x2="670" y2="312" stroke="#2c3850"/>
+    <text x="34" y="330" fill="#cdd6e6" font-size="11">for k in 0 .. N−1:</text>
+    <text x="50" y="348" fill="#e7ecf5" font-size="11">co-init cursor[k] to ring[src].earliest_seq</text>
+    <text x="50" y="364" fill="#9aa7bd" font-size="10">— §6 alignment / Diagram H</text>
+    <text x="50" y="384" fill="#e7ecf5" font-size="11">read common window from ring[src] into inputs[k]</text>
+    <text x="50" y="404" fill="#e7ecf5" font-size="11">stage_link(superposition[k].model,  inputs[k],  host_staged + k·count)</text>
+    <text x="50" y="420" fill="#9aa7bd" font-size="10">— §11 per-edge channel · runs apply_tdl_step_fading from delay.h</text>
+    <text x="50" y="442" fill="#cdd6e6" font-size="11">build step_meta[0..N−1] (offsets) and step_meta[N..2N−1] (counts) for the kernel</text>
+
+    <rect x="700" y="280" width="280" height="174" rx="8" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="840" y="302" fill="#5db1ff" text-anchor="middle" font-size="11">DEVICE · superpose_kernel</text>
+    <line x1="710" y1="312" x2="970" y2="312" stroke="#2c3850"/>
+    <text x="714" y="332" fill="#9aa7bd" font-size="10">never sees superposition[] directly.</text>
+    <text x="714" y="348" fill="#9aa7bd" font-size="10">consumes the packed indices:</text>
+    <text x="714" y="370" fill="#e7ecf5" font-size="11">for k in 0 .. N−1:</text>
+    <text x="730" y="386" fill="#e7ecf5" font-size="11">s = device_staged[</text>
+    <text x="744" y="402" fill="#e7ecf5" font-size="11">     k·count + idx]</text>
+    <text x="730" y="418" fill="#e7ecf5" font-size="11">apply_chain via</text>
+    <text x="744" y="434" fill="#e7ecf5" font-size="11">  step_meta[k]</text>
+    <text x="730" y="450" fill="#ffb454" font-size="11">acc += s    (§13)</text>
+
+    <!-- H2D arrow between host work and device consumption -->
+    <line x1="684" y1="380" x2="700" y2="380" stroke="#5db1ff" marker-end="url(#arv)"/>
+    <text x="688" y="370" fill="#5db1ff" font-size="9">H2D</text>
+  </svg>
+  <figcaption>Diagram V — node ↔ edge mapping by execution side. <b>Top
+  row (build):</b> at broker startup, <code>Broker::prepare()</code> filters
+  the global <code>links[]</code> once per destination
+  (<span class="mono">incoming = { i : links[i].to == d.id }</span>) and
+  builds a fixed per-server-thread vector
+  <code>superposition[k] = { link_key, model* }</code>. This entire
+  resolution lives on the host. <b>Bottom row (use):</b> every slot, the
+  server thread walks <span class="mono">k = 0 … N−1</span> on
+  <code>superposition[k]</code> to drive cursor co-init, ring read, and
+  per-edge <code>stage_link()</code> (which applies the channel — §11).
+  The device kernel never sees <code>superposition[]</code> at all; it
+  sees the packed result — <code>device_staged[k·count + idx]</code> and
+  <code>step_meta[2N]</code> — both built host-side from
+  <code>superposition[]</code> and shipped via H2D. The mapping is
+  resolved on the <b>host</b>, consumed on the <b>host</b> every serve,
+  and exposed to the <b>device</b> only as packed indices into already-
+  shaped buffers.</figcaption>
+  </figure>
 
   <p>The per-serve sequence in <code>src/broker.cpp</code> is a strict pipeline —
   <b>align → read → delay → stage → kernel → return → throttle → advance</b>. Each
