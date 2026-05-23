@@ -40,7 +40,10 @@ add_library(ocudu_gpu_channel_lib
 # has CUDA. The CPU backend (src/cpu_backend.cpp) is always built as the
 # reference/fallback.
 if(OCUDU_GPU_CHANNEL_HAS_CUDA)
-  target_sources(ocudu_gpu_channel_lib PRIVATE src/cuda_backend.cu)
+  target_sources(ocudu_gpu_channel_lib PRIVATE
+    src/cuda_backend.cu
+    src/device_channel.cu
+  )
   set_target_properties(ocudu_gpu_channel_lib PROPERTIES
     CUDA_ARCHITECTURES "${OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES}"
   )

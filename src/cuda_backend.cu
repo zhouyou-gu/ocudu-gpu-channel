@@ -1,5 +1,6 @@
 #include "ocudu_gpu_channel/cuda_backend.h"
 #include "ocudu_gpu_channel/delay.h"
+#include "ocudu_gpu_channel/device_channel.h"
 #include "ocudu_gpu_channel/processing.h"
 #include <algorithm>
 #include <chrono>
@@ -261,6 +262,12 @@ struct CudaSuperposeState {
   GpuStep* device_steps = nullptr;
   int* device_step_meta = nullptr;    // 2*max_links: offsets then counts
   GpuStep* device_rx_steps = nullptr; // receiver-model chain (may be unused)
+  // Phase 2 D1 scaffold: per-(dst_node × incoming edge) device-side link
+  // state for the future on-device channel kernel. Populated in prepare();
+  // not yet consumed by the kernel (host-side stage_link() still drives the
+  // per-serve channel work). See docs/plans/device-channel-pipeline.md.
+  DeviceLinkState* device_link_states = nullptr;
+  std::vector<DeviceLinkState> host_link_states;
   cudaStream_t stream = nullptr;
   cudaEvent_t h2d_start = nullptr;
   cudaEvent_t h2d_done = nullptr;
@@ -287,6 +294,9 @@ void free_superpose_state(CudaSuperposeState& state)
   }
   if (state.stream != nullptr) {
     cudaStreamDestroy(state.stream);
+  }
+  if (state.device_link_states != nullptr) {
+    cudaFree(state.device_link_states);
   }
   if (state.device_rx_steps != nullptr) {
     cudaFree(state.device_rx_steps);
@@ -398,6 +408,44 @@ public:
                          std::max<std::size_t>(1, rx->chain.size()) * sizeof(GpuStep)),
               "cudaMalloc superpose rx steps");
       }
+
+      // Phase 2 D1 scaffold: build one DeviceLinkState per incoming edge of
+      // this destination node, in the same YAML-order the broker uses when
+      // it builds its `incoming` filter (src/broker.cpp). The kernel does
+      // not consume these yet; this is preparation for D2.
+      sp.host_link_states.assign(incoming, DeviceLinkState{});
+      check(cudaMalloc(reinterpret_cast<void**>(&sp.device_link_states),
+                       incoming * sizeof(DeviceLinkState)),
+            "cudaMalloc superpose device_link_states");
+      std::size_t k_idx = 0;
+      for (const auto& link : config.links) {
+        if (link.to != device.id) {
+          continue;
+        }
+        const auto* model = find_model(config, link.model);
+        if (model == nullptr) {
+          continue;
+        }
+        auto ls_it = link_slots_.find(link_key(link));
+        if (ls_it == link_slots_.end()) {
+          continue;
+        }
+        const auto& lms = ls_it->second.model;
+        if (!model->chain.empty() && model->chain.front().type == ModelStepType::Tdl) {
+          // Only links with a leading tdl step contribute a non-trivial
+          // DeviceLinkState. The build helper handles the non-tdl case by
+          // zeroing the struct and clearing has_tdl.
+          (void)build_device_link_state(model->chain.front(),
+                                         lms.tdl_polyphase,
+                                         lms.tdl_fading,
+                                         static_cast<int>(lms.delay_line.size()),
+                                         sp.host_link_states[k_idx]);
+        }
+        ++k_idx;
+      }
+      check(cudaMemcpy(sp.device_link_states, sp.host_link_states.data(),
+                       incoming * sizeof(DeviceLinkState), cudaMemcpyHostToDevice),
+            "cudaMemcpy device_link_states H2D");
     }
   }
 
