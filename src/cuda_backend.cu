@@ -276,6 +276,16 @@ struct CudaSuperposeState {
   // See docs/plans/device-channel-pipeline.md.
   IqSample* host_pre_kernel = nullptr;
   IqSample* device_pre_kernel = nullptr;
+  // Phase 2 D2b dispatch gate. Set in prepare() when every incoming edge of
+  // this destination has a leading tdl step with fading_enabled == false.
+  // When true, process_superposition() takes the device-kernel path:
+  // raw IQ → host_pre_kernel → H2D → apply_channel_kernel → device_staged →
+  // superpose_kernel. When false, the existing host-side stage_link() path
+  // runs and writes device_staged via host_staged. The fading-enabled path
+  // continues to use the host backend until D3 lands the device fading
+  // kernel; mixed nodes (some edges fading-enabled, some not) also stay
+  // on the host path for simplicity.
+  bool use_device_channel = false;
   cudaStream_t stream = nullptr;
   cudaEvent_t h2d_start = nullptr;
   cudaEvent_t h2d_done = nullptr;
@@ -441,6 +451,11 @@ public:
                        staged_bytes),
             "cudaMalloc superpose pre_kernel");
       std::size_t k_idx = 0;
+      // Phase 2 D2b: enable the device-kernel dispatch only when every
+      // incoming edge has a leading tdl WITHOUT fading. Fading-enabled
+      // links keep using the host-side stage_link path until D3 lands
+      // the device fading kernel. Mixed nodes stay on host for now.
+      bool all_static_tdl = (incoming > 0);
       for (const auto& link : config.links) {
         if (link.to != device.id) {
           continue;
@@ -454,7 +469,14 @@ public:
           continue;
         }
         const auto& lms = ls_it->second.model;
-        if (!model->chain.empty() && model->chain.front().type == ModelStepType::Tdl) {
+        const bool has_leading_tdl =
+            !model->chain.empty() && model->chain.front().type == ModelStepType::Tdl;
+        const bool fading_on =
+            has_leading_tdl && model->chain.front().fading_enabled;
+        if (!has_leading_tdl || fading_on) {
+          all_static_tdl = false;
+        }
+        if (has_leading_tdl) {
           // Only links with a leading tdl step contribute a non-trivial
           // DeviceLinkState. The build helper handles the non-tdl case by
           // zeroing the struct and clearing has_tdl.
@@ -466,6 +488,7 @@ public:
         }
         ++k_idx;
       }
+      sp.use_device_channel = all_static_tdl;
       check(cudaMemcpy(sp.device_link_states, sp.host_link_states.data(),
                        incoming * sizeof(DeviceLinkState), cudaMemcpyHostToDevice),
             "cudaMemcpy device_link_states H2D");
@@ -503,6 +526,18 @@ public:
 
     // Stage every incoming edge's input batch contiguously and build its model
     // chain. Per-edge CFO/AWGN state lives in the edge's own CudaLinkSlot.
+    //
+    // Two dispatch modes (set in prepare()):
+    //   sp.use_device_channel == false  →  host-side stage_link path (legacy):
+    //       per-edge apply_tdl_step / _fading on host, shaped IQ goes into
+    //       host_staged[k·count] and ships H2D into device_staged.
+    //   sp.use_device_channel == true   →  device-kernel path (Phase 2 D2b):
+    //       raw edge IQ goes into host_pre_kernel[k·count], ships H2D into
+    //       device_pre_kernel, and apply_channel_kernel runs the multi-tap
+    //       convolution on the GPU writing into device_staged. Build_steps
+    //       reads the raw input here for its AWGN snr_db power estimate
+    //       (a small semantic shift from the host path, which read the
+    //       shaped output; explicit noise_power AWGN is unaffected).
     const int link_count = static_cast<int>(inputs.size());
     int total_steps = 0;
     for (std::size_t k = 0; k != inputs.size(); ++k) {
@@ -517,9 +552,17 @@ public:
       if (ls_it == link_slots_.end()) {
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
-      IqSample* slot = sp.host_staged + k * count;
-      stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz);
-      build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
+      if (sp.use_device_channel) {
+        // Device-kernel path: raw IQ in, channel applied on GPU.
+        IqSample* raw_slot = sp.host_pre_kernel + k * count;
+        std::copy(edge.samples.data(), edge.samples.data() + count, raw_slot);
+        build_steps(ls_it->second.model, *edge.model, raw_slot, count, sample_rate_hz);
+      } else {
+        // Host stage_link path (legacy).
+        IqSample* slot = sp.host_staged + k * count;
+        stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz);
+        build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
+      }
       const int nsteps = static_cast<int>(edge.model->chain.size());
       sp.host_step_meta[k] = total_steps;                          // offset
       sp.host_step_meta[static_cast<std::size_t>(link_count) + k] = nsteps; // count
@@ -544,9 +587,19 @@ public:
     const auto total_start = std::chrono::steady_clock::now();
 
     check(cudaEventRecord(sp.h2d_start, sp.stream), "cudaEventRecord superpose h2d_start");
-    check(cudaMemcpyAsync(sp.device_staged, sp.host_staged, static_cast<std::size_t>(link_count) * sample_bytes,
-                          cudaMemcpyHostToDevice, sp.stream),
-          "cudaMemcpyAsync superpose staged H2D");
+    if (sp.use_device_channel) {
+      // Phase 2 D2b: raw IQ H2D into device_pre_kernel; the channel kernel
+      // populates device_staged from it before superpose_kernel runs.
+      check(cudaMemcpyAsync(sp.device_pre_kernel, sp.host_pre_kernel,
+                            static_cast<std::size_t>(link_count) * sample_bytes,
+                            cudaMemcpyHostToDevice, sp.stream),
+            "cudaMemcpyAsync superpose pre_kernel H2D");
+    } else {
+      check(cudaMemcpyAsync(sp.device_staged, sp.host_staged,
+                            static_cast<std::size_t>(link_count) * sample_bytes,
+                            cudaMemcpyHostToDevice, sp.stream),
+            "cudaMemcpyAsync superpose staged H2D");
+    }
     check(cudaMemcpyAsync(sp.device_steps, sp.host_steps.data(),
                           static_cast<std::size_t>(total_steps) * sizeof(GpuStep), cudaMemcpyHostToDevice, sp.stream),
           "cudaMemcpyAsync superpose steps H2D");
@@ -559,6 +612,27 @@ public:
             "cudaMemcpyAsync superpose rx steps H2D");
     }
     check(cudaEventRecord(sp.h2d_done, sp.stream), "cudaEventRecord superpose h2d_done");
+
+    // Phase 2 D2b: run the per-edge channel on the GPU before superposition.
+    // Writes device_pre_kernel → device_staged, then rolls each link's
+    // delay_line ring forward for cross-slot continuity (mirrors
+    // apply_tdl_step's host post-loop ring update). Launched on sp.stream
+    // so it serialises before superpose_kernel naturally.
+    if (sp.use_device_channel) {
+      launch_apply_channel_kernel_static(sp.device_link_states,
+                                          sp.device_pre_kernel,
+                                          sp.device_staged,
+                                          link_count,
+                                          static_cast<int>(count),
+                                          sp.stream);
+      check(cudaGetLastError(), "apply_channel_kernel launch");
+      launch_update_delay_line_kernel(sp.device_link_states,
+                                       sp.device_pre_kernel,
+                                       link_count,
+                                       static_cast<int>(count),
+                                       sp.stream);
+      check(cudaGetLastError(), "update_delay_line_kernel launch");
+    }
 
     // 256 threads/block is a portable default across the architectures we
     // target today (sm_80, sm_89, sm_120); the per-sample kernel is fully
