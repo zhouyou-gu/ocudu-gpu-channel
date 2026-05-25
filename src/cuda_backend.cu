@@ -398,6 +398,14 @@ public:
         continue;
       }
       const std::size_t capacity = resolve_batch_samples(config.runtime, device.sample_rate_hz);
+      // Exception safety: if any of the ~12 sequential cudaHostAlloc /
+      // cudaMalloc / cudaStreamCreate / cudaEventCreate / cudaMemcpy calls
+      // below throws (via check()), the partially-allocated sp leaks until
+      // the processor destructs. Catch + free + erase here so a thrown
+      // prepare() leaves either a fully-built entry or no entry at all --
+      // re-prepare from scratch stays well-defined, and a leaked processor
+      // (caller forgets to destruct on failure) doesn't leak GPU memory.
+      try {
       auto& sp = superpose_states_[device.id];
       free_superpose_state(sp);
       sp.capacity = capacity;
@@ -495,6 +503,14 @@ public:
       check(cudaMemcpy(sp.device_link_states, sp.host_link_states.data(),
                        incoming * sizeof(DeviceLinkState), cudaMemcpyHostToDevice),
             "cudaMemcpy device_link_states H2D");
+      } catch (...) {
+        auto it = superpose_states_.find(device.id);
+        if (it != superpose_states_.end()) {
+          free_superpose_state(it->second);
+          superpose_states_.erase(it);
+        }
+        throw;
+      }
     }
   }
 

@@ -1181,6 +1181,155 @@ int main()
     }
   }
 
+  // ---- Item 9 backfill: standalone CPU per-sample-step behaviour ----
+  // The CPU backend's path_loss / phase / cfo / awgn steps were previously
+  // only exercised indirectly via CUDA-vs-CPU parity. These tests assert each
+  // step's analytic behaviour on the CPU path directly so a divergence in
+  // the CPU reference is caught without depending on the GPU path.
+  auto build_single_step_cpu = [](const ocg::ModelConfig& model, std::size_t batch,
+                                  std::uint64_t sample_rate)
+      -> std::unique_ptr<ocg::CpuChannelProcessor> {
+    ocg::TopologyConfig cfg;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = batch;
+    cfg.runtime.queue_samples = std::max<std::size_t>(614400, batch * 8);
+    cfg.devices = {{.id = "gnb0", .role = "gnb", .sample_rate_hz = sample_rate,
+                    .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+                   {.id = "ue0", .role = "ue", .sample_rate_hz = sample_rate,
+                    .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+    cfg.links = {{.from = "gnb0", .to = "ue0", .model = model.id},
+                 {.from = "ue0", .to = "gnb0", .model = model.id}};
+    cfg.models.emplace(model.id, model);
+    auto proc = std::make_unique<ocg::CpuChannelProcessor>();
+    proc->prepare(cfg);
+    return proc;
+  };
+
+  // (i) CPU path_loss: multiplies amplitude by 10^(-path_loss_db/20). For a
+  // 6 dB loss the output amplitude should be 0.5 of the input (within float).
+  {
+    ocg::ModelConfig m;
+    m.id = "pl_test";
+    m.chain.push_back({.type = ocg::ModelStepType::PathLoss, .params = {{"path_loss_db", 6.0}}});
+    auto proc = build_single_step_cpu(m, 8, 1000);
+    const ocg::IqBuffer in(8, ocg::IqSample{1.0F, 0.0F});
+    ocg::IqBuffer out(8);
+    shape_link(*proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id}),
+               m, in, out, 1000);
+    const float expected = static_cast<float>(std::pow(10.0, -6.0 / 20.0));  // ~0.5012
+    for (const auto& s : out) {
+      require(std::fabs(s.i - expected) < 1e-4F && std::fabs(s.q) < 1e-4F,
+              "CPU path_loss: 6 dB loss must scale amplitude by ~0.5012");
+    }
+  }
+
+  // (ii) CPU phase: applies a fixed phase rotation. Input (1, 0) at phi=pi/3
+  // should come out (cos(pi/3), sin(pi/3)) = (0.5, sqrt(3)/2).
+  {
+    ocg::ModelConfig m;
+    m.id = "phase_test";
+    m.chain.push_back({.type = ocg::ModelStepType::Phase,
+                       .params = {{"phase_rad", std::numbers::pi / 3.0}}});
+    auto proc = build_single_step_cpu(m, 4, 1000);
+    const ocg::IqBuffer in(4, ocg::IqSample{1.0F, 0.0F});
+    ocg::IqBuffer out(4);
+    shape_link(*proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id}),
+               m, in, out, 1000);
+    const float ex_i = static_cast<float>(std::cos(std::numbers::pi / 3.0));
+    const float ex_q = static_cast<float>(std::sin(std::numbers::pi / 3.0));
+    for (const auto& s : out) {
+      require(std::fabs(s.i - ex_i) < 1e-5F && std::fabs(s.q - ex_q) < 1e-5F,
+              "CPU phase: static rotation must match cos+sin of phase_rad");
+    }
+  }
+
+  // (iii) CPU cfo: per-sample phase increment 2*pi*f/fs. With f = fs/8, the
+  // increment per sample is pi/4 -- after 8 samples we should be back at the
+  // start, and the increment between sample 0 and sample 1 must equal pi/4.
+  {
+    ocg::ModelConfig m;
+    m.id = "cfo_test";
+    constexpr std::uint64_t sr = 1000;
+    constexpr double cfo_hz = static_cast<double>(sr) / 8.0;  // 125 Hz
+    m.chain.push_back({.type = ocg::ModelStepType::Cfo, .params = {{"cfo_hz", cfo_hz}}});
+    auto proc = build_single_step_cpu(m, 8, sr);
+    const ocg::IqBuffer in(8, ocg::IqSample{1.0F, 0.0F});
+    ocg::IqBuffer out(8);
+    shape_link(*proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id}),
+               m, in, out, sr);
+    // Sample n should have phase 2*pi*f*n/fs = n*pi/4.
+    for (std::size_t n = 0; n < 8; ++n) {
+      const double angle = 2.0 * std::numbers::pi * cfo_hz * n / sr;
+      const float ex_i = static_cast<float>(std::cos(angle));
+      const float ex_q = static_cast<float>(std::sin(angle));
+      require(std::fabs(out[n].i - ex_i) < 1e-4F && std::fabs(out[n].q - ex_q) < 1e-4F,
+              "CPU cfo: per-sample phase must advance by 2*pi*f/fs");
+    }
+  }
+
+  // (iv) CPU AWGN explicit noise_power: zero input through an absolute-power
+  // AWGN must yield zero-mean noise of the specified power. Mirrors the
+  // existing CUDA AWGN statistical test on the CPU backend.
+  {
+    ocg::ModelConfig m;
+    m.id = "awgn_test";
+    const double target = 0.04;
+    m.chain.push_back({.type = ocg::ModelStepType::Awgn, .params = {{"noise_power", target}}});
+    auto proc = build_single_step_cpu(m, 8192, 23040000);
+    const ocg::IqBuffer zeros(8192, ocg::IqSample{0.0F, 0.0F});
+    ocg::IqBuffer noisy(zeros.size());
+    shape_link(*proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id}),
+               m, zeros, noisy, 23040000);
+    double power = 0.0, ii = 0.0, qq = 0.0;
+    for (const auto& s : noisy) {
+      power += static_cast<double>(s.i) * s.i + static_cast<double>(s.q) * s.q;
+      ii += s.i;
+      qq += s.q;
+    }
+    const auto n = static_cast<double>(noisy.size());
+    require(std::fabs(power / n - target) < 0.1 * target,
+            "CPU AWGN: mean power must match noise_power (within 10%)");
+    require(std::fabs(ii / n) < 0.02 && std::fabs(qq / n) < 0.02,
+            "CPU AWGN: zero-mean per component");
+
+    // Second slot must draw a fresh sequence.
+    ocg::IqBuffer noisy2(zeros.size());
+    shape_link(*proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id}),
+               m, zeros, noisy2, 23040000);
+    bool differs = false;
+    for (std::size_t i = 0; i < noisy.size(); ++i) {
+      if (noisy[i].i != noisy2[i].i || noisy[i].q != noisy2[i].q) { differs = true; break; }
+    }
+    require(differs, "CPU AWGN: fresh draw per slot");
+  }
+
+  // (v) CPU AWGN snr_db: noise power should be measured_signal_power /
+  // 10^(snr_db/10). For a constant-amplitude unit-power input at snr_db=10,
+  // expected noise power = 1.0 / 10 = 0.1. The empirical noise power is
+  // measured by subtracting the (known constant) input from the output.
+  {
+    ocg::ModelConfig m;
+    m.id = "awgn_snr_test";
+    const double snr_db = 10.0;
+    m.chain.push_back({.type = ocg::ModelStepType::Awgn, .params = {{"snr_db", snr_db}}});
+    auto proc = build_single_step_cpu(m, 8192, 23040000);
+    // Unit-power input: (1, 0) -> |s|^2 = 1.
+    const ocg::IqBuffer ones(8192, ocg::IqSample{1.0F, 0.0F});
+    ocg::IqBuffer noisy(ones.size());
+    shape_link(*proc, "ue0", ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id}),
+               m, ones, noisy, 23040000);
+    double noise_power = 0.0;
+    for (std::size_t i = 0; i < noisy.size(); ++i) {
+      const float di = noisy[i].i - ones[i].i;
+      const float dq = noisy[i].q - ones[i].q;
+      noise_power += static_cast<double>(di) * di + static_cast<double>(dq) * dq;
+    }
+    noise_power /= static_cast<double>(noisy.size());
+    const double expected = 1.0 / std::pow(10.0, snr_db / 10.0);  // 0.1
+    require(std::fabs(noise_power - expected) < 0.15 * expected,
+            "CPU AWGN snr_db: noise power must equal signal_power / 10^(snr_db/10)");
+  }
+
   // (e) Rician envelope distribution: for a unit-power LOS tap with K-factor
   // K (linear), the envelope r = |g_k(t)| follows
   //   f(r) = (r/sigma^2) * exp(-(r^2 + nu^2)/(2 sigma^2)) * I_0(r*nu/sigma^2)

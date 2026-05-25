@@ -40,8 +40,16 @@ constexpr int kDeviceMaxTaps = 32;
 constexpr int kDeviceMaxDelayLine = 128;
 
 // Reuse the host-side sub-ray count so device and host agree on the Jakes
-// generator.
+// generator. The device kernel loops `m < kDeviceMaxFadingSubrays` and uses
+// it as the M divisor for inv_sqrt_M -- if these ever drift apart, the
+// kernel would read uninitialised tail rays AND the normalisation would be
+// wrong. static_assert here so the build breaks rather than producing
+// silently miscalibrated fading at runtime.
 constexpr int kDeviceMaxFadingSubrays = kTdlFadingSinusoids;
+static_assert(kDeviceMaxFadingSubrays == kTdlFadingSinusoids,
+              "kDeviceMaxFadingSubrays must equal kTdlFadingSinusoids: the "
+              "device kernel reads M from the device constant but normalises "
+              "the host-drawn sub-ray array sized by kTdlFadingSinusoids");
 
 // Maximum coarse-grid points per tap for the device-side Jakes generator.
 // For the project's reference rate (23.04 MS/s, grid_us = 100, count = 23040)
