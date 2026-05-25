@@ -2253,7 +2253,13 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <p>The actual hardware fix for the PCIe bottleneck is a true gen-5 x16
   slot (<a href="#perf-pcie">§21.5</a>). The software levers below are
   worth pursuing only if the hardware can't change; listed in priority
-  order:</p>
+  order. <b>Post Phase 2 D3</b> (the channel runs on the GPU now), the
+  bench's per-call landscape changed substantially: the host
+  <code>stage_link()</code> cost that was the dominant per-call latency
+  is gone for any all-leading-tdl topology, and the remaining frontier
+  work is now smaller per-µs trims. See
+  <code>docs/plans/device-channel-pipeline.md</code> for the measured
+  pre / post numbers.</p>
   <ul class="tight">
     <li><b>CUDA Graphs — capture-and-replay the per-slot pipeline.</b>
         The H2D + kernel + D2H sequence is static after
@@ -2285,15 +2291,16 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         sigma in fp16 needs care; gain / phase / CFO multiplies are
         fine). <b>Highest impact item by far</b> — only one that actually
         scales the boundary.</li>
-    <li><b>H2D pipelining (ping-pong staged buffers) — considered and
-        deprioritised.</b> Ping-pong only helps when kernel time
-        approaches H2D time, but on this kernel the ratio is ~1:10 even
-        at N = 64 (kernel ~54 µs vs H2D ~884 µs). Saves at most
-        ~kernel µs/slot (5–8 % of total), not the ~50 % a balanced
-        kernel would yield. Doubles staged-buffer VRAM. Reconsider only
-        if a heavier kernel (multi-tap <code>tdl</code> + per-tap
-        <code>fading</code>) pushes kernel µs into the same order as
-        H2D µs.</li>
+    <li><b>H2D pipelining (ping-pong staged buffers) — re-elevated by
+        Phase 2 D3.</b> Originally deprioritised because the pre-Phase-2
+        kernel:H2D ratio was ~1:10 (kernel ~54 µs vs H2D ~884 µs at
+        N=64 with cuda_mvp). Phase 2 D3 changed that for TDL profiles:
+        on <code>tdl-a_E16</code> the kernel is now 97 µs vs H2D 121 µs
+        — a ~1:1.3 ratio. Ping-pong (two staged-buffer pairs alternating
+        across consecutive serves) would now mask roughly the kernel
+        time per slot — ~30 % of total. Doubles staged-buffer VRAM (still
+        ~6 MB per node — trivial). The "heavier kernel pushes kernel µs
+        into the same order as H2D µs" trigger condition has fired.</li>
   </ul>
 
   <h3>Planned — topology shapes (lower priority)</h3>

@@ -22,19 +22,28 @@ What's proven end-to-end on an RTX 5090 against the OCUDU + srsUE stack:
   (one per cell) on a 4-node / 8-link inter-cell-interference topology; each
   gNB's RX is the GPU superposition of its serving UE plus the other cell's
   interferer; both UEs attach to their own cell.
+- **Phase 2 device channel pipeline — TR 38.901 profiles realtime-fit.** The
+  per-edge channel (multi-tap convolution + Jakes Doppler + Rician LOS) runs
+  on the GPU by default via `apply_channel_kernel`; host `stage_link()` stays
+  as the CPU reference and the CUDA fallback. `tdl-a_E16` (1 gNB + 8 UEs,
+  TDL-A 23-tap + Jakes 100 Hz on all 16 edges) went from 58 430 µs (host) to
+  319 µs (device) — 183× speedup, well inside the 1 ms slot budget.
 
 **Supported chain steps today:** `tdl` (tapped delay line — covers
 scalar gain, integer or fractional sample delay, full multi-tap multipath,
 and per-tap Doppler-shaped fading with optional Rician LOS specular via the
-same step), `path_loss`, `phase`, `cfo`, `awgn` — CUDA and CPU, bit-exact.
-The 3GPP TR 38.901 §7.7.2 TDL-A through TDL-E profiles ship as
-[`examples/topology.tdl-{a..e}.cuda.yaml`](examples/).
+same step), `path_loss`, `phase`, `cfo`, `awgn` — CUDA and CPU, bit-exact at
+1e-3 tolerance. The 3GPP TR 38.901 §7.7.2 TDL-A through TDL-E profiles ship
+as [`examples/topology.tdl-{a..e}.cuda.yaml`](examples/) and all run on the
+device kernel by default.
 
 **Next:** full CDL (TR 38.901 §7.7.1) with per-cluster angles, polarisation,
 and antenna array response, once a real MIMO / beamforming use case
 surfaces. See
 [technical reference §19](docs/ocudu-gpu-channel-doc.html#scope) for the
-architecture and decisions.
+architecture and decisions; the Phase 2 device pipeline plan + measured
+record lives in
+[`docs/plans/device-channel-pipeline.md`](docs/plans/device-channel-pipeline.md).
 
 ## Where this fits
 
@@ -42,7 +51,7 @@ Adjacent tools cover offline link-level simulation, offline channel-impulse-resp
 
 | Tool | Category | Stack | Channel models | In-loop with live radio stacks? |
 |---|---|---|---|---|
-| **ocudu-gpu-channel** | Real-time GPU emulator | C++ / CUDA + ZMQ | Multi-tap delay, path-loss, phase, CFO, AWGN, Jakes fading + Rician LOS (TR 38.901 §7.7.2 TDL-A..E) | **Yes** — OCUDU / srsRAN via ZMQ on a 1 ms slot budget |
+| **ocudu-gpu-channel** | Real-time GPU emulator | C++ / CUDA + ZMQ | Multi-tap delay, path-loss, phase, CFO, AWGN, Jakes fading + Rician LOS (TR 38.901 §7.7.2 TDL-A..E) — channel runs on the GPU by default | **Yes** — OCUDU / srsRAN via ZMQ on a 1 ms slot budget |
 | [OAI rfsimulator](https://github.com/OPENAIRINTERFACE/openairinterface5g/blob/develop/radio/rfsimulator/README.md) | In-loop CPU simulator | C | AWGN + OAI Raytracing Channel Emulator | Yes — only inside the OAI 5G stack, CPU-bound |
 | [GNU Radio](https://www.gnuradio.org/) | SDR flowgraph toolkit | C++ / Python | Composable `channels.*` blocks (DIY) | Yes — bring your own SDR or virtual sink |
 | [Keysight PROPSIM](https://www.keysight.com/us/en/products/channel-emulators/propsim-platforms.html) / [Spirent Vertex](https://www.spirent.com/products/vertex-channel-emulator) | Commercial RF hardware emulator | Proprietary firmware | 3GPP CDL/TDL, MIMO, full fading at RF | Yes — RF↔RF, commercial pricing |
