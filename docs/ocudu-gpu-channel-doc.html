@@ -3277,18 +3277,22 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   topologies tested here don't benefit. D4 is a correct future-proofing
   step for multi-model-per-pair topologies that haven't shipped yet.</p>
   <table>
-    <tr><th>Direction</th><th>Bytes / call</th><th>Bench p99 µs</th><th>Achieved Gbps (p99)</th><th>nsys sustained</th><th>Ceiling (gen 5 x4)</th><th>Utilisation</th></tr>
-    <tr><td>H2D (staged buffer)</td><td>1.40 MiB (8 edges × 23 040 × 8 B)</td><td>119.4</td><td>98.7</td><td>12.4 GB/s = 98.9 Gbps</td><td>≈ 126 Gbps</td><td><b>78 %</b></td></tr>
-    <tr><td>D2H (RX output)</td><td>180 KiB (23 040 × 8 B)</td><td>18.7</td><td>78.9</td><td>15.0 GB/s = 120 Gbps</td><td>≈ 126 Gbps</td><td><b>95 %</b></td></tr>
+    <tr><th>Direction</th><th>Bytes / call</th><th>Bench p99 µs</th><th>Achieved Gbps (p99)</th><th>Ceiling (gen 5 x4)</th><th>Utilisation</th></tr>
+    <tr><td>H2D (raw IQ, N = 8)</td><td>1.40 MiB (8 unique sources × 23 040 × 8 B)</td><td>121.0</td><td>97.5</td><td>≈ 126 Gbps</td><td><b>77 %</b></td></tr>
+    <tr><td>D2H (RX output)</td><td>180 KiB (23 040 × 8 B)</td><td>21.0</td><td>70.2</td><td>≈ 126 Gbps</td><td><b>56 %</b></td></tr>
   </table>
-  <p>D2H runs at 95 % of the PCIe x4 ceiling — essentially saturated. H2D
-  is at 78 % because each <code>process_superposition</code> call issues
-  three H2D memcpys (<code>device_staged</code>, <code>device_steps</code>,
+  <p>Both rows are <code>one-to-n_N8</code> from the post-D4
+  <code>perf-fanin-sweep</code> on commit <code>d3b1a15</code>. H2D is at
+  77 % because each <code>process_superposition</code> call issues
+  three H2D memcpys (<code>device_source_iq</code>, <code>device_steps</code>,
   <code>device_step_meta</code>); the two small ones don't amortise.
   Diagram W traces the saturation curve across the full 1-to-N sweep.
-  <b>On a gen 5 x16 link the ceiling would jump to ~504 Gbps</b>, and the
-  H2D phase at stress-16 would drop to ~30 µs — pulling even N = 32 well
-  under the slot.</p>
+  The pre-D4 N = 8 H2D was 119.4 µs / 98.7 Gbps — within run-to-run
+  noise of the post-D4 numbers above, as expected since one-to-N has
+  one link per (from, to) pair and D4's per-source dedup
+  has nothing to merge here. <b>On a gen 5 x16 link the ceiling would
+  jump to ~504 Gbps</b>, and the H2D phase at stress-16 would drop to
+  ~30 µs — pulling even N = 32 well under the slot.</p>
 
   <!-- ============ Diagram W : H2D achieved Gbps with x4 ceiling ============ -->
   <figure>
@@ -3327,24 +3331,26 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="500" y="365" fill="#9aa7bd" font-size="11" text-anchor="middle">N = incoming edges (log scale) · bytes per H2D = N × 180 KiB</text>
 
     <!-- y(gbps) = 320 - gbps * 270 / 125 = 320 - gbps * 2.16
-       Gbps achieved: 56.9, 73.2, 86.3, 99.2, 103.2, 106.0, 106.7
-       y:             197.1, 161.9, 133.5, 105.7, 97.1, 91.0, 89.5 -->
-    <polyline points="140,197.1 280,161.9 410,133.5 530,105.7 650,97.1 770,91.0 890,89.5"
+       Post-D4 Gbps:  51.3, 75.9, 85.6, 97.5, 103.3, 106.0, 106.5
+       y:             209.2, 156.1, 135.1, 109.4, 96.9, 91.0, 90.0
+       (Pre-D4 was 56.9 / 73.2 / 86.3 / 99.2 / 103.2 / 106.0 / 106.7 —
+        D4 unchanged for one-to-N because num_sources == N == link_count.) -->
+    <polyline points="140,209.2 280,156.1 410,135.1 530,109.4 650,96.9 770,91.0 890,90.0"
               fill="none" stroke="#6fd08c" stroke-width="2.4"/>
     <g fill="#6fd08c">
-      <circle cx="140" cy="197.1" r="4"/><circle cx="280" cy="161.9" r="4"/>
-      <circle cx="410" cy="133.5" r="4"/><circle cx="530" cy="105.7" r="4"/>
-      <circle cx="650" cy="97.1" r="4"/><circle cx="770" cy="91.0" r="4"/>
-      <circle cx="890" cy="89.5" r="4"/>
+      <circle cx="140" cy="209.2" r="4"/><circle cx="280" cy="156.1" r="4"/>
+      <circle cx="410" cy="135.1" r="4"/><circle cx="530" cy="109.4" r="4"/>
+      <circle cx="650" cy="96.9" r="4"/><circle cx="770" cy="91.0" r="4"/>
+      <circle cx="890" cy="90.0" r="4"/>
     </g>
     <g fill="#6fd08c" font-size="9" text-anchor="middle">
-      <text x="140" y="190">57</text>
-      <text x="280" y="155">73</text>
-      <text x="410" y="127">86</text>
-      <text x="530" y="99">99</text>
+      <text x="140" y="202">51</text>
+      <text x="280" y="150">76</text>
+      <text x="410" y="129">86</text>
+      <text x="530" y="103">98</text>
       <text x="650" y="91">103</text>
       <text x="770" y="85">106</text>
-      <text x="890" y="83">107</text>
+      <text x="890" y="84">107</text>
     </g>
 
     <!-- Annotation: saturation regime (placed mid-chart to avoid the rightmost label) -->
@@ -3352,15 +3358,22 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="470" y="142" fill="#ff8aa3" font-size="10" text-anchor="middle">saturating ~85 % of x4 ceiling by N=8</text>
   </svg>
   <figcaption>Diagram W — achieved H2D bandwidth on the gNB's
-  superposition call. At N = 1 the per-call transfer is 180 KiB and the
-  link is launch-latency-bound (57 Gbps achieved). As N grows the payload
-  grows linearly (180 KiB × N) and the link approaches its x4 ceiling.
-  From N = 8 onwards, achieved bandwidth asymptotes at <b>~107 Gbps ≈ 85 %
-  of the 126 Gbps PCIe 5.0 x4 effective ceiling</b>. Latency past this
-  point is set purely by transfer size: doubling N doubles H2D µs almost
-  exactly, because the link is already running near maximum throughput.
-  A gen 5 x16 link would lift the ceiling to ~504 Gbps and unlock another
-  ~2× of headroom before saturation; on this workstation we're stuck here.</figcaption>
+  superposition call. <b>Measured post-D4</b>
+  (<code>perf-fanin-sweep.sh</code>, May 25 2026, on the
+  <code>d3b1a15</code> build). At N = 1 the per-call transfer is 180 KiB
+  and the link is launch-latency-bound (51 Gbps achieved). As N grows the
+  payload grows linearly (180 KiB × N) and the link approaches its x4
+  ceiling. From N = 8 onwards, achieved bandwidth asymptotes at
+  <b>~107 Gbps ≈ 85 % of the 126 Gbps PCIe 5.0 x4 effective ceiling</b>.
+  <b>D4 makes no difference to this curve</b>: the one-to-N topology has
+  N distinct UE sources → 1 gNB destination, so
+  <code>num_sources == N == link_count</code> for the gNB destination's
+  call and the per-call H2D byte count is unchanged. The same is true for
+  every topology this project currently ships. Latency past N = 8 is set
+  purely by transfer size: doubling N doubles H2D µs almost exactly,
+  because the link is already running near maximum throughput. A gen 5
+  x16 link would lift the ceiling to ~504 Gbps and unlock another ~2× of
+  headroom; on this workstation we're stuck here.</figcaption>
   </figure>
 
   <h3 id="perf-fanin">20.6 What the bench measures — and what it can't</h3>
