@@ -454,3 +454,87 @@ needed.
   device on the common case".
 
 The remaining work is doc / cleanup. The hard kernel work is done.
+
+## D7 (considered, not pursued) — source `tx_ring` on the GPU
+
+A more aggressive version of D4 surfaced in discussion: keep the source's
+TX ring buffer entirely on the GPU. The host's RX puller would push only
+the new samples per slot into the device-side ring; every destination's
+`apply_channel_kernel` would read past samples directly from
+`device_tx_ring[src_index]` using a cursor + ring-modulo, with no
+`DeviceLinkState.delay_line` mirror needed and no per-destination
+duplication of source bytes in H2D.
+
+### What D7 would buy
+
+| Property | D7 |
+|---|---|
+| H2D per slot | One transfer per **unique source**, total ≈ M_sources × 180 KiB (≈ 7× less than today for full-duplex topologies at moderate fan-out — also ≈ 2× less than D4, because D4 still duplicates per destination) |
+| `DeviceLinkState.delay_line` | Eliminated — ring on GPU is the single source of truth for source history |
+| Max supported tap delay | Effectively unbounded (limited by ring capacity instead of `kDeviceMaxDelayLine = 128`) |
+| Architecture | "Single source of truth on GPU" — textbook-clean for the device pipeline |
+
+### Why D7 is not pursued
+
+1. **Breaks the CPU↔GPU symmetry invariant.** The project's load-bearing
+   correctness property is that the CPU backend
+   (`apply_tdl_step{_fading}` in `delay.h`, host `delay_line` in
+   `LinkModelState`) and the GPU backend (`apply_channel_kernel`, device
+   `DeviceLinkState.delay_line`) share the **same data-flow shape**. The
+   CPU↔CUDA bit-exact parity test (`tests/test_processing.cpp` at 1e-3
+   tolerance) depends on this. Moving the ring to GPU forces an
+   asymmetric design — CPU keeps its host ring + `delay_line`; GPU has a
+   single device ring; the math agrees but the surrounding data flow
+   diverges. Two shapes to reason about and to keep tested.
+
+2. **Lost decoupling between destinations.** Today each destination has
+   its own `cudaStream_t`, independent of every other. With a shared
+   `device_tx_ring` per source, every destination's kernel must wait on
+   the source's H2D-write event before it can read. A slow source push
+   (network jitter, ZMQ backpressure) blocks **all** of that source's
+   destinations instead of just one. This is real downside for the
+   broker's strict-realtime gate, which today flags only the directly
+   starved destination.
+
+3. **Optimizing what isn't slow.** `tdl-a_E16` H2D is **121 µs** of a
+   1000 µs slot budget after D2b+D3 — PCIe is not the binding
+   constraint. A 7× H2D reduction would drop `model_mix_latency` from
+   319 µs to maybe ~280 µs. Margin gain, not a user-visible win.
+
+4. **Refactor cost.** Broker `Device` struct + RX puller (now writes to
+   GPU not host vector), `CudaSuperposeState` (drop
+   `device_pre_kernel`), `DeviceLinkState` (drop `delay_line`, add
+   `device_src_index`), `apply_channel_kernel` (ring-modulo read instead
+   of flat indexed), cross-stream synchronization plumbing. ~2 focused
+   sessions plus retest of the bit-exact contract under the new shape.
+
+### Trigger conditions for revisiting
+
+D7 becomes worth doing if **any** of the following fire:
+
+- PCIe gets binding again at higher fan-out than current configs
+  exercise (e.g., 64+ edges per destination with realistic channels).
+- A use case needs tap delays > 128 samples (e.g., long-range
+  propagation models, NTN, or multi-cluster CDL where tap delays span
+  many milliseconds at high sample rates).
+- The CPU↔GPU bit-exact invariant is intentionally relaxed (e.g., GPU
+  becomes the sole reference, CPU backend deprecated).
+
+### The smaller intermediate (also parked)
+
+A subset of D7's win is achievable without breaking CPU/GPU symmetry by
+just **eliminating copy #1** (`tx_ring → inputs[k]`) — make
+`IqRing`'s storage pinned, so the broker's ring `read()` writes
+directly into a pinned host buffer that can be H2D'd without the
+`std::copy` into `host_pre_kernel`. Saves ~3 µs × N per serve.
+~1 session refactor. Not done because, again, nothing currently
+benefits from the µs trim.
+
+### Summary
+
+D7 is the architecturally cleanest device-side design but its costs
+(symmetry, decoupling, refactor) exceed the gains (H2D bytes,
+elegance) at current project scales. **The current post-Phase 2 design
+is the right local optimum** — D4 / D7 / pinned-ring are all real
+options to revisit when (and only when) one of the trigger conditions
+above fires.
