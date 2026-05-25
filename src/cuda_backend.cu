@@ -669,7 +669,8 @@ public:
     check(cudaStreamSynchronize(sp.stream), "cudaStreamSynchronize superpose");
     std::copy(sp.host_output, sp.host_output + count, output.begin());
 
-    record_timings(sp.h2d_start, sp.h2d_done, sp.kernel_done, sp.d2h_done, total_start);
+    record_timings(sp.h2d_start, sp.h2d_done, sp.kernel_done, sp.d2h_done, total_start,
+                   sp.use_device_channel);
   }
 
   ProcessorTimings last_timings() const override
@@ -684,7 +685,8 @@ private:
                       cudaEvent_t h2d_done,
                       cudaEvent_t kernel_done,
                       cudaEvent_t d2h_done,
-                      std::chrono::steady_clock::time_point total_start)
+                      std::chrono::steady_clock::time_point total_start,
+                      bool used_device_channel)
   {
     float h2d_ms = 0.0F;
     float kernel_ms = 0.0F;
@@ -701,7 +703,7 @@ private:
     last_timings_.d2h_us = static_cast<double>(d2h_ms) * 1000.0;
     last_timings_.gpu_process_us =
         static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(total_elapsed).count()) / 1000.0;
-    last_timings_.used_device_channel = sp.use_device_channel;
+    last_timings_.used_device_channel = used_device_channel;
   }
 
   // Builds a model chain into `ms`, advancing its per-step CFO phase and AWGN

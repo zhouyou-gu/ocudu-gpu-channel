@@ -93,7 +93,7 @@ Open four terminals: two synthetic IQ sources, the broker, two paced sinks.
 ./build/ocudu-zmq-source --endpoint tcp://*:2101 --duration 20s
 
 # Terminal 3: broker — runs CUDA channel kernels per slot
-./build/ocudu-gpu-channel --config examples/topology.local.yaml --duration 20s
+./build/ocudu-gpu-channel --config examples/topology.local.cpu.yaml --duration 20s
 
 # Terminal 4: paced sinks (one request per 1 ms at 23.04 MS/s)
 ./build/ocudu-zmq-sink --endpoint tcp://127.0.0.1:2001 --duration 10s --request-interval-us 1000
@@ -130,10 +130,10 @@ is rejected at load.
 
 ```sh
 # CPU reference (any platform)
-./build/ocudu-gpu-channel-bench --config examples/topology.local.yaml --duration 10s --scs-khz 30
+./build/ocudu-gpu-channel-bench --config examples/topology.local.cpu.yaml --duration 10s --scs-khz 30
 
 # CUDA MVP (adds per-stage GPU timings)
-./build/ocudu-gpu-channel-bench --config examples/topology.cuda-mvp.yaml --duration 10s --scs-khz 30
+./build/ocudu-gpu-channel-bench --config examples/topology.mvp.cuda.yaml --duration 10s --scs-khz 30
 ```
 
 CUDA output emits `model_mix_latency` plus `h2d_us`, `kernel_us`, `d2h_us`,
@@ -145,7 +145,7 @@ Strict-realtime validation (fails the process on any flow / starvation /
 continuity error):
 
 ```sh
-./build/ocudu-gpu-channel --config examples/topology.cuda-mvp.yaml --duration 20s --strict-realtime
+./build/ocudu-gpu-channel --config examples/topology.mvp.cuda.yaml --duration 20s --strict-realtime
 ```
 
 ## Remote RTX workstation

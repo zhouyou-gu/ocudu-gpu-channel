@@ -154,7 +154,7 @@ gen_gnb_config() {
     { print }
     /^cell_cfg:/ { print "  pci: " pci }
     END { print ""; print "gnb_id: " gid; print "ran_node_name: " nm }
-  ' "${project_root}/examples/ocudu/gnb_zmq_b210_fdd_srsue.yml" >"$1"
+  ' "${project_root}/examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml" >"$1"
 }
 gen_gnb_config "${gnb0_config}" 3000 3001 1 411 gnb0
 gen_gnb_config "${gnb1_config}" 3002 3003 2 412 gnb1

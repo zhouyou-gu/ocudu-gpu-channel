@@ -55,12 +55,12 @@ ctest --test-dir "${cuda_build}" --output-on-failure
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 "${cpu_build}/ocudu-gpu-channel-bench" \
-  --config "${project_root}/examples/topology.local.yaml" \
+  --config "${project_root}/examples/topology.local.cpu.yaml" \
   --duration 10s \
   --scs-khz 30 | tee "${bench_dir}/cpu-23p04-${timestamp}.csv"
 
 "${cuda_build}/ocudu-gpu-channel-bench" \
-  --config "${project_root}/examples/topology.cuda-mvp.yaml" \
+  --config "${project_root}/examples/topology.mvp.cuda.yaml" \
   --duration 10s \
   --scs-khz 30 | tee "${bench_dir}/cuda-mvp-23p04-${timestamp}.csv"
 

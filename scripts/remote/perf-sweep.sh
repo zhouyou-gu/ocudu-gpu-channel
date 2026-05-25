@@ -148,7 +148,7 @@ PY
 
 # ---- topology sweep: bench each config under CPU and CUDA ----
 declare -A CONFIGS=(
-  [mvp-2-edge]="examples/topology.cuda-mvp.yaml"
+  [mvp-2-edge]="examples/topology.mvp.cuda.yaml"
   [multi-ue-4-edge]="examples/topology.ocudu-docker.multi-ue.cuda.yaml"
   [graph-6-edge]="examples/topology.graph.cuda.yaml"
   [multi-gnb-8-edge]="examples/topology.multi-gnb.cuda.yaml"

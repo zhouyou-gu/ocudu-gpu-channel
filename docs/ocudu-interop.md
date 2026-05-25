@@ -15,7 +15,7 @@ OCUDU Docker gNB <-> host CUDA broker <-> synthetic UE or srsUE proof-of-concept
 
 ## Tracked Assets
 
-- `examples/ocudu/gnb_zmq_b210_fdd_srsue.yml`: OCUDU gNB config derived from OCUDU's B210 FDD srsUE example with the `ru_sdr` section changed to ZMQ for Docker bridge interop.
+- `examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml`: OCUDU gNB config derived from OCUDU's B210 FDD srsUE example with the `ru_sdr` section changed to ZMQ for Docker bridge interop.
 - `examples/topology.ocudu-docker.cuda.yaml`: CUDA broker topology for `gnb0 <-> ue0` using gNB ports `2000/2001` and UE ports `2101/2100`.
 - `scripts/remote/ocudu-interop-smoke.sh`: sample-flow proof with OCUDU gNB, Open5GS, CUDA broker, and synthetic UE ZMQ tools.
 - `scripts/remote/ocudu-attach-smoke.sh`: attach/ping proof attempt with OCUDU gNB, Open5GS, CUDA broker, and a Docker-built srsUE proof-of-concept.

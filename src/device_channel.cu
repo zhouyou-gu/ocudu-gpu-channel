@@ -17,8 +17,6 @@
 namespace ocg {
 namespace {
 
-constexpr double kPiDev = 3.14159265358979323846;
-
 // Per-sample, per-edge multi-tap polyphase convolution + optional
 // time-varying Jakes fading + Rician LOS specular. Mirrors apply_tdl_step
 // / apply_tdl_step_fading in delay.h: each output sample sums K taps'
@@ -73,7 +71,6 @@ __global__ void apply_channel_kernel(
   const int n_taps = s->n_taps;
   const int dl_size = s->delay_line_size;
   const bool fading_on = (s->fading_enabled != 0);
-  constexpr float kTwoPiF = 6.28318530717958647692f;
 
   // -------- Cooperatively materialise the per-tap Jakes coarse grid and
   // per-tap LOS phase constants in shared memory. Only when fading is on;

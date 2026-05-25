@@ -132,11 +132,11 @@ cmake -S "${project_root}" -B "${cuda_build}" \
 cmake --build "${cuda_build}" -j"$(nproc)" >"${log_dir}/cmake-build.log" 2>&1
 
 # --- generated config ----------------------------------------------------------
-gnb_config="${config_dir}/gnb_zmq_b210_fdd_srsue.yml"
+gnb_config="${config_dir}/gnb_zmq_b210_fdd_srsue.yaml"
 compose_override="${config_dir}/docker-compose.ocudu-gpu-channel.yml"
 ocudu_dockerfile="${config_dir}/Dockerfile.ocudu-zmq"
 srsue_dockerfile="${config_dir}/Dockerfile.srsue"
-cp "${project_root}/examples/ocudu/gnb_zmq_b210_fdd_srsue.yml" "${gnb_config}"
+cp "${project_root}/examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml" "${gnb_config}"
 
 awk '
   { print }
