@@ -19,24 +19,43 @@ namespace {
 
 constexpr double kPiDev = 3.14159265358979323846;
 
-// Per-sample, per-edge multi-tap polyphase convolution (static channel; no
-// fading). Mirrors apply_tdl_step() in delay.h: each output sample sums K
-// taps' (gain · phase-rotation · windowed-sinc-delayed input), reading
-// past-batch history from the per-link delay_line ring.
+// Per-sample, per-edge multi-tap polyphase convolution + optional
+// time-varying Jakes fading + Rician LOS specular. Mirrors apply_tdl_step
+// / apply_tdl_step_fading in delay.h: each output sample sums K taps'
+// (gain · static-phase-rotation · g_k(t) · windowed-sinc-delayed input).
+//
+// When s->fading_enabled == 0 the kernel reduces to the static case
+// (g_k(t) ≡ 1 + 0j) and the math collapses to the convolution path.
+// When s->fading_enabled == 1 the block cooperatively materialises a
+// per-tap coarse-grid g_k(t) in shared memory at block start, then
+// each thread interpolates g_k(t_idx) for its sample and composes the
+// Rician LOS specular per-tap if is_los.
 //
 // Launch: grid = dim3(ceil(count / 256), n_links), block = dim3(256).
 //   blockIdx.x → sample block within slot
 //   blockIdx.y → edge index k
+//
+// Shared memory: ~8.4 KB per block (g_grid_i + g_grid_q +
+// los_phase_start + los_step_angle). Fits well within modern SM budgets.
 __global__ void apply_channel_kernel(
     const DeviceLinkState* __restrict__ states,
     const IqSample* __restrict__ in_buffer,
     IqSample* __restrict__ out_buffer,
     int n_links,
-    int count)
+    int count,
+    float sample_rate_hz)
 {
+  // Per-block shared state for the fading path. Sized at compile time so
+  // no extern shared memory plumbing at the call site.
+  __shared__ float g_grid_i[kDeviceMaxTaps][kDeviceMaxGridPoints];
+  __shared__ float g_grid_q[kDeviceMaxTaps][kDeviceMaxGridPoints];
+  __shared__ float los_phase_start[kDeviceMaxTaps];
+  __shared__ float los_step_angle[kDeviceMaxTaps];
+  __shared__ int   shared_grid_stride;
+  __shared__ int   shared_grid_count;
+
   const int k = blockIdx.y;
-  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (k >= n_links || idx >= count) {
+  if (k >= n_links) {
     return;
   }
   const DeviceLinkState* s = &states[k];
@@ -44,20 +63,138 @@ __global__ void apply_channel_kernel(
   // Non-tdl link: pass-through (the kernel still runs on these for uniformity;
   // the cost is one global-memory read + write per sample, negligible).
   if (s->has_tdl == 0) {
-    out_buffer[k * count + idx] = in_buffer[k * count + idx];
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count) {
+      out_buffer[k * count + idx] = in_buffer[k * count + idx];
+    }
     return;
   }
 
   const int n_taps = s->n_taps;
   const int dl_size = s->delay_line_size;
+  const bool fading_on = (s->fading_enabled != 0);
+  constexpr float kTwoPiF = 6.28318530717958647692f;
+
+  // -------- Cooperatively materialise the per-tap Jakes coarse grid and
+  // per-tap LOS phase constants in shared memory. Only when fading is on;
+  // when off, g_k(t) is identically (1, 0) and these arrays go unread.
+  if (fading_on) {
+    // Compute grid sizing once per block.
+    if (threadIdx.x == 0) {
+      int stride = (int)roundf(s->grid_us * 1.0e-6f * sample_rate_hz);
+      if (stride < 1) stride = 1;
+      int gcount = (count + stride - 1) / stride + 1;
+      if (gcount > kDeviceMaxGridPoints) gcount = kDeviceMaxGridPoints;
+      shared_grid_stride = stride;
+      shared_grid_count = gcount;
+    }
+    __syncthreads();
+    const int grid_stride = shared_grid_stride;
+    const int grid_count = shared_grid_count;
+
+    // Zero the active part of the grid cooperatively.
+    const int grid_total = n_taps * grid_count;
+    for (int gi = threadIdx.x; gi < grid_total; gi += blockDim.x) {
+      const int kt = gi / grid_count;
+      const int gp = gi - kt * grid_count;
+      g_grid_i[kt][gp] = 0.0f;
+      g_grid_q[kt][gp] = 0.0f;
+    }
+    __syncthreads();
+
+    const float inv_sqrt_M = rsqrtf((float)kDeviceMaxFadingSubrays);
+    const float slot_start_t =
+        (float)((double)s->slot_start_samples / (double)sample_rate_hz);
+    const float grid_dt = (float)grid_stride / sample_rate_hz;
+
+    // One thread per tap accumulates that tap's M sub-rays across the grid
+    // via phase accumulation (so each grid point costs one complex multiply
+    // per sub-ray, not a sincos). n_taps <= kDeviceMaxTaps = 32 < blockDim.x.
+    if (threadIdx.x < n_taps) {
+      const int kt = threadIdx.x;
+      for (int m = 0; m < kDeviceMaxFadingSubrays; ++m) {
+        const float alpha_km = s->tap_alpha[kt][m];
+        const float phi_km = s->tap_phi[kt][m];
+        const float omega_m = kTwoPiF * s->f_d_max_hz * cosf(alpha_km);
+        const float angle0 = omega_m * slot_start_t + phi_km;
+        const float step_angle = omega_m * grid_dt;
+        float c_cur, s_cur;
+        __sincosf(angle0, &s_cur, &c_cur);
+        float c_step, s_step;
+        __sincosf(step_angle, &s_step, &c_step);
+        for (int gp = 0; gp < grid_count; ++gp) {
+          g_grid_i[kt][gp] += c_cur;
+          g_grid_q[kt][gp] += s_cur;
+          // Multiply (c_cur, s_cur) by (c_step, s_step) for next grid point.
+          const float c_new = c_cur * c_step - s_cur * s_step;
+          const float s_new = c_cur * s_step + s_cur * c_step;
+          c_cur = c_new;
+          s_cur = s_new;
+        }
+      }
+      // Scale by 1/sqrt(M).
+      for (int gp = 0; gp < grid_count; ++gp) {
+        g_grid_i[kt][gp] *= inv_sqrt_M;
+        g_grid_q[kt][gp] *= inv_sqrt_M;
+      }
+      // LOS phase constants for this tap.
+      if (s->tap_is_los[kt]) {
+        los_phase_start[kt] = s->tap_omega_los[kt] * slot_start_t +
+                              s->tap_phi_los[kt];
+        los_step_angle[kt] = s->tap_omega_los[kt] / sample_rate_hz;
+      }
+    }
+    __syncthreads();
+  }
+
+  // -------- Per-sample work.
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= count) {
+    return;
+  }
+
+  // Interpolation index for this sample into the coarse grid.
+  int g_floor = 0, g_ceil = 0;
+  float frac = 0.0f;
+  if (fading_on) {
+    const int gs = shared_grid_stride;
+    g_floor = idx / gs;
+    g_ceil = g_floor + 1;
+    if (g_ceil >= shared_grid_count) g_ceil = shared_grid_count - 1;
+    if (g_floor >= shared_grid_count) g_floor = shared_grid_count - 1;
+    frac = (float)(idx - g_floor * gs) / (float)gs;
+  }
 
   float acc_i = 0.0f;
   float acc_q = 0.0f;
 
   for (int kt = 0; kt < n_taps; ++kt) {
-    const int tau_int = s->tap_delay_int[kt];
+    // Compute g_k(t_idx). Default is the static identity (1, 0) so the
+    // non-fading path collapses to the previous static kernel.
+    float g_i = 1.0f;
+    float g_q = 0.0f;
+    if (fading_on) {
+      const float g_ri = g_grid_i[kt][g_floor] * (1.0f - frac) +
+                         g_grid_i[kt][g_ceil] * frac;
+      const float g_rq = g_grid_q[kt][g_floor] * (1.0f - frac) +
+                         g_grid_q[kt][g_ceil] * frac;
+      if (s->tap_is_los[kt]) {
+        const float los_angle =
+            los_phase_start[kt] + los_step_angle[kt] * (float)idx;
+        float los_s, los_c;
+        __sincosf(los_angle, &los_s, &los_c);
+        const float lf = s->tap_los_factor[kt];
+        const float rf = s->tap_rayleigh_factor[kt];
+        g_i = lf * los_c + rf * g_ri;
+        g_q = lf * los_s + rf * g_rq;
+      } else {
+        g_i = g_ri;
+        g_q = g_rq;
+      }
+    }
 
     // 8-tap polyphase windowed-sinc read centered around (idx - tau_int).
+    const int tau_int = s->tap_delay_int[kt];
     float x_i = 0.0f;
     float x_q = 0.0f;
     #pragma unroll
@@ -86,14 +223,16 @@ __global__ void apply_channel_kernel(
       x_q += h * sq;
     }
 
-    // Static phase rotation + per-tap gain.
-    const float c = s->tap_cos_phi[kt];
-    const float sn = s->tap_sin_phi[kt];
-    const float rot_i = x_i * c - x_q * sn;
-    const float rot_q = x_i * sn + x_q * c;
+    // Static phase rotation + g_k(t) modulation + per-tap gain.
+    const float cph = s->tap_cos_phi[kt];
+    const float sph = s->tap_sin_phi[kt];
+    const float rot_i = x_i * cph - x_q * sph;
+    const float rot_q = x_i * sph + x_q * cph;
+    const float xi = rot_i * g_i - rot_q * g_q;
+    const float xq = rot_i * g_q + rot_q * g_i;
     const float gain = s->tap_gain_amp[kt];
-    acc_i += gain * rot_i;
-    acc_q += gain * rot_q;
+    acc_i += gain * xi;
+    acc_q += gain * xq;
   }
 
   IqSample out;
@@ -235,6 +374,7 @@ void launch_apply_channel_kernel_static(
     IqSample* out_buffer,
     int n_links,
     int count,
+    float sample_rate_hz,
     void* stream)
 {
   if (n_links <= 0 || count <= 0) {
@@ -245,7 +385,7 @@ void launch_apply_channel_kernel_static(
   const dim3 grid(blocks_x, n_links, 1);
   const dim3 block(kBlockThreads, 1, 1);
   cudaStream_t s = static_cast<cudaStream_t>(stream);
-  apply_channel_kernel<<<grid, block, 0, s>>>(states, in_buffer, out_buffer, n_links, count);
+  apply_channel_kernel<<<grid, block, 0, s>>>(states, in_buffer, out_buffer, n_links, count, sample_rate_hz);
 }
 
 void launch_update_delay_line_kernel(

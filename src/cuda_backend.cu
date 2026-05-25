@@ -455,7 +455,12 @@ public:
       // incoming edge has a leading tdl WITHOUT fading. Fading-enabled
       // links keep using the host-side stage_link path until D3 lands
       // the device fading kernel. Mixed nodes stay on host for now.
-      bool all_static_tdl = (incoming > 0);
+      // Phase 2 D3: dispatch gate now accepts fading-enabled tdl too. The
+      // device kernel handles both static and Jakes-fading paths internally
+      // via a per-link `fading_enabled` branch. The remaining requirement
+      // is that every incoming edge has a leading tdl step (so build_steps
+      // and the device kernel agree on what the first step is doing).
+      bool all_leading_tdl = (incoming > 0);
       for (const auto& link : config.links) {
         if (link.to != device.id) {
           continue;
@@ -471,10 +476,8 @@ public:
         const auto& lms = ls_it->second.model;
         const bool has_leading_tdl =
             !model->chain.empty() && model->chain.front().type == ModelStepType::Tdl;
-        const bool fading_on =
-            has_leading_tdl && model->chain.front().fading_enabled;
-        if (!has_leading_tdl || fading_on) {
-          all_static_tdl = false;
+        if (!has_leading_tdl) {
+          all_leading_tdl = false;
         }
         if (has_leading_tdl) {
           // Only links with a leading tdl step contribute a non-trivial
@@ -488,7 +491,7 @@ public:
         }
         ++k_idx;
       }
-      sp.use_device_channel = all_static_tdl;
+      sp.use_device_channel = all_leading_tdl;
       check(cudaMemcpy(sp.device_link_states, sp.host_link_states.data(),
                        incoming * sizeof(DeviceLinkState), cudaMemcpyHostToDevice),
             "cudaMemcpy device_link_states H2D");
@@ -624,6 +627,7 @@ public:
                                           sp.device_staged,
                                           link_count,
                                           static_cast<int>(count),
+                                          static_cast<float>(sample_rate_hz),
                                           sp.stream);
       check(cudaGetLastError(), "apply_channel_kernel launch");
       launch_update_delay_line_kernel(sp.device_link_states,

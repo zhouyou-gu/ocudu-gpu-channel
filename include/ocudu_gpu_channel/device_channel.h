@@ -43,6 +43,13 @@ constexpr int kDeviceMaxDelayLine = 128;
 // generator.
 constexpr int kDeviceMaxFadingSubrays = kTdlFadingSinusoids;
 
+// Maximum coarse-grid points per tap for the device-side Jakes generator.
+// For the project's reference rate (23.04 MS/s, grid_us = 100, count = 23040)
+// the required grid_count is 11; 32 leaves headroom for higher sample rates
+// or shorter grid_us values. If runtime grid_count exceeds this, the kernel
+// clamps (slight interpolation accuracy loss; the host path is unaffected).
+constexpr int kDeviceMaxGridPoints = 32;
+
 // One per (dst_node × incoming edge). Built host-side from
 // LinkModelState + TdlFadingState + the link's TapSpec array, copied to
 // device once at prepare(). The kernel reads the topology fields read-only
@@ -128,12 +135,17 @@ bool build_device_link_state(
 // D2b commit wires the dispatch behind a per-link gate.
 // `stream` is a `cudaStream_t` passed as `void*` so this header stays
 // includable without a CUDA toolchain. The implementation casts back.
+//
+// `sample_rate_hz` is required for the fading time math (slot_start_t,
+// grid_dt, LOS step_angle). The static path ignores it but the parameter
+// stays in the unified signature so the caller doesn't need to branch.
 void launch_apply_channel_kernel_static(
     const DeviceLinkState* states,
     const IqSample* in_buffer,
     IqSample* out_buffer,
     int n_links,
     int count,
+    float sample_rate_hz,
     void* stream);
 
 // Phase 2 D2: roll the per-link delay_line ring forward and advance
