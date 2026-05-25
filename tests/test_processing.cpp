@@ -957,6 +957,72 @@ int main()
       require(!cuda->last_timings().used_device_channel,
               "CUDA dispatch gate: leading-non-tdl model must fall back to host stage path");
     }
+
+    // (g) D4 source rebuffering: a destination with TWO incoming edges from
+    // the SAME source must produce the same output as the CPU reference.
+    // The device path packs the shared source's IQ ONCE into host_source_iq
+    // (D4) and both edges' kernels read from that single slot via their
+    // DeviceLinkState::src_index. If the dedup or indexing is wrong, the
+    // CPU↔CUDA parity assertion below catches it.
+    {
+      ocg::TopologyConfig cfg;
+      cfg.runtime.backend = ocg::Backend::Cuda;
+      cfg.runtime.batch_samples_auto = false;
+      cfg.runtime.batch_samples = 8;
+      cfg.runtime.queue_samples = 64;
+      cfg.devices = {
+          {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000,
+           .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+          {.id = "ue0",  .role = "ue",  .sample_rate_hz = 23040000,
+           .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+      // Two links from gnb0 → ue0 with different models — both edges share
+      // the same source. D4 dedup means host_source_iq has 1 slot, not 2.
+      cfg.links = {{.from = "gnb0", .to = "ue0", .model = "desired"},
+                   {.from = "gnb0", .to = "ue0", .model = "crosstalk"}};
+      ocg::ModelConfig desired;
+      desired.id = "desired";
+      ocg::ModelStep ds;
+      ds.type = ocg::ModelStepType::Tdl;
+      ds.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+      ds.taps_declared = true;
+      desired.chain.push_back(ds);
+      ocg::ModelConfig crosstalk;
+      crosstalk.id = "crosstalk";
+      ocg::ModelStep cs;
+      cs.type = ocg::ModelStepType::Tdl;
+      cs.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = -6.0, .phase_rad = 0.0}};
+      cs.taps_declared = true;
+      crosstalk.chain.push_back(cs);
+      cfg.models.emplace("desired", desired);
+      cfg.models.emplace("crosstalk", crosstalk);
+
+      ocg::CpuChannelProcessor cpu;
+      cpu.prepare(cfg);
+      auto cuda_proc = ocg::create_channel_processor(cfg);
+
+      // Same source samples on both edges (since they read the same ring at
+      // the same cursor in production).
+      const ocg::IqBuffer src_iq = {{0.30F, -0.10F}, {0.45F, 0.25F}, {-0.20F, 0.60F}, {0.15F, -0.55F},
+                                    {0.70F, 0.05F},  {-0.35F, 0.40F}, {0.50F, -0.30F}, {-0.65F, 0.20F}};
+
+      // CPU reference: sum of (1.0 × src) + (0.5012 × src) per sample.
+      ocg::IqBuffer ref_a(8), ref_b(8);
+      shape_link(cpu, "ue0", "gnb0>ue0:desired",   desired,   src_iq, ref_a, 23040000);
+      shape_link(cpu, "ue0", "gnb0>ue0:crosstalk", crosstalk, src_iq, ref_b, 23040000);
+      ocg::IqBuffer ref(8);
+      for (std::size_t s = 0; s != 8; ++s) ref[s] = ref_a[s] + ref_b[s];
+
+      std::vector<ocg::SuperpositionInput> edges = {
+          {.link_key = "gnb0>ue0:desired",   .model = &desired,   .samples = src_iq},
+          {.link_key = "gnb0>ue0:crosstalk", .model = &crosstalk, .samples = src_iq}};
+      ocg::IqBuffer cuda_out(8);
+      cuda_proc->process_superposition("ue0", edges, nullptr, 23040000, cuda_out);
+
+      require(cuda_proc->last_timings().used_device_channel,
+              "D4: same-source 2-edge topology must engage the device-channel kernel");
+      require_near_buffer(ref, cuda_out,
+                          "D4: same-source 2-edge CUDA output must match CPU sum at 1e-3");
+    }
   }
 #endif
 

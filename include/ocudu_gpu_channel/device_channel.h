@@ -70,7 +70,7 @@ struct DeviceLinkState {
   int n_taps;                                                      // 1..kDeviceMaxTaps
   int has_tdl;                                                     // 0 if the link has no leading tdl
   int delay_line_size;                                             // active prefix of delay_line[]
-  int reserved0;                                                   // pad to keep alignment tidy
+  int src_index;                                                   // D4: index into device_source_iq[] for this edge's source
 
   int   tap_delay_int[kDeviceMaxTaps];                             // floor(delay_samples)
   float tap_frac[kDeviceMaxTaps];                                  // delay_samples - floor
@@ -121,25 +121,30 @@ bool build_device_link_state(
     const std::vector<std::array<float, kTdlFracFilterTaps>>& host_polyphase,
     const TdlFadingState& host_fading,
     int delay_line_size,
+    int src_index,
     DeviceLinkState& out);
 
-// Phase 2 D2: static (non-fading) per-edge channel kernel.
+// Per-edge channel kernel.
 //
 // For each (edge k, output sample idx), computes the multi-tap polyphase
 // convolution
 //     y[k][idx] = sum_{kt=0..n_taps-1} gain_kt · e^{j·phi_kt}
-//                     · sum_{i=0..7} h_kt[i] · x[k][idx − tau_int_kt + 3 − i]
+//                     · sum_{i=0..7} h_kt[i] · x[idx − tau_int_kt + 3 − i]
 // where `h_kt` is the 8-tap windowed-sinc polyphase coefficient set
-// precomputed host-side, and x reads come from `in_buffer` for indices in
-// [0, count) or from `states[k].delay_line` for negative indices. Future
-// indices (idx − tau_int + 3 − i >= count) read as zero, matching the host
-// kernel.
+// precomputed host-side. x reads come from
+// `source_iq[states[k].src_index * count + read_idx]` (Phase 2 D4: one
+// IQ slot per UNIQUE source, shared by every edge with that source) for
+// read_idx in [0, count) or from `states[k].delay_line` for negative
+// indices. Future indices (read_idx >= count) read as zero, matching the
+// host kernel.
 //
-// `in_buffer`  : `n_links * count` IqSamples (raw, per-edge slots)
+// `source_iq`  : `n_sources * count` IqSamples (raw, one slot per source)
 // `out_buffer` : `n_links * count` IqSamples (shaped, per-edge slots)
-// `states`     : `n_links` DeviceLinkStates (topology, read-only)
+// `states`     : `n_links` DeviceLinkStates (topology, read-only; each
+//                carries `src_index` into source_iq)
 //
-// Non-tdl links (`states[k].has_tdl == 0`) pass-through unchanged.
+// Non-tdl links (`states[k].has_tdl == 0`) pass-through unchanged
+// (copies source_iq[src_index] → out_buffer[k]).
 //
 // Launch: dim3(ceil(count / 256), n_links), dim3(256, 1, 1).
 //
@@ -154,23 +159,24 @@ bool build_device_link_state(
 // stays in the unified signature so the caller doesn't need to branch.
 void launch_apply_channel_kernel_static(
     const DeviceLinkState* states,
-    const IqSample* in_buffer,
+    const IqSample* source_iq,
     IqSample* out_buffer,
     int n_links,
     int count,
     float sample_rate_hz,
     void* stream);
 
-// Phase 2 D2: roll the per-link delay_line ring forward and advance
-// slot_start_samples by `count`. Called after launch_apply_channel_kernel
-// so the cross-slot continuity matches the host-side apply_tdl_step's
-// post-loop ring update in delay.h.
+// Roll the per-link delay_line ring forward and advance slot_start_samples
+// by `count`. Called after launch_apply_channel_kernel so the cross-slot
+// continuity matches the host-side apply_tdl_step's post-loop ring update
+// in delay.h. Reads source_iq via `states[k].src_index` — same shared
+// per-source layout as apply_channel_kernel above (D4).
 //
 // Launch: dim3(n_links), dim3(1) — serial per link. The work per link is
 // at most kDeviceMaxDelayLine memory ops, trivial.
 void launch_update_delay_line_kernel(
     DeviceLinkState* states,
-    const IqSample* in_buffer,
+    const IqSample* source_iq,
     int n_links,
     int count,
     void* stream);

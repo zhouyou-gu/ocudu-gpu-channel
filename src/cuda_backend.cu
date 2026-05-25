@@ -268,15 +268,23 @@ struct CudaSuperposeState {
   // leading tdl). Mixed nodes fall back to host stage_link.
   DeviceLinkState* device_link_states = nullptr;
   std::vector<DeviceLinkState> host_link_states;
-  // Paired host (pinned) + device buffers carrying the *raw* (pre-channel)
-  // IQ to the GPU when use_device_channel == true. Same shape as
-  // host_staged / device_staged (incoming * capacity IqSamples).
-  IqSample* host_pre_kernel = nullptr;
-  IqSample* device_pre_kernel = nullptr;
+  // D4: paired host (pinned) + device buffers carrying the *raw* (pre-channel)
+  // IQ to the GPU when use_device_channel == true. Sized by UNIQUE SOURCE
+  // count (num_sources), not by incoming edge count: multiple edges sharing
+  // a source read the same slot via DeviceLinkState::src_index. Saves
+  // (n_edges - n_sources) * count IQ samples of H2D bandwidth per slot.
+  std::size_t num_sources = 0;
+  // Per-edge mapping built at prepare time: for each unique source slot s in
+  // [0, num_sources), source_first_edge[s] is the index k of the FIRST edge
+  // (in the broker's incoming order) that consumes that source. Used at
+  // serve time to pack the source's IQ exactly once.
+  std::vector<int> source_first_edge;
+  IqSample* host_source_iq = nullptr;
+  IqSample* device_source_iq = nullptr;
   // Dispatch gate: true when every incoming edge of this destination has a
   // leading tdl step (with or without fading -- the device fading kernel
   // landed in D3 and handles both branches internally). True path:
-  //   raw IQ -> host_pre_kernel -> H2D -> apply_channel_kernel ->
+  //   raw IQ -> host_source_iq -> H2D -> apply_channel_kernel ->
   //   device_staged -> superpose_kernel
   // False path: host-side stage_link writes device_staged via host_staged.
   // Test observability: surfaced through ProcessorTimings.used_device_channel.
@@ -308,11 +316,11 @@ void free_superpose_state(CudaSuperposeState& state)
   if (state.stream != nullptr) {
     cudaStreamDestroy(state.stream);
   }
-  if (state.device_pre_kernel != nullptr) {
-    cudaFree(state.device_pre_kernel);
+  if (state.device_source_iq != nullptr) {
+    cudaFree(state.device_source_iq);
   }
-  if (state.host_pre_kernel != nullptr) {
-    cudaFreeHost(state.host_pre_kernel);
+  if (state.host_source_iq != nullptr) {
+    cudaFreeHost(state.host_source_iq);
   }
   if (state.device_link_states != nullptr) {
     cudaFree(state.device_link_states);
@@ -444,15 +452,39 @@ public:
       check(cudaMalloc(reinterpret_cast<void**>(&sp.device_link_states),
                        incoming * sizeof(DeviceLinkState)),
             "cudaMalloc superpose device_link_states");
+
+      // D4: build the per-source dedup map. Walk incoming edges in broker
+      // order, assigning each unique source a contiguous src_index. Edges
+      // sharing a source share an index — kernel reads source_iq once per
+      // source instead of once per edge.
+      std::unordered_map<std::string, int> src_to_index;
+      sp.source_first_edge.clear();
+      std::vector<int> per_edge_src_index;
+      per_edge_src_index.reserve(incoming);
+      for (const auto& link : config.links) {
+        if (link.to != device.id) continue;
+        const auto* model = find_model(config, link.model);
+        if (model == nullptr) continue;
+        auto ls_it = link_slots_.find(link_key(link));
+        if (ls_it == link_slots_.end()) continue;
+        auto [it, inserted] = src_to_index.try_emplace(
+            link.from, static_cast<int>(sp.source_first_edge.size()));
+        if (inserted) {
+          sp.source_first_edge.push_back(static_cast<int>(per_edge_src_index.size()));
+        }
+        per_edge_src_index.push_back(it->second);
+      }
+      sp.num_sources = sp.source_first_edge.size();
+      const std::size_t source_bytes = sp.num_sources * capacity * sizeof(IqSample);
+
       // Paired pinned-host + device buffers for the raw-IQ-into-channel-kernel
-      // path. Same shape as host_staged / device_staged. Used by the device
-      // dispatch path (use_device_channel == true).
-      check(cudaHostAlloc(reinterpret_cast<void**>(&sp.host_pre_kernel),
-                          staged_bytes, cudaHostAllocDefault),
-            "cudaHostAlloc superpose pre_kernel");
-      check(cudaMalloc(reinterpret_cast<void**>(&sp.device_pre_kernel),
-                       staged_bytes),
-            "cudaMalloc superpose pre_kernel");
+      // path. Sized by UNIQUE source count (D4), not by edge count.
+      check(cudaHostAlloc(reinterpret_cast<void**>(&sp.host_source_iq),
+                          source_bytes, cudaHostAllocDefault),
+            "cudaHostAlloc superpose source_iq");
+      check(cudaMalloc(reinterpret_cast<void**>(&sp.device_source_iq),
+                       source_bytes),
+            "cudaMalloc superpose source_iq");
       std::size_t k_idx = 0;
       // Dispatch gate: every incoming edge must have a leading tdl step
       // (fading-enabled tdl included -- the device kernel handles both
@@ -478,15 +510,22 @@ public:
         if (!has_leading_tdl) {
           all_leading_tdl = false;
         }
+        const int src_idx = per_edge_src_index[k_idx];
         if (has_leading_tdl) {
           // Only links with a leading tdl step contribute a non-trivial
           // DeviceLinkState. The build helper handles the non-tdl case by
-          // zeroing the struct and clearing has_tdl.
+          // zeroing the struct + clearing has_tdl (but still stores src_index
+          // so the pass-through branch reads the right source slot).
           (void)build_device_link_state(model->chain.front(),
                                          lms.tdl_polyphase,
                                          lms.tdl_fading,
                                          static_cast<int>(lms.delay_line.size()),
+                                         src_idx,
                                          sp.host_link_states[k_idx]);
+        } else {
+          // Non-tdl-leading: still set src_index for the pass-through path.
+          sp.host_link_states[k_idx].src_index = src_idx;
+          sp.host_link_states[k_idx].has_tdl = 0;
         }
         ++k_idx;
       }
@@ -541,15 +580,37 @@ public:
     //   sp.use_device_channel == false  →  host-side stage_link path (legacy):
     //       per-edge apply_tdl_step / _fading on host, shaped IQ goes into
     //       host_staged[k·count] and ships H2D into device_staged.
-    //   sp.use_device_channel == true   →  device-kernel path (Phase 2 D2b):
-    //       raw edge IQ goes into host_pre_kernel[k·count], ships H2D into
-    //       device_pre_kernel, and apply_channel_kernel runs the multi-tap
-    //       convolution on the GPU writing into device_staged. Build_steps
-    //       reads the raw input here for its AWGN snr_db power estimate
-    //       (a small semantic shift from the host path, which read the
-    //       shaped output; explicit noise_power AWGN is unaffected).
+    //   sp.use_device_channel == true   →  device-kernel path (Phase 2 D2b
+    //       + D4): raw source-node IQ goes into host_source_iq[src_idx·count]
+    //       once per UNIQUE source (not per edge — multiple edges sharing a
+    //       source share a slot). H2D copies num_sources × count IQ samples
+    //       (smaller than the previous link_count × count); the device kernel
+    //       reads via DeviceLinkState::src_index. Build_steps still walks
+    //       per-edge and reads the raw input for its AWGN snr_db power
+    //       estimate (a small semantic shift from the host path which read
+    //       the shaped output; explicit noise_power AWGN is unaffected).
     const int link_count = static_cast<int>(inputs.size());
     int total_steps = 0;
+    // D4 pack-per-source: walk unique sources once. source_first_edge[s]
+    // identifies the first edge that consumes source s (alphabetical/YAML
+    // order); copying that edge's samples into host_source_iq[s·count]
+    // suffices for every edge sharing source s, because the broker reads
+    // all such edges from the same tx_ring at the same cursor — they
+    // carry identical bytes.
+    if (sp.use_device_channel) {
+      for (std::size_t s = 0; s < sp.num_sources; ++s) {
+        const int k = sp.source_first_edge[s];
+        if (k < 0 || static_cast<std::size_t>(k) >= inputs.size()) {
+          throw std::runtime_error("CUDA superposition: source_first_edge out of range");
+        }
+        const auto& edge = inputs[static_cast<std::size_t>(k)];
+        if (edge.samples.size() != count) {
+          throw std::runtime_error("CUDA superposition input is malformed");
+        }
+        IqSample* src_slot = sp.host_source_iq + s * count;
+        std::copy(edge.samples.data(), edge.samples.data() + count, src_slot);
+      }
+    }
     for (std::size_t k = 0; k != inputs.size(); ++k) {
       const auto& edge = inputs[k];
       if (edge.model == nullptr || edge.samples.size() != count) {
@@ -563,9 +624,12 @@ public:
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
       if (sp.use_device_channel) {
-        // Device-kernel path: raw IQ in, channel applied on GPU.
-        IqSample* raw_slot = sp.host_pre_kernel + k * count;
-        std::copy(edge.samples.data(), edge.samples.data() + count, raw_slot);
+        // Device-kernel path: build_steps reads the SHARED source slot for
+        // this edge's snr_db power estimator. Edges sharing a source share
+        // the same raw_slot pointer here — fine because build_steps is
+        // read-only on its input buffer.
+        const int src_idx = sp.host_link_states[k].src_index;
+        IqSample* raw_slot = sp.host_source_iq + static_cast<std::size_t>(src_idx) * count;
         build_steps(ls_it->second.model, *edge.model, raw_slot, count, sample_rate_hz);
       } else {
         // Host stage_link path (legacy).
@@ -598,12 +662,14 @@ public:
 
     check(cudaEventRecord(sp.h2d_start, sp.stream), "cudaEventRecord superpose h2d_start");
     if (sp.use_device_channel) {
-      // Phase 2 D2b: raw IQ H2D into device_pre_kernel; the channel kernel
-      // populates device_staged from it before superpose_kernel runs.
-      check(cudaMemcpyAsync(sp.device_pre_kernel, sp.host_pre_kernel,
-                            static_cast<std::size_t>(link_count) * sample_bytes,
+      // Phase 2 D2b + D4: raw IQ H2D into device_source_iq, sized by UNIQUE
+      // source count. The channel kernel reads per-edge via
+      // DeviceLinkState::src_index and writes device_staged. Bytes saved vs
+      // pre-D4 = (link_count - num_sources) * count * 8.
+      check(cudaMemcpyAsync(sp.device_source_iq, sp.host_source_iq,
+                            sp.num_sources * sample_bytes,
                             cudaMemcpyHostToDevice, sp.stream),
-            "cudaMemcpyAsync superpose pre_kernel H2D");
+            "cudaMemcpyAsync superpose source_iq H2D");
     } else {
       check(cudaMemcpyAsync(sp.device_staged, sp.host_staged,
                             static_cast<std::size_t>(link_count) * sample_bytes,
@@ -624,13 +690,14 @@ public:
     check(cudaEventRecord(sp.h2d_done, sp.stream), "cudaEventRecord superpose h2d_done");
 
     // Phase 2 D2b: run the per-edge channel on the GPU before superposition.
-    // Writes device_pre_kernel → device_staged, then rolls each link's
+    // Writes device_source_iq → device_staged via apply_channel_kernel
+    // (per-edge by DeviceLinkState::src_index), then rolls each link's
     // delay_line ring forward for cross-slot continuity (mirrors
     // apply_tdl_step's host post-loop ring update). Launched on sp.stream
     // so it serialises before superpose_kernel naturally.
     if (sp.use_device_channel) {
       launch_apply_channel_kernel_static(sp.device_link_states,
-                                          sp.device_pre_kernel,
+                                          sp.device_source_iq,
                                           sp.device_staged,
                                           link_count,
                                           static_cast<int>(count),
@@ -638,7 +705,7 @@ public:
                                           sp.stream);
       check(cudaGetLastError(), "apply_channel_kernel launch");
       launch_update_delay_line_kernel(sp.device_link_states,
-                                       sp.device_pre_kernel,
+                                       sp.device_source_iq,
                                        link_count,
                                        static_cast<int>(count),
                                        sp.stream);
