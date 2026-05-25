@@ -1110,5 +1110,63 @@ int main()
     }
   }
 
+  // (e) Rician envelope distribution: for a unit-power LOS tap with K-factor
+  // K (linear), the envelope r = |g_k(t)| follows
+  //   f(r) = (r/sigma^2) * exp(-(r^2 + nu^2)/(2 sigma^2)) * I_0(r*nu/sigma^2)
+  // with nu^2 = K/(K+1) and 2*sigma^2 = 1/(K+1). The closed-form moments are
+  //   E[r^2] = 1               (unit total power)
+  //   E[r^4] = 1 + (2K+1)/(K+1)^2
+  // Feeding DC into a unit-gain LOS tap makes y(n) = g_k(t_n) directly, so we
+  // can estimate both moments empirically and compare to analytic values.
+  // K = 10 dB (K_lin = 10) gives E[r^4] = 1 + 21/121 ~= 1.1736.
+  {
+    ocg::ModelConfig m;
+    m.id = "tdl_fading_rician_pdf";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    const double K_dB = 10.0;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0,
+                              .phase_rad = 0.0, .is_los = true,
+                              .los_k_db = K_dB, .los_angle_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 100.0;
+    step.fading_grid_us = 100.0;
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+
+    constexpr std::uint64_t sample_rate_hz = 100000;
+    constexpr std::size_t batch = 4000;
+    constexpr std::size_t n_slots = 200;
+    auto proc = build_fading_processor(m, batch, sample_rate_hz);
+    ocg::IqBuffer dc_in(batch, ocg::IqSample{1.0F, 0.0F});
+
+    double m2 = 0.0, m4 = 0.0;
+    std::size_t n = 0;
+    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id});
+    for (std::size_t s = 0; s < n_slots; ++s) {
+      ocg::IqBuffer slot_out(batch);
+      shape_link(*proc, "ue0", link, m, dc_in, slot_out, sample_rate_hz);
+      for (const auto& sam : slot_out) {
+        const double r2 = static_cast<double>(sam.i) * sam.i +
+                          static_cast<double>(sam.q) * sam.q;
+        m2 += r2;
+        m4 += r2 * r2;
+        ++n;
+      }
+    }
+    m2 /= static_cast<double>(n);
+    m4 /= static_cast<double>(n);
+
+    const double K_lin = std::pow(10.0, K_dB / 10.0);
+    const double m2_expected = 1.0;
+    const double m4_expected = 1.0 + (2.0 * K_lin + 1.0) / std::pow(K_lin + 1.0, 2.0);
+
+    require(std::fabs(m2 - m2_expected) < 0.05,
+            "Rician PDF: E[r^2] should be ~1.0 for unit-power Rician (within 0.05)");
+    require(std::fabs(m4 - m4_expected) < 0.10,
+            "Rician PDF: E[r^4] should match analytic moment 1 + (2K+1)/(K+1)^2 within 0.10");
+  }
+
   return 0;
 }
