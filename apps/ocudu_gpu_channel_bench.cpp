@@ -88,8 +88,16 @@ int main(int argc, char** argv)
     ocg::LatencyRecorder d2h_recorder;
     ocg::LatencyRecorder gpu_process_recorder;
     std::unordered_map<std::string, ocg::IqBuffer> mixed_by_destination;
+    // Cumulative per-RX power statistics, used by cross-backend matching:
+    // sum(|i|^2 + |q|^2) over every sample of every slot, divided by total
+    // samples at the end. Cumulative stat converges with iteration count
+    // (instead of last-slot snapshot which is noisy under fading).
+    std::unordered_map<std::string, double> mixed_power_sum;
+    std::unordered_map<std::string, std::uint64_t> mixed_sample_count;
     for (const auto& device : config.devices) {
       mixed_by_destination[device.id].resize(ocg::resolve_batch_samples(config.runtime, device.sample_rate_hz));
+      mixed_power_sum[device.id] = 0.0;
+      mixed_sample_count[device.id] = 0;
     }
 
     // Precompute the SuperpositionInput template per RX device. Inside the hot
@@ -132,6 +140,13 @@ int main(int argc, char** argv)
           const auto* rx = device.rx_model.empty() ? nullptr : ocg::find_model(config, device.rx_model);
           processor->process_superposition(device.id, sup_it->second, rx, device.sample_rate_hz,
                                            std::span<ocg::IqSample>(mixed.data(), mixed.size()));
+          // Accumulate per-RX cumulative power (cross-backend matching).
+          double slot_sum = 0.0;
+          for (const auto& s : mixed) {
+            slot_sum += static_cast<double>(s.i) * s.i + static_cast<double>(s.q) * s.q;
+          }
+          mixed_power_sum[device.id] += slot_sum;
+          mixed_sample_count[device.id] += mixed.size();
           const auto timings = processor->last_timings();
           if (config.runtime.backend == ocg::Backend::Cuda) {
             add_us(h2d_recorder, timings.h2d_us);
@@ -163,6 +178,22 @@ int main(int argc, char** argv)
     std::cout << "raw_cf32_full_duplex_bits_per_device,rate_hz,bits_per_second\n";
     for (const auto& device : config.devices) {
       std::cout << device.id << "," << device.sample_rate_hz << "," << (device.sample_rate_hz * 128ULL) << "\n";
+    }
+    // Output stats per RX node. avg_power is cumulative across ALL slots
+    // (sum of |i|^2 + |q|^2 over every sample of every slot, divided by
+    // total samples) so it converges with iteration count and is robust to
+    // per-slot fading variance. Last-slot s0/sN samples kept for spot-debug.
+    // Used by scripts/remote/perf-backend-compare.sh to verify CPU and CUDA
+    // produce statistically equivalent outputs.
+    std::cout << "rx_output,device_id,avg_power_cum,sample0_i,sample0_q,sampleN_i,sampleN_q,total_samples\n";
+    for (const auto& [dst, buf] : mixed_by_destination) {
+      const std::uint64_t total = mixed_sample_count[dst];
+      const double avg_power = (total == 0) ? 0.0 : mixed_power_sum[dst] / static_cast<double>(total);
+      const auto& s0 = buf.empty() ? ocg::IqSample{0.0F, 0.0F} : buf.front();
+      const auto& sN = buf.empty() ? ocg::IqSample{0.0F, 0.0F} : buf.back();
+      std::cout << "rx_output," << dst << "," << avg_power << ","
+                << s0.i << "," << s0.q << "," << sN.i << "," << sN.q << ","
+                << total << "\n";
     }
   } catch (const std::exception& e) {
     std::cerr << "event=fatal error=\"" << e.what() << "\"\n";
