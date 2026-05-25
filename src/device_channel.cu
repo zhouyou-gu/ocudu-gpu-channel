@@ -1,11 +1,11 @@
-// Device-side per-edge channel pipeline (Phase 2 D1 scaffold).
+// Device-side per-edge channel pipeline (Phase 2, shipped through D3).
 //
-// D1 status: host-side builder for DeviceLinkState only. No kernel yet.
-// The CUDA backend calls build_device_link_state() per link during prepare()
-// to populate a per-(dst_node × edge) DeviceLinkState array that will
-// eventually be consumed by apply_channel_kernel (added in D2). For now the
-// array is allocated and populated but not used at serve time — the
-// existing host-side stage_link() path still drives every serve.
+// build_device_link_state() runs once per link in prepare(), populating a
+// per-(dst_node x edge) DeviceLinkState array. apply_channel_kernel +
+// update_delay_line_kernel are dispatched per serve from
+// CudaChannelProcessor::process_superposition() when every incoming edge
+// of a destination node has a leading tdl step. Mixed nodes fall back to
+// host-side stage_link.
 //
 // Plan and rationale: docs/plans/device-channel-pipeline.md.
 

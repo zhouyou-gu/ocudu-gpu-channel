@@ -1,16 +1,17 @@
 #pragma once
-// Device-side per-edge channel pipeline scaffold (Phase 2 D1).
+// Device-side per-edge channel pipeline (Phase 2, shipped through D3).
 //
-// This header declares the data structures and entry points for moving the
-// per-edge channel work (multi-tap convolution + Jakes fading + Rician LOS)
-// from host-side `stage_link()` onto the GPU. See
-// `docs/plans/device-channel-pipeline.md` for the full plan.
+// The per-edge channel work (multi-tap convolution + Jakes fading + Rician
+// LOS) runs on the GPU by default. The CUDA backend's prepare() builds one
+// DeviceLinkState per (dst_node x incoming edge); at serve time, if every
+// incoming edge of a destination node has a leading tdl step,
+// process_superposition() dispatches apply_channel_kernel + the per-link
+// delay_line ring update. Mixed (non-tdl-leading) nodes fall back to the
+// host-side stage_link path. The dispatch decision is observable via
+// ProcessorTimings.used_device_channel.
 //
-// D1 status: header + struct definitions only; no kernel implementation, no
-// behavioural change. The CUDA backend allocates and populates
-// DeviceLinkState[] in prepare() but still uses the host-side stage_link()
-// path at serve time. D2 will add the static (non-fading) kernel and a
-// dispatch gate.
+// See docs/plans/device-channel-pipeline.md for the staging plan and the
+// measured pre/post numbers.
 //
 // Memory model:
 //   - DeviceLinkState lives in GPU global memory, one per (dst_node × incoming
@@ -142,9 +143,9 @@ bool build_device_link_state(
 //
 // Launch: dim3(ceil(count / 256), n_links), dim3(256, 1, 1).
 //
-// D2 status: kernel compiled but NOT dispatched from the broker hot-path
-// yet. process_superposition() still uses host-side stage_link(). A future
-// D2b commit wires the dispatch behind a per-link gate.
+// Dispatched from process_superposition() whenever every incoming edge of
+// a destination node has a leading tdl step (D3+ default path). Mixed
+// nodes fall back to host-side stage_link.
 // `stream` is a `cudaStream_t` passed as `void*` so this header stays
 // includable without a CUDA toolchain. The implementation casts back.
 //

@@ -2,7 +2,9 @@
 
 **GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks.**
 Drops between two ZMQ radios, routes `cf32` IQ across multi-gNB / multi-UE
-topologies, and applies CUDA channel models inside a hard 1&nbsp;ms slot deadline.
+topologies, and applies CUDA channel models inside the 5G&nbsp;NR slot
+deadline (1&nbsp;ms at 15&nbsp;kHz SCS, 500&nbsp;µs at 30&nbsp;kHz SCS — the
+bench default).
 
 This is the project landing page. For architecture, broker internals, GPU
 kernel design, profiling, and performance numbers, see the

@@ -280,9 +280,16 @@
   <h2>1. Overview</h2>
   <p>ocudu-gpu-channel is a real-time, in-the-loop channel emulator that sits between live
   SDR stacks (OCUDU runtime, srsRAN gNB/UE) over ZMQ and applies CUDA channel models inside
-  a hard 1&nbsp;ms slot deadline. This doc is the implementation reference — it assumes you
+  the 5G&nbsp;NR slot deadline. This doc is the implementation reference — it assumes you
   have already read the <a href="../README.md"><code>README</code></a> for positioning and
   quick-start.</p>
+  <p class="note"><b>Slot length and SCS.</b> The slot deadline depends on the subcarrier
+  spacing: <b>1&nbsp;ms at 15&nbsp;kHz SCS</b>, <b>500&nbsp;µs at 30&nbsp;kHz SCS</b> (the
+  bench default and the <a href="#perf">§21</a> measurement frame), and 250&nbsp;µs at
+  60&nbsp;kHz SCS. Where this document says "1&nbsp;ms slot" it refers to the 15&nbsp;kHz
+  case; the perf section and latency gate use the 30&nbsp;kHz / 500&nbsp;µs target. The
+  bench is invoked with <code>--scs-khz N</code> and the green/yellow/red gate scales to
+  the chosen N.</p>
   <p>Reading order is bottom-up: terminology → system layers → topology and config →
   the broker's per-slot loop → channel modeling → GPU compute → memory and pipeline →
   operations → scope. §11 / §12 / §13 split the GPU compute around the wireless
@@ -1417,7 +1424,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   asserted at <span class="mono">1e-3</span> tolerance.</figcaption>
   </figure>
 
-  <p>Once <code>stage_link()</code> has run for every incoming edge, the staged buffer contains N slots in which the channel has been fully applied. From this point on, the kernel only needs to apply the memoryless RF impairments per sample (§12) and sum across edges (§13).</p>
+  <p>Once the per-edge channel has been applied — by <code>apply_channel_kernel</code> on the GPU (default), or by host <code>stage_link()</code> on the mixed-node fallback — the staged buffer contains N slots in which the channel has been fully applied. From this point on, the kernel only needs to apply the memoryless RF impairments per sample (§12) and sum across edges (§13).</p>
 
   <!-- ============ DIAGRAM E : per-sample channel application ============ -->
   <h2>12. RF impairments — the device-side per-sample chain</h2>
@@ -1671,7 +1678,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <figcaption>Diagram B — <span class="mono">superpose_kernel</span>: 23 040 threads each
   evaluate the full N-edge superposition for their own sample, in parallel.</figcaption>
   </figure>
-  <p class="key"><b>Two parallel axes multiply:</b> 23 040 samples wide (one thread each) × N edges deep (the per-thread loop). The 3-node graph's 2-edge nodes are ≈ 46 000 complex channel evaluations per launch — measured at <b>5–9 µs</b> on the RTX 5090, well inside the 1 ms slot.</p>
+  <p class="key"><b>Two parallel axes multiply:</b> 23 040 samples wide (one thread each) × N edges deep (the per-thread loop). The 3-node graph's 2-edge nodes are ≈ 46 000 complex channel evaluations per launch. The static <code>superpose_kernel</code> in isolation measures at <b>5–9 µs</b> on the RTX 5090; the Phase 2 device channel kernel (multi-tap + Jakes + LOS) adds the per-edge channel work and runs <b>~97 µs at <code>tdl-a_E16</code></b> — still well inside the slot deadline. See §21 for the full perf record.</p>
 
   <!-- ============ DIAGRAM D : signal memory layout ============ -->
   <h2 id="signal-memory">14. Signal memory — pinned host buffers paired with device buffers</h2>
@@ -1786,14 +1793,23 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   the H2D and D2H copies move data between, and <a href="#stream-concurrency">Diagram I (§16)</a>
   lays out one row of this sequence per node and shows how independent nodes'
   rows overlap on the GPU's copy engines and SM clusters. The order of operations
-  per node is: stage N edges into <span class="mono">host_staged</span>, 3 × H2D
-  (staged samples / flat steps / step_meta, plus rx_steps when an
-  <code>rx_model</code> is set), <code>superpose_kernel</code> (all N edges →
-  <span class="mono">device_output</span>), an in-place
+  per node on the device-channel path (default for leading-tdl edges) is:
+  copy N raw edge slots into <span class="mono">host_pre_kernel</span>, 3 × H2D
+  (<span class="mono">device_pre_kernel</span> / flat steps / step_meta, plus
+  rx_steps when an <code>rx_model</code> is set),
+  <code>apply_channel_kernel</code> + <code>update_delay_line_kernel</code>
+  (raw IQ → <span class="mono">device_staged</span> with multi-tap + Jakes +
+  LOS applied, ring rolled), <code>superpose_kernel</code> (all N edges →
+  <span class="mono">device_output</span>), in-place
   <code>apply_steps_kernel</code> for the <code>rx_model</code> when present,
-  then one D2H to <span class="mono">host_output</span>. cudaEvents bracket H2D,
-  kernel, and D2H so the <code>event=gpu_timings</code> log line measures each
-  phase independently.</p>
+  then one D2H to <span class="mono">host_output</span>. Mixed nodes (any
+  non-tdl-leading incoming edge) fall back to the legacy path:
+  host-side <code>stage_link()</code> writes the already-shaped IQ into
+  <span class="mono">host_staged</span> and H2D moves
+  <span class="mono">host_staged → device_staged</span> directly, skipping
+  <code>apply_channel_kernel</code>. cudaEvents bracket H2D, kernel, and D2H
+  so the <code>event=gpu_timings</code> log line measures each phase
+  independently.</p>
 
   <!-- ============ DIAGRAM I : multi-stream concurrency ============ -->
   <h2 id="stream-concurrency">16. Multi-stream concurrency — overlapping serves</h2>
@@ -1844,8 +1860,10 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   </div>
   <figcaption>Diagram I — per-node CUDA streams overlap. The GPU's copy engines and
   compute engine can run concurrently, so one node's D2H and another's H2D coexist on the
-  PCIe bus while a third's kernel executes. Bar widths are illustrative — kernels are
-  ≈ 5–9 µs measured; H2D / D2H dominate per-slot wall time.</figcaption>
+  PCIe bus while a third's kernel executes. Bar widths are illustrative — the static
+  <code>superpose_kernel</code> alone runs in ≈ 5–9 µs; the full Phase 2 device channel
+  kernel (multi-tap + Jakes + LOS) is ~97 µs at <code>tdl-a_E16</code>. H2D / D2H still
+  dominate per-slot wall time at low fan-in.</figcaption>
   </figure>
 
   <h2>17. Validation</h2>

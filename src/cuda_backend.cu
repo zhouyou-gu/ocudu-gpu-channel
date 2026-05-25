@@ -262,29 +262,24 @@ struct CudaSuperposeState {
   GpuStep* device_steps = nullptr;
   int* device_step_meta = nullptr;    // 2*max_links: offsets then counts
   GpuStep* device_rx_steps = nullptr; // receiver-model chain (may be unused)
-  // Phase 2 D1 scaffold: per-(dst_node × incoming edge) device-side link
-  // state for the future on-device channel kernel. Populated in prepare();
-  // not yet consumed by the kernel (host-side stage_link() still drives the
-  // per-serve channel work). See docs/plans/device-channel-pipeline.md.
+  // Per-(dst_node x incoming edge) device-side link state consumed by
+  // apply_channel_kernel. Populated in prepare(); used at serve time
+  // whenever sp.use_device_channel is true (every incoming edge has a
+  // leading tdl). Mixed nodes fall back to host stage_link.
   DeviceLinkState* device_link_states = nullptr;
   std::vector<DeviceLinkState> host_link_states;
-  // Phase 2 D2 scaffold: paired host (pinned) + device buffers that will
-  // carry the *raw* (pre-channel) IQ to the GPU when the on-device channel
-  // kernel is dispatched. Same shape as host_staged / device_staged
-  // (incoming * capacity IqSamples). Allocated in prepare(); not yet wired
-  // into process_superposition() — the kernel exists but is not dispatched.
-  // See docs/plans/device-channel-pipeline.md.
+  // Paired host (pinned) + device buffers carrying the *raw* (pre-channel)
+  // IQ to the GPU when use_device_channel == true. Same shape as
+  // host_staged / device_staged (incoming * capacity IqSamples).
   IqSample* host_pre_kernel = nullptr;
   IqSample* device_pre_kernel = nullptr;
-  // Phase 2 D2b dispatch gate. Set in prepare() when every incoming edge of
-  // this destination has a leading tdl step with fading_enabled == false.
-  // When true, process_superposition() takes the device-kernel path:
-  // raw IQ → host_pre_kernel → H2D → apply_channel_kernel → device_staged →
-  // superpose_kernel. When false, the existing host-side stage_link() path
-  // runs and writes device_staged via host_staged. The fading-enabled path
-  // continues to use the host backend until D3 lands the device fading
-  // kernel; mixed nodes (some edges fading-enabled, some not) also stay
-  // on the host path for simplicity.
+  // Dispatch gate: true when every incoming edge of this destination has a
+  // leading tdl step (with or without fading -- the device fading kernel
+  // landed in D3 and handles both branches internally). True path:
+  //   raw IQ -> host_pre_kernel -> H2D -> apply_channel_kernel ->
+  //   device_staged -> superpose_kernel
+  // False path: host-side stage_link writes device_staged via host_staged.
+  // Test observability: surfaced through ProcessorTimings.used_device_channel.
   bool use_device_channel = false;
   cudaStream_t stream = nullptr;
   cudaEvent_t h2d_start = nullptr;
@@ -441,17 +436,17 @@ public:
               "cudaMalloc superpose rx steps");
       }
 
-      // Phase 2 D1 scaffold: build one DeviceLinkState per incoming edge of
-      // this destination node, in the same YAML-order the broker uses when
-      // it builds its `incoming` filter (src/broker.cpp). The kernel does
-      // not consume these yet; this is preparation for D2.
+      // Build one DeviceLinkState per incoming edge of this destination,
+      // in the same YAML-order the broker uses when it builds its
+      // `incoming` filter (src/broker.cpp). Consumed by the per-serve
+      // apply_channel_kernel + update_delay_line_kernel dispatch below.
       sp.host_link_states.assign(incoming, DeviceLinkState{});
       check(cudaMalloc(reinterpret_cast<void**>(&sp.device_link_states),
                        incoming * sizeof(DeviceLinkState)),
             "cudaMalloc superpose device_link_states");
       // Paired pinned-host + device buffers for the raw-IQ-into-channel-kernel
-      // path. Same shape as host_staged / device_staged. Not yet used at
-      // serve time; the dispatch wiring is deferred to D2b.
+      // path. Same shape as host_staged / device_staged. Used by the device
+      // dispatch path (use_device_channel == true).
       check(cudaHostAlloc(reinterpret_cast<void**>(&sp.host_pre_kernel),
                           staged_bytes, cudaHostAllocDefault),
             "cudaHostAlloc superpose pre_kernel");
@@ -459,15 +454,11 @@ public:
                        staged_bytes),
             "cudaMalloc superpose pre_kernel");
       std::size_t k_idx = 0;
-      // Phase 2 D2b: enable the device-kernel dispatch only when every
-      // incoming edge has a leading tdl WITHOUT fading. Fading-enabled
-      // links keep using the host-side stage_link path until D3 lands
-      // the device fading kernel. Mixed nodes stay on host for now.
-      // Phase 2 D3: dispatch gate now accepts fading-enabled tdl too. The
-      // device kernel handles both static and Jakes-fading paths internally
-      // via a per-link `fading_enabled` branch. The remaining requirement
-      // is that every incoming edge has a leading tdl step (so build_steps
-      // and the device kernel agree on what the first step is doing).
+      // Dispatch gate: every incoming edge must have a leading tdl step
+      // (fading-enabled tdl included -- the device kernel handles both
+      // static and Jakes/Rician branches internally). Mixed nodes (any
+      // non-tdl-leading edge) fall back to host stage_link for the whole
+      // destination.
       bool all_leading_tdl = (incoming > 0);
       for (const auto& link : config.links) {
         if (link.to != device.id) {
