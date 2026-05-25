@@ -412,155 +412,70 @@
   served to the next ZMQ REP request.</figcaption>
   </figure>
 
-  <!-- ============ DIAGRAM W: end-to-end master flow ============ -->
-  <h3 id="master-flow">3.1 End-to-end master flow — one slot, start to finish</h3>
+  <!-- ============ DIAGRAM MF: end-to-end master flow (high level) ============ -->
+  <h3 id="master-flow">3.1 End-to-end master flow — one slot at a glance</h3>
   <figure>
-  <svg viewBox="0 0 1000 590" font-family="SF Mono,Menlo,monospace" font-size="11">
-    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram W · the canonical "you are here" map · one RX node's serve, ZMQ recv → process → ZMQ send</text>
+  <svg viewBox="0 0 1000 220" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="22" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram MF · one destination node's serve, left → right</text>
 
     <defs>
-      <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <marker id="arwmf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
         <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
       </marker>
     </defs>
 
-    <!-- 1: external SDR pushes IQ -->
-    <rect x="20" y="50" width="240" height="60" rx="6" fill="#181f2e" stroke="#cdd6e6"/>
-    <text x="140" y="72" fill="#cdd6e6" text-anchor="middle" font-size="11">External SDR (TX side)</text>
-    <text x="140" y="88" fill="#9aa7bd" text-anchor="middle" font-size="9">srsRAN gNB / OCUDU / srsUE</text>
-    <text x="140" y="102" fill="#9aa7bd" text-anchor="middle" font-size="9">PUSH cf32 IQ over ZMQ</text>
+    <!-- Lane labels -->
+    <text x="60"  y="76"  fill="#9aa7bd" font-size="9" text-anchor="middle">ZMQ</text>
+    <text x="60"  y="125" fill="#9aa7bd" font-size="9" text-anchor="middle">HOST CPU</text>
+    <text x="60"  y="174" fill="#9aa7bd" font-size="9" text-anchor="middle">GPU</text>
 
-    <!-- 2: broker puller fills tx_ring -->
-    <line x1="260" y1="80" x2="290" y2="80" stroke="#9aa7bd" marker-end="url(#arw)"/>
-    <text x="275" y="74" fill="#9aa7bd" text-anchor="middle" font-size="9">ZMQ</text>
+    <line x1="100" y1="62" x2="100" y2="190" stroke="#2c3850"/>
 
-    <rect x="290" y="50" width="240" height="60" rx="6" fill="#181f2e" stroke="#ffb454"/>
-    <text x="410" y="72" fill="#ffb454" text-anchor="middle" font-size="11">Broker puller thread (per src)</text>
-    <text x="410" y="88" fill="#cdd6e6" text-anchor="middle" font-size="9">recv_samples_into → tx_ring.push</text>
-    <text x="410" y="102" fill="#9aa7bd" text-anchor="middle" font-size="9">runs free, gated by ring_mutex + room</text>
+    <!-- 1: REQ -->
+    <rect x="110" y="55"  width="120" height="34" rx="4" fill="#181f2e" stroke="#cdd6e6"/>
+    <text x="170" y="76" fill="#cdd6e6" text-anchor="middle" font-size="11">1 · REQ in</text>
 
-    <!-- 3: RX node's server thread waits REP -->
-    <line x1="530" y1="80" x2="560" y2="80" stroke="#9aa7bd" marker-end="url(#arw)"/>
-    <rect x="560" y="50" width="240" height="60" rx="6" fill="#181f2e" stroke="#cdd6e6"/>
-    <text x="680" y="72" fill="#cdd6e6" text-anchor="middle" font-size="11">External SDR (RX side)</text>
-    <text x="680" y="88" fill="#9aa7bd" text-anchor="middle" font-size="9">REQ "give me a slot"</text>
-    <text x="680" y="102" fill="#9aa7bd" text-anchor="middle" font-size="9">drives the per-slot cadence</text>
+    <!-- 2: align+read+pack -->
+    <line x1="230" y1="72" x2="250" y2="72" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
+    <rect x="250" y="105" width="160" height="34" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="330" y="126" fill="#6fd08c" text-anchor="middle" font-size="11">2 · align + read + pack</text>
 
-    <!-- arrow down from RX SDR to server thread -->
-    <line x1="680" y1="110" x2="680" y2="140" stroke="#9aa7bd" marker-end="url(#arw)"/>
+    <!-- 3: H2D -->
+    <line x1="410" y1="122" x2="430" y2="122" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
+    <line x1="430" y1="122" x2="430" y2="160" stroke="#5db1ff"/>
+    <line x1="430" y1="160" x2="450" y2="160" stroke="#5db1ff" marker-end="url(#arwmf)"/>
+    <text x="445" y="146" fill="#5db1ff" font-size="9" text-anchor="middle">H2D</text>
 
-    <!-- ===== HOST CPU phase ===== -->
-    <rect x="20" y="142" width="960" height="115" rx="8" fill="#13391f" stroke="#6fd08c"/>
-    <text x="500" y="162" fill="#6fd08c" text-anchor="middle" font-size="12">HOST CPU · server thread for destination d · runs on REP request arrival</text>
+    <!-- 4: GPU pipeline -->
+    <rect x="450" y="155" width="220" height="34" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="560" y="176" fill="#5db1ff" text-anchor="middle" font-size="11">3 · channel · superpose · rx</text>
 
-    <rect x="40" y="174" width="170" height="68" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="125" y="190" fill="#6fd08c" text-anchor="middle" font-size="10">align</text>
-    <text x="125" y="206" fill="#cdd6e6" text-anchor="middle" font-size="9">co-init cursors</text>
-    <text x="125" y="220" fill="#cdd6e6" text-anchor="middle" font-size="9">serve = min(batch,</text>
-    <text x="125" y="232" fill="#cdd6e6" text-anchor="middle" font-size="9">  min over k of avail)</text>
+    <!-- 5: D2H -->
+    <line x1="670" y1="170" x2="690" y2="170" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
+    <line x1="690" y1="170" x2="690" y2="132" stroke="#5db1ff"/>
+    <line x1="690" y1="132" x2="710" y2="132" stroke="#5db1ff" marker-end="url(#arwmf)"/>
+    <text x="705" y="148" fill="#5db1ff" font-size="9" text-anchor="middle">D2H</text>
 
-    <rect x="220" y="174" width="170" height="68" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="305" y="190" fill="#6fd08c" text-anchor="middle" font-size="10">read</text>
-    <text x="305" y="206" fill="#cdd6e6" text-anchor="middle" font-size="9">for k in 0..N−1:</text>
-    <text x="305" y="220" fill="#cdd6e6" text-anchor="middle" font-size="9">  inputs[k] ← ring[src]</text>
-    <text x="305" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">  at cursor[k], len serve</text>
+    <!-- 6: throttle + REP send -->
+    <rect x="710" y="105" width="160" height="34" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="790" y="126" fill="#6fd08c" text-anchor="middle" font-size="11">4 · throttle + advance</text>
 
-    <rect x="400" y="174" width="170" height="68" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="485" y="190" fill="#6fd08c" text-anchor="middle" font-size="10">pack (device path)</text>
-    <text x="485" y="206" fill="#cdd6e6" text-anchor="middle" font-size="9">memcpy inputs[k] →</text>
-    <text x="485" y="220" fill="#cdd6e6" text-anchor="middle" font-size="9">host_pre_kernel[k·count]</text>
-    <text x="485" y="234" fill="#9aa7bd" text-anchor="middle" font-size="9">(or stage_link if fallback)</text>
+    <line x1="870" y1="122" x2="890" y2="122" stroke="#9aa7bd"/>
+    <line x1="890" y1="122" x2="890" y2="72" stroke="#9aa7bd"/>
+    <line x1="890" y1="72"  x2="910" y2="72" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
 
-    <rect x="580" y="174" width="170" height="68" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="665" y="190" fill="#6fd08c" text-anchor="middle" font-size="10">build step_meta</text>
-    <text x="665" y="206" fill="#cdd6e6" text-anchor="middle" font-size="9">walk per-edge chain,</text>
-    <text x="665" y="220" fill="#cdd6e6" text-anchor="middle" font-size="9">flatten GpuStep[],</text>
-    <text x="665" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">offsets + counts in step_meta[2N]</text>
-
-    <rect x="760" y="174" width="200" height="68" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="860" y="190" fill="#6fd08c" text-anchor="middle" font-size="10">dispatch decision</text>
-    <text x="860" y="206" fill="#cdd6e6" text-anchor="middle" font-size="9">sp.use_device_channel?</text>
-    <text x="860" y="220" fill="#cdd6e6" text-anchor="middle" font-size="9">true → device path</text>
-    <text x="860" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">false → host fallback (§11.1)</text>
-
-    <!-- arrow down to GPU -->
-    <line x1="500" y1="257" x2="500" y2="280" stroke="#5db1ff" marker-end="url(#arw)"/>
-    <text x="510" y="272" fill="#5db1ff" font-size="10">H2D · cudaMemcpyAsync</text>
-
-    <!-- ===== GPU phase ===== -->
-    <rect x="20" y="282" width="960" height="160" rx="8" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="500" y="302" fill="#5db1ff" text-anchor="middle" font-size="12">GPU · per-node CUDA stream · serialized in-stream</text>
-
-    <rect x="40" y="314" width="170" height="115" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="125" y="330" fill="#5db1ff" text-anchor="middle" font-size="10">apply_channel_kernel</text>
-    <text x="125" y="346" fill="#cdd6e6" text-anchor="middle" font-size="9">grid=(ceil(count/256), N)</text>
-    <text x="125" y="360" fill="#cdd6e6" text-anchor="middle" font-size="9">block=(256)</text>
-    <text x="125" y="376" fill="#cdd6e6" text-anchor="middle" font-size="9">per-edge: 8-tap polyphase</text>
-    <text x="125" y="390" fill="#cdd6e6" text-anchor="middle" font-size="9">+ Jakes coarse grid</text>
-    <text x="125" y="404" fill="#cdd6e6" text-anchor="middle" font-size="9">+ Rician LOS in smem</text>
-    <text x="125" y="420" fill="#ffb454" text-anchor="middle" font-size="9">device_staged[k·count+idx]</text>
-
-    <rect x="220" y="314" width="170" height="115" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="305" y="330" fill="#5db1ff" text-anchor="middle" font-size="10">update_delay_line</text>
-    <text x="305" y="346" fill="#cdd6e6" text-anchor="middle" font-size="9">grid=(N), block=(1)</text>
-    <text x="305" y="362" fill="#cdd6e6" text-anchor="middle" font-size="9">roll delay_line ring</text>
-    <text x="305" y="376" fill="#cdd6e6" text-anchor="middle" font-size="9">per link by count samples</text>
-    <text x="305" y="394" fill="#cdd6e6" text-anchor="middle" font-size="9">slot_start_samples += count</text>
-    <text x="305" y="416" fill="#9aa7bd" text-anchor="middle" font-size="9">(cross-slot continuity)</text>
-
-    <rect x="400" y="314" width="170" height="115" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="485" y="330" fill="#5db1ff" text-anchor="middle" font-size="10">superpose_kernel</text>
-    <text x="485" y="346" fill="#cdd6e6" text-anchor="middle" font-size="9">grid=(ceil(count/256))</text>
-    <text x="485" y="362" fill="#cdd6e6" text-anchor="middle" font-size="9">block=(256)</text>
-    <text x="485" y="378" fill="#cdd6e6" text-anchor="middle" font-size="9">per output sample:</text>
-    <text x="485" y="392" fill="#cdd6e6" text-anchor="middle" font-size="9">sum across N edges,</text>
-    <text x="485" y="406" fill="#cdd6e6" text-anchor="middle" font-size="9">apply per-sample chain</text>
-    <text x="485" y="420" fill="#ffb454" text-anchor="middle" font-size="9">device_output[idx]</text>
-
-    <rect x="580" y="314" width="170" height="115" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="665" y="330" fill="#5db1ff" text-anchor="middle" font-size="10">apply_steps_kernel</text>
-    <text x="665" y="346" fill="#cdd6e6" text-anchor="middle" font-size="9">optional · only if rx_model</text>
-    <text x="665" y="362" fill="#cdd6e6" text-anchor="middle" font-size="9">in-place on device_output</text>
-    <text x="665" y="378" fill="#cdd6e6" text-anchor="middle" font-size="9">typically just AWGN</text>
-    <text x="665" y="392" fill="#cdd6e6" text-anchor="middle" font-size="9">(receiver noise floor)</text>
-    <text x="665" y="416" fill="#9aa7bd" text-anchor="middle" font-size="9">one extra launch on stream</text>
-
-    <rect x="760" y="314" width="200" height="115" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="860" y="330" fill="#5db1ff" text-anchor="middle" font-size="10">D2H copy</text>
-    <text x="860" y="346" fill="#cdd6e6" text-anchor="middle" font-size="9">cudaMemcpyAsync</text>
-    <text x="860" y="362" fill="#cdd6e6" text-anchor="middle" font-size="9">device_output → host_output</text>
-    <text x="860" y="378" fill="#cdd6e6" text-anchor="middle" font-size="9">(pinned)</text>
-    <text x="860" y="396" fill="#cdd6e6" text-anchor="middle" font-size="9">cudaStreamSynchronize</text>
-    <text x="860" y="416" fill="#9aa7bd" text-anchor="middle" font-size="9">events bracket each phase</text>
-
-    <!-- arrow down to ZMQ -->
-    <line x1="500" y1="442" x2="500" y2="462" stroke="#9aa7bd" marker-end="url(#arw)"/>
-
-    <!-- ===== Host CPU again: throttle + REP send ===== -->
-    <rect x="20" y="464" width="960" height="60" rx="8" fill="#13391f" stroke="#6fd08c"/>
-    <text x="500" y="484" fill="#6fd08c" text-anchor="middle" font-size="11">HOST CPU · server thread (post-GPU)</text>
-    <text x="500" y="502" fill="#cdd6e6" text-anchor="middle" font-size="10">throttle until throttle_anchor (sample-rate cadence) · zmq_send REP reply · cursor[k] += serve · loop back to next REQ</text>
-
-    <!-- arrow back to RX SDR -->
-    <line x1="500" y1="524" x2="500" y2="546" stroke="#9aa7bd" marker-end="url(#arw)"/>
-    <rect x="380" y="546" width="240" height="36" rx="6" fill="#181f2e" stroke="#cdd6e6"/>
-    <text x="500" y="568" fill="#cdd6e6" text-anchor="middle" font-size="10">REP reply → External SDR · slot complete</text>
+    <rect x="910" y="55" width="80" height="34" rx="4" fill="#181f2e" stroke="#cdd6e6"/>
+    <text x="950" y="76" fill="#cdd6e6" text-anchor="middle" font-size="11">5 · REP out</text>
   </svg>
-  <figcaption>Diagram W — the canonical "you are here" map. One destination
-  node's serve runs top-down: external SDR pushes IQ over ZMQ → broker
-  puller fills the source's <code>tx_ring</code> → external SDR sends REQ →
-  server thread aligns cursors, reads N edges, packs into pinned
-  <code>host_pre_kernel</code>, dispatches the GPU pipeline
-  (<code>apply_channel_kernel</code> + <code>update_delay_line_kernel</code>
-  + <code>superpose_kernel</code> + optional <code>apply_steps_kernel</code>)
-  on the node's own <code>cudaStream_t</code>, D2H → throttle → REP send.
-  Independent destinations run this whole pipeline in parallel
-  (<a href="#stream-concurrency">§16 Diagram I</a>) on independent streams.
-  Each box below this section gets its own deep-dive: <a href="#alignment">§6
-  align</a>, <a href="#staged">§7 stage/pack</a>, <a href="#kernels">§11
-  device channel kernel</a>, <a href="#dispatch-gate">§11.1 dispatch gate</a>,
-  <a href="#pipeline">§15 pipeline order</a>,
-  <a href="#signal-memory">§14 memory map</a>.</figcaption>
+  <figcaption>Diagram MF — the canonical four-step serve. Every destination
+  node loops this independently on its own thread + CUDA stream
+  (<a href="#stream-concurrency">§16 Diagram I</a>). Deep dives:
+  step 2 (align/read/pack) in <a href="#alignment">§6</a> +
+  <a href="#staged">§7</a>; step 3 GPU pipeline in
+  <a href="#kernels">§11</a> (Diagram S) +
+  <a href="#pipeline">§15</a> (op order) +
+  <a href="#signal-memory">§14</a> (memory map);
+  step 4 throttle in <a href="#alignment">§6</a>.</figcaption>
   </figure>
 
   <!-- ============ DIAGRAM G : topology graph ============ -->
@@ -1601,203 +1516,104 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <p>Once the per-edge channel has been applied — by <code>apply_channel_kernel</code> on the GPU (default), or by host <code>stage_link()</code> on the mixed-node fallback — the staged buffer contains N slots in which the channel has been fully applied. From this point on, the kernel only needs to apply the memoryless RF impairments per sample (§12) and sum across edges (§13).</p>
 
-  <!-- ============ DIAGRAM SG: dispatch gate decision tree ============ -->
+  <!-- ============ DIAGRAM SG: dispatch gate decision (compact) ============ -->
   <h3 id="dispatch-gate">11.1 Dispatch gate — when the device path engages</h3>
   <figure>
-  <svg viewBox="0 0 1000 380" font-family="SF Mono,Menlo,monospace" font-size="11">
-    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram SG · sp.use_device_channel decision · evaluated once per destination in CudaChannelProcessor::prepare()</text>
+  <svg viewBox="0 0 1000 240" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram SG · sp.use_device_channel decision · evaluated once per destination at prepare()</text>
 
-    <!-- Root: per destination node -->
-    <rect x="370" y="40" width="260" height="46" rx="8" fill="#0b101a" stroke="#cdd6e6"/>
-    <text x="500" y="62" fill="#cdd6e6" text-anchor="middle">for each destination node d</text>
-    <text x="500" y="78" fill="#9aa7bd" text-anchor="middle" font-size="10">incoming = { e : links[e].to == d.id }</text>
-
-    <!-- Arrow down -->
-    <line x1="500" y1="86" x2="500" y2="108" stroke="#9aa7bd" marker-end="url(#aa)"/>
     <defs>
       <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
         <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
       </marker>
     </defs>
 
-    <!-- Decision diamond 1: any incoming? -->
-    <polygon points="500,108 600,148 500,188 400,148" fill="#0b101a" stroke="#ffb454"/>
-    <text x="500" y="146" fill="#ffb454" text-anchor="middle" font-size="11">incoming.empty()?</text>
-    <text x="500" y="162" fill="#9aa7bd" text-anchor="middle" font-size="9">RX-only or sink-only?</text>
+    <!-- Decision diamond -->
+    <polygon points="500,50 700,110 500,170 300,110" fill="#0b101a" stroke="#ffb454"/>
+    <text x="500" y="106" fill="#ffb454" text-anchor="middle" font-size="11">every incoming edge has</text>
+    <text x="500" y="122" fill="#ffb454" text-anchor="middle" font-size="11">model.chain[0].type == tdl ?</text>
 
-    <!-- yes (left, false) -->
-    <line x1="400" y1="148" x2="220" y2="148" stroke="#9aa7bd"/>
-    <line x1="220" y1="148" x2="220" y2="200" stroke="#9aa7bd" marker-end="url(#aa)"/>
-    <text x="310" y="142" fill="#ff8aa3" text-anchor="middle" font-size="10">yes → no superposition entry</text>
+    <!-- false branch (left) -->
+    <line x1="300" y1="110" x2="180" y2="110" stroke="#ff8aa3"/>
+    <line x1="180" y1="110" x2="180" y2="190" stroke="#ff8aa3" marker-end="url(#aa)"/>
+    <text x="240" y="100" fill="#ff8aa3" text-anchor="middle" font-size="10">false</text>
 
-    <rect x="80" y="200" width="280" height="50" rx="6" fill="#181f2e" stroke="#9aa7bd"/>
-    <text x="220" y="222" fill="#9aa7bd" text-anchor="middle" font-size="11">skip — no per-serve work</text>
-    <text x="220" y="238" fill="#9aa7bd" text-anchor="middle" font-size="9">superpose_states_ has no entry for d</text>
+    <rect x="60" y="190" width="240" height="36" rx="6" fill="#181f2e" stroke="#ffb454"/>
+    <text x="180" y="212" fill="#ffb454" text-anchor="middle" font-size="11">host fallback (stage_link)</text>
 
-    <!-- no (down) -->
-    <line x1="500" y1="188" x2="500" y2="208" stroke="#9aa7bd" marker-end="url(#aa)"/>
+    <!-- true branch (right) -->
+    <line x1="700" y1="110" x2="820" y2="110" stroke="#6fd08c"/>
+    <line x1="820" y1="110" x2="820" y2="190" stroke="#6fd08c" marker-end="url(#aa)"/>
+    <text x="760" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">true</text>
 
-    <!-- Decision diamond 2: every edge has leading tdl? -->
-    <polygon points="500,210 660,254 500,298 340,254" fill="#0b101a" stroke="#ffb454"/>
-    <text x="500" y="248" fill="#ffb454" text-anchor="middle" font-size="11">for every e in incoming:</text>
-    <text x="500" y="264" fill="#ffb454" text-anchor="middle" font-size="11">model[e].chain[0] is tdl?</text>
-
-    <!-- no (left, false) -->
-    <line x1="340" y1="254" x2="220" y2="254" stroke="#9aa7bd"/>
-    <line x1="220" y1="254" x2="220" y2="296" stroke="#9aa7bd" marker-end="url(#aa)"/>
-    <text x="280" y="246" fill="#ff8aa3" text-anchor="middle" font-size="10">any non-tdl-leading</text>
-
-    <rect x="60" y="296" width="320" height="68" rx="6" fill="#181f2e" stroke="#ffb454"/>
-    <text x="220" y="318" fill="#ffb454" text-anchor="middle" font-size="11">sp.use_device_channel = FALSE</text>
-    <text x="220" y="334" fill="#cdd6e6" text-anchor="middle" font-size="10">host fallback: stage_link → host_staged</text>
-    <text x="220" y="350" fill="#cdd6e6" text-anchor="middle" font-size="10">H2D direct: host_staged → device_staged</text>
-
-    <!-- yes (right, true) -->
-    <line x1="660" y1="254" x2="780" y2="254" stroke="#9aa7bd"/>
-    <line x1="780" y1="254" x2="780" y2="296" stroke="#6fd08c" marker-end="url(#aa)"/>
-    <text x="720" y="246" fill="#6fd08c" text-anchor="middle" font-size="10">all leading tdl ✓</text>
-
-    <rect x="620" y="296" width="320" height="68" rx="6" fill="#13391f" stroke="#6fd08c"/>
-    <text x="780" y="318" fill="#6fd08c" text-anchor="middle" font-size="11">sp.use_device_channel = TRUE</text>
-    <text x="780" y="334" fill="#cdd6e6" text-anchor="middle" font-size="10">device path: pack raw → host_pre_kernel</text>
-    <text x="780" y="350" fill="#cdd6e6" text-anchor="middle" font-size="10">H2D → apply_channel_kernel → device_staged</text>
+    <rect x="700" y="190" width="240" height="36" rx="6" fill="#13391f" stroke="#6fd08c"/>
+    <text x="820" y="212" fill="#6fd08c" text-anchor="middle" font-size="11">device path (apply_channel_kernel)</text>
   </svg>
-  <figcaption>Diagram SG — the per-destination dispatch gate evaluated once
-  in <code>CudaChannelProcessor::prepare()</code> and surfaced to tests via
-  <code>ProcessorTimings.used_device_channel</code>. The gate is intentionally
-  all-or-nothing per destination: if even one incoming edge of a node has a
-  non-tdl leading step (e.g. a model that starts with <code>phase</code> or
-  <code>path_loss</code> directly), the WHOLE destination falls back to the
-  host <code>stage_link</code> path. This keeps the kernel's per-edge contract
-  simple (one path: "read raw IQ, do the channel"); mixed-shape topologies
-  pay one slot's worth of host CPU cost rather than splitting the kernel into
-  per-edge branches. The dispatch decision is asserted by
-  <code>tests/test_processing.cpp:911</code> (leading-tdl ⇒ gate true) and
-  <code>tests/test_processing.cpp:935</code> (leading-non-tdl ⇒ gate false)
-  so a regression that silently reverts CUDA to host staging fails ctest.</figcaption>
+  <figcaption>Diagram SG — the per-destination dispatch gate. All-or-nothing
+  per node: any non-tdl-leading edge sends the whole destination to host
+  fallback. Keeps the kernel's per-edge contract simple (one path: "read
+  raw IQ, do the channel") rather than branching per edge.
+  Observable via <code>ProcessorTimings.used_device_channel</code>; guarded
+  by <code>tests/test_processing.cpp:911</code> (leading-tdl ⇒ true) and
+  <code>:935</code> (leading-non-tdl ⇒ false).</figcaption>
   </figure>
 
-  <!-- ============ DIAGRAM X: per-link state lifecycle ============ -->
+  <!-- ============ DIAGRAM X: per-link state lifecycle (compact) ============ -->
   <h3 id="link-lifecycle">11.2 Per-link state lifecycle — prepare once, serve many</h3>
   <figure>
-  <svg viewBox="0 0 1000 460" font-family="SF Mono,Menlo,monospace" font-size="11">
-    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram X · DeviceLinkState + LinkModelState lifetime · built once at startup, mutated only by kernels</text>
+  <svg viewBox="0 0 1000 200" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram X · DeviceLinkState · built once, mostly read-only, two fields mutate per slot</text>
 
     <defs>
-      <marker id="arx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <marker id="arxn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
         <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
       </marker>
     </defs>
 
-    <!-- T0: prepare() one-time -->
-    <rect x="20" y="50" width="960" height="135" rx="8" fill="#13391f" stroke="#6fd08c"/>
-    <text x="500" y="72" fill="#6fd08c" text-anchor="middle" font-size="12">T<sub>0</sub> · CudaChannelProcessor::prepare(TopologyConfig) · runs ONCE per process</text>
+    <!-- prepare() box -->
+    <rect x="40" y="50" width="240" height="100" rx="6" fill="#13391f" stroke="#6fd08c"/>
+    <text x="160" y="74" fill="#6fd08c" text-anchor="middle" font-size="11">prepare() · ONCE</text>
+    <text x="160" y="98" fill="#cdd6e6" text-anchor="middle" font-size="10">YAML → DeviceLinkState[]</text>
+    <text x="160" y="116" fill="#cdd6e6" text-anchor="middle" font-size="10">cudaMemcpy H2D</text>
+    <text x="160" y="138" fill="#9aa7bd" text-anchor="middle" font-size="9">~10 KB per link</text>
 
-    <rect x="40" y="84" width="220" height="86" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="150" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">YAML topology</text>
-    <text x="150" y="118" fill="#cdd6e6" text-anchor="middle" font-size="9">links: [{from, to, model, ...}]</text>
-    <text x="150" y="132" fill="#cdd6e6" text-anchor="middle" font-size="9">models: { tdl + taps + fading }</text>
-    <text x="150" y="148" fill="#cdd6e6" text-anchor="middle" font-size="9">devices: [{id, sample_rate, ...}]</text>
-    <text x="150" y="162" fill="#9aa7bd" text-anchor="middle" font-size="9">load_config_file()</text>
+    <line x1="280" y1="100" x2="320" y2="100" stroke="#9aa7bd" marker-end="url(#arxn)"/>
 
-    <line x1="260" y1="125" x2="290" y2="125" stroke="#9aa7bd" marker-end="url(#arx)"/>
+    <!-- Kernel reads -->
+    <rect x="320" y="50" width="320" height="100" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="480" y="74" fill="#5db1ff" text-anchor="middle" font-size="11">apply_channel_kernel · READ ONLY</text>
+    <text x="480" y="98" fill="#cdd6e6" text-anchor="middle" font-size="10">tap_* · fading_* · polyphase · alpha · phi · los_*</text>
+    <text x="480" y="118" fill="#9aa7bd" text-anchor="middle" font-size="9">never mutated after prepare</text>
+    <text x="480" y="138" fill="#9aa7bd" text-anchor="middle" font-size="9">→ writes device_staged only</text>
 
-    <rect x="290" y="84" width="220" height="86" rx="4" fill="#181f2e" stroke="#ffb454"/>
-    <text x="400" y="100" fill="#ffb454" text-anchor="middle" font-size="10">init_model_state (per link)</text>
-    <text x="400" y="118" fill="#cdd6e6" text-anchor="middle" font-size="9">LinkModelState {</text>
-    <text x="400" y="132" fill="#cdd6e6" text-anchor="middle" font-size="9">  delay_line (host-side ring)</text>
-    <text x="400" y="146" fill="#cdd6e6" text-anchor="middle" font-size="9">  tdl_polyphase (windowed sinc)</text>
-    <text x="400" y="160" fill="#cdd6e6" text-anchor="middle" font-size="9">  tdl_fading (alpha/phi/phi_los)  }</text>
+    <line x1="640" y1="100" x2="680" y2="100" stroke="#ff8aa3" marker-end="url(#arxn)"/>
 
-    <line x1="510" y1="125" x2="540" y2="125" stroke="#9aa7bd" marker-end="url(#arx)"/>
+    <!-- Kernel mutates (writes) -->
+    <rect x="680" y="50" width="280" height="100" rx="6" fill="#0b101a" stroke="#ff8aa3"/>
+    <text x="820" y="74" fill="#ff8aa3" text-anchor="middle" font-size="11">update_delay_line · MUTATES</text>
+    <text x="820" y="98" fill="#cdd6e6" text-anchor="middle" font-size="10">delay_line[] · slot_start_samples</text>
+    <text x="820" y="118" fill="#9aa7bd" text-anchor="middle" font-size="9">the only two mutable fields</text>
+    <text x="820" y="138" fill="#9aa7bd" text-anchor="middle" font-size="9">read again next slot</text>
 
-    <rect x="540" y="84" width="220" height="86" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="650" y="100" fill="#5db1ff" text-anchor="middle" font-size="10">build_device_link_state</text>
-    <text x="650" y="118" fill="#cdd6e6" text-anchor="middle" font-size="9">DeviceLinkState {</text>
-    <text x="650" y="132" fill="#cdd6e6" text-anchor="middle" font-size="9">  tap_delay_int/frac · gain · phase</text>
-    <text x="650" y="146" fill="#cdd6e6" text-anchor="middle" font-size="9">  tap_polyphase[K][8]</text>
-    <text x="650" y="160" fill="#cdd6e6" text-anchor="middle" font-size="9">  fading_enabled · alpha · phi  }</text>
-
-    <line x1="760" y1="125" x2="790" y2="125" stroke="#9aa7bd" marker-end="url(#arx)"/>
-
-    <rect x="790" y="84" width="170" height="86" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="875" y="100" fill="#5db1ff" text-anchor="middle" font-size="10">cudaMemcpy H2D</text>
-    <text x="875" y="118" fill="#cdd6e6" text-anchor="middle" font-size="9">DeviceLinkState[] →</text>
-    <text x="875" y="132" fill="#cdd6e6" text-anchor="middle" font-size="9">device_link_states</text>
-    <text x="875" y="148" fill="#9aa7bd" text-anchor="middle" font-size="9">~10 KB per link</text>
-    <text x="875" y="162" fill="#9aa7bd" text-anchor="middle" font-size="9">topology fields = read-only</text>
-
-    <!-- Arrow from T0 down to T1+ -->
-    <line x1="500" y1="187" x2="500" y2="217" stroke="#9aa7bd" marker-end="url(#arx)"/>
-    <text x="510" y="207" fill="#9aa7bd" font-size="10">happens once, never again</text>
-
-    <!-- T1..N: per-slot serve loop -->
-    <rect x="20" y="220" width="960" height="220" rx="8" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="500" y="242" fill="#5db1ff" text-anchor="middle" font-size="12">T<sub>1..N</sub> · process_superposition · runs EVERY slot, all kernel mutations on stream</text>
-
-    <rect x="40" y="254" width="210" height="170" rx="4" fill="#181f2e" stroke="#cdd6e6"/>
-    <text x="145" y="270" fill="#cdd6e6" text-anchor="middle" font-size="10">read-only topology fields</text>
-    <text x="145" y="290" fill="#9aa7bd" text-anchor="middle" font-size="9">n_taps · delay_line_size</text>
-    <text x="145" y="304" fill="#9aa7bd" text-anchor="middle" font-size="9">tap_delay_int[K] · tap_frac[K]</text>
-    <text x="145" y="318" fill="#9aa7bd" text-anchor="middle" font-size="9">tap_gain_amp[K] · cos_phi · sin_phi</text>
-    <text x="145" y="332" fill="#9aa7bd" text-anchor="middle" font-size="9">tap_polyphase[K][8]</text>
-    <text x="145" y="346" fill="#9aa7bd" text-anchor="middle" font-size="9">fading_enabled · f_d_max · grid_us</text>
-    <text x="145" y="360" fill="#9aa7bd" text-anchor="middle" font-size="9">tap_alpha[K][M] · tap_phi[K][M]</text>
-    <text x="145" y="374" fill="#9aa7bd" text-anchor="middle" font-size="9">tap_los_factor · tap_rayleigh_factor</text>
-    <text x="145" y="388" fill="#9aa7bd" text-anchor="middle" font-size="9">tap_los_angle_rad · tap_phi_los</text>
-    <text x="145" y="408" fill="#cdd6e6" text-anchor="middle" font-size="9">↑ never mutated after prepare</text>
-
-    <line x1="250" y1="338" x2="290" y2="338" stroke="#9aa7bd" marker-end="url(#arx)"/>
-
-    <rect x="290" y="254" width="220" height="170" rx="4" fill="#13391f" stroke="#ffb454"/>
-    <text x="400" y="270" fill="#ffb454" text-anchor="middle" font-size="10">apply_channel_kernel READS</text>
-    <text x="400" y="288" fill="#cdd6e6" text-anchor="middle" font-size="9">topology + cross-slot state +</text>
-    <text x="400" y="302" fill="#cdd6e6" text-anchor="middle" font-size="9">device_pre_kernel[k·count..]</text>
-    <text x="400" y="320" fill="#cdd6e6" text-anchor="middle" font-size="9">→ materialize per-tap Jakes</text>
-    <text x="400" y="334" fill="#cdd6e6" text-anchor="middle" font-size="9">   coarse grid in shared memory</text>
-    <text x="400" y="350" fill="#cdd6e6" text-anchor="middle" font-size="9">→ 8-tap polyphase conv per sample</text>
-    <text x="400" y="364" fill="#cdd6e6" text-anchor="middle" font-size="9">→ Rician LOS composition</text>
-    <text x="400" y="380" fill="#ffb454" text-anchor="middle" font-size="9">WRITES device_staged[k·count..]</text>
-    <text x="400" y="408" fill="#9aa7bd" text-anchor="middle" font-size="9">state unchanged (read-only access)</text>
-
-    <line x1="510" y1="338" x2="540" y2="338" stroke="#9aa7bd" marker-end="url(#arx)"/>
-
-    <rect x="540" y="254" width="220" height="170" rx="4" fill="#13391f" stroke="#ff8aa3"/>
-    <text x="650" y="270" fill="#ff8aa3" text-anchor="middle" font-size="10">update_delay_line_kernel</text>
-    <text x="650" y="288" fill="#ff8aa3" text-anchor="middle" font-size="9">MUTATES cross-slot state</text>
-    <text x="650" y="308" fill="#cdd6e6" text-anchor="middle" font-size="9">roll delay_line[i] for i &lt; dl_size:</text>
-    <text x="650" y="324" fill="#cdd6e6" text-anchor="middle" font-size="9">  shift left by count, append</text>
-    <text x="650" y="338" fill="#cdd6e6" text-anchor="middle" font-size="9">  last (count) raw input samples</text>
-    <text x="650" y="358" fill="#cdd6e6" text-anchor="middle" font-size="9">slot_start_samples += count</text>
-    <text x="650" y="380" fill="#9aa7bd" text-anchor="middle" font-size="9">these two fields are the</text>
-    <text x="650" y="394" fill="#9aa7bd" text-anchor="middle" font-size="9">ONLY mutable parts of</text>
-    <text x="650" y="408" fill="#9aa7bd" text-anchor="middle" font-size="9">DeviceLinkState at serve time</text>
-
-    <line x1="760" y1="338" x2="790" y2="338" stroke="#9aa7bd" marker-end="url(#arx)"/>
-
-    <rect x="790" y="254" width="170" height="170" rx="4" fill="#181f2e" stroke="#9aa7bd"/>
-    <text x="875" y="272" fill="#9aa7bd" text-anchor="middle" font-size="10">next slot</text>
-    <text x="875" y="294" fill="#cdd6e6" text-anchor="middle" font-size="9">apply_channel_kernel reads</text>
-    <text x="875" y="308" fill="#cdd6e6" text-anchor="middle" font-size="9">the updated delay_line ring</text>
-    <text x="875" y="322" fill="#cdd6e6" text-anchor="middle" font-size="9">at negative read_idx via</text>
-    <text x="875" y="336" fill="#cdd6e6" text-anchor="middle" font-size="9">ring_idx = dl_size + read_idx</text>
-    <text x="875" y="356" fill="#cdd6e6" text-anchor="middle" font-size="9">→ multi-tap echoes cross</text>
-    <text x="875" y="370" fill="#cdd6e6" text-anchor="middle" font-size="9">  slot boundaries seamlessly</text>
-    <text x="875" y="390" fill="#cdd6e6" text-anchor="middle" font-size="9">Jakes phase continuity from</text>
-    <text x="875" y="404" fill="#cdd6e6" text-anchor="middle" font-size="9">slot_start_samples (Diagram Z)</text>
+    <!-- Loop arrow -->
+    <line x1="820" y1="158" x2="820" y2="180" stroke="#9aa7bd"/>
+    <line x1="820" y1="180" x2="480" y2="180" stroke="#9aa7bd"/>
+    <line x1="480" y1="180" x2="480" y2="158" stroke="#9aa7bd" marker-end="url(#arxn)"/>
+    <text x="650" y="194" fill="#9aa7bd" font-size="9" text-anchor="middle">next slot</text>
   </svg>
-  <figcaption>Diagram X — <code>DeviceLinkState</code> lifecycle.
-  <code>prepare()</code> runs once at process startup: parse the YAML, build
-  one host <code>LinkModelState</code> + one device <code>DeviceLinkState</code>
-  per (dst_node × incoming edge), <code>cudaMemcpy</code> the device array
-  H2D. After that the topology fields are immutable; the only state the
-  kernel mutates per slot is the per-link <code>delay_line</code> ring +
-  <code>slot_start_samples</code>. This is what makes the per-edge channel
-  contract a pure function of (state, raw IQ in) → (shaped IQ out, new state):
-  no malloc / lookup / lock on the hot path, no host round-trips during the
-  serve. Memory: ~10 KB per link, dominated by
-  <code>tap_alpha[K=32][M=20]</code> and <code>tap_phi[K][M]</code> (sub-ray
-  initial conditions).</figcaption>
+  <figcaption>Diagram X — <code>DeviceLinkState</code> lifecycle. Built once
+  in <code>prepare()</code> from the YAML, copied H2D, then immutable
+  except for the per-link <code>delay_line</code> ring and
+  <code>slot_start_samples</code> counter that the second kernel rolls
+  forward each slot. This is what makes the per-edge channel a pure
+  function of (state, raw IQ in) → (shaped IQ out, new state) — no
+  malloc / lookup / lock on the hot path, no host round-trip during the
+  serve. Read-only fields (alphabetical):
+  <code>tap_delay_int / tap_frac / tap_gain_amp / tap_cos_phi / tap_sin_phi /
+  tap_polyphase[K][8] / fading_enabled / f_d_max_hz / grid_us /
+  tap_alpha[K][M] / tap_phi[K][M] / tap_is_los / tap_los_factor /
+  tap_rayleigh_factor / tap_los_angle_rad / tap_phi_los</code>;
+  mutable fields: <code>delay_line[dl_size] / slot_start_samples</code>.</figcaption>
   </figure>
 
   <!-- ============ DIAGRAM Y: polyphase 8-tap fractional delay ============ -->
@@ -1811,8 +1627,10 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <svg viewBox="0 0 1000 380" font-family="SF Mono,Menlo,monospace" font-size="11">
     <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram Y · 8-tap polyphase windowed-sinc · per-sample read geometry · tau = tau_int + frac (frac in [0,1))</text>
 
-    <!-- Number line: sample indices -->
+    <!-- Number line: sample indices · time runs left → right · past on left, future on right -->
     <line x1="60" y1="120" x2="940" y2="120" stroke="#9aa7bd"/>
+    <text x="60"  y="155" fill="#9aa7bd" font-size="9">← past</text>
+    <text x="940" y="155" fill="#9aa7bd" font-size="9" text-anchor="end">future →</text>
     <g fill="#9aa7bd" font-size="9" text-anchor="middle">
       <line x1="100" y1="115" x2="100" y2="125" stroke="#9aa7bd"/>
       <text x="100" y="140">idx−τ_int−4</text>
@@ -1823,33 +1641,36 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <line x1="400" y1="115" x2="400" y2="125" stroke="#9aa7bd"/>
       <text x="400" y="140">−1</text>
       <line x1="500" y1="115" x2="500" y2="125" stroke="#9aa7bd"/>
-      <text x="500" y="140">idx−τ_int  (i=3, h[3] = peak)</text>
+      <text x="500" y="140">idx−τ_int  (i=3, peak)</text>
       <line x1="600" y1="115" x2="600" y2="125" stroke="#9aa7bd"/>
       <text x="600" y="140">+1</text>
       <line x1="700" y1="115" x2="700" y2="125" stroke="#9aa7bd"/>
       <text x="700" y="140">+2</text>
       <line x1="800" y1="115" x2="800" y2="125" stroke="#9aa7bd"/>
-      <text x="800" y="140">+3 (i=7)</text>
+      <text x="800" y="140">+3</text>
     </g>
 
-    <!-- Read window markers (8 samples) -->
+    <!-- Read window markers (8 samples). read_idx = idx − τ_int + 3 − i:
+         i=7 → read_idx = idx − τ_int − 4 (past, LEFT)
+         i=3 → read_idx = idx − τ_int       (center)
+         i=0 → read_idx = idx − τ_int + 3 (future, RIGHT) -->
     <g>
       <rect x="80"  y="90" width="40" height="30" fill="rgba(93,177,255,0.30)" stroke="#5db1ff"/>
-      <text x="100" y="108" fill="#5db1ff" text-anchor="middle" font-size="9">h[0]</text>
+      <text x="100" y="108" fill="#5db1ff" text-anchor="middle" font-size="9">h[7]</text>
       <rect x="180" y="80" width="40" height="40" fill="rgba(93,177,255,0.40)" stroke="#5db1ff"/>
-      <text x="200" y="103" fill="#5db1ff" text-anchor="middle" font-size="9">h[1]</text>
+      <text x="200" y="103" fill="#5db1ff" text-anchor="middle" font-size="9">h[6]</text>
       <rect x="280" y="65" width="40" height="55" fill="rgba(93,177,255,0.55)" stroke="#5db1ff"/>
-      <text x="300" y="93"  fill="#5db1ff" text-anchor="middle" font-size="9">h[2]</text>
+      <text x="300" y="93"  fill="#5db1ff" text-anchor="middle" font-size="9">h[5]</text>
       <rect x="380" y="50" width="40" height="70" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
-      <text x="400" y="78" fill="#6fd08c" text-anchor="middle" font-size="9">h[3] · peak</text>
+      <text x="400" y="78" fill="#6fd08c" text-anchor="middle" font-size="9">h[4]</text>
       <rect x="480" y="50" width="40" height="70" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
-      <text x="500" y="78" fill="#6fd08c" text-anchor="middle" font-size="9">h[3] = sinc(frac)</text>
+      <text x="500" y="78" fill="#6fd08c" text-anchor="middle" font-size="9">h[3] · peak</text>
       <rect x="580" y="65" width="40" height="55" fill="rgba(93,177,255,0.55)" stroke="#5db1ff"/>
-      <text x="600" y="93"  fill="#5db1ff" text-anchor="middle" font-size="9">h[5]</text>
+      <text x="600" y="93"  fill="#5db1ff" text-anchor="middle" font-size="9">h[2]</text>
       <rect x="680" y="80" width="40" height="40" fill="rgba(93,177,255,0.40)" stroke="#5db1ff"/>
-      <text x="700" y="103" fill="#5db1ff" text-anchor="middle" font-size="9">h[6]</text>
+      <text x="700" y="103" fill="#5db1ff" text-anchor="middle" font-size="9">h[1]</text>
       <rect x="780" y="90" width="40" height="30" fill="rgba(93,177,255,0.30)" stroke="#5db1ff"/>
-      <text x="800" y="108" fill="#5db1ff" text-anchor="middle" font-size="9">h[7]</text>
+      <text x="800" y="108" fill="#5db1ff" text-anchor="middle" font-size="9">h[0]</text>
     </g>
 
     <!-- Convolution formula -->
@@ -1877,15 +1698,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <figcaption>Diagram Y — the 8-tap polyphase fractional-delay reads.
   <code>τ = tap.delay_samples</code> splits into <code>τ_int = floor(τ)</code>
   and <code>frac = τ − τ_int ∈ [0, 1)</code>. The integer part chooses the
-  window center; the fractional part picks the polyphase coefficient set
-  <code>h[0..7]</code> (precomputed via
-  <code>compute_windowed_sinc_taps(frac, h[])</code> at prepare). Per output
-  sample <span class="mono">idx</span>, the filter reads 8 input samples
-  centered at <span class="mono">idx − τ_int + 3</span>; out-of-range reads
-  zero-pad. The peak coefficient lives at <code>i = 3</code> (sinc lobe);
-  outer taps decay. CPU and CUDA both call the same coefficient helper,
-  apply the same indexing, and zero-pad the same way — this is the surface
-  the bit-exact parity test guards.</figcaption>
+  window center (<code>i = 3</code> reads <code>idx − τ_int</code>); the
+  fractional part picks the polyphase coefficient set <code>h[0..7]</code>
+  (precomputed via <code>compute_windowed_sinc_taps(frac, h[])</code> at
+  prepare). With <code>read_idx = idx − τ_int + 3 − i</code>, the window
+  spans 4 past samples (i = 4..7) and 4 future / current samples (i = 0..3)
+  around the center. Out-of-range reads zero-pad. CPU and CUDA both call
+  the same coefficient helper, apply the same indexing, and zero-pad the
+  same way — this is the surface the bit-exact parity test guards.</figcaption>
   </figure>
 
   <!-- ============ DIAGRAM Z: cross-slot delay-line ring continuity ============ -->
@@ -1928,7 +1748,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="20" y="210" fill="#9aa7bd" font-size="10">During slot N (apply_channel_kernel runs)</text>
     <line x1="20" y1="215" x2="980" y2="215" stroke="#2c3850"/>
     <rect x="20" y="225" width="930" height="42" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="485" y="242" fill="#5db1ff" text-anchor="middle" font-size="10">per output sample idx ∈ [0, 23039): read 8 samples centered at idx − τ_int + 3 (Diagram Y)</text>
+    <text x="485" y="242" fill="#5db1ff" text-anchor="middle" font-size="10">per output sample idx ∈ [0, 23039): read 8 samples around idx − τ_int via read_idx = idx − τ_int + 3 − i (Diagram Y)</text>
     <text x="485" y="258" fill="#cdd6e6" text-anchor="middle" font-size="9">if read_idx ≥ 0: from in_buffer · if read_idx ∈ [−32, 0): from delay_line[32 + read_idx] · if read_idx &lt; −32: zero</text>
 
     <!-- Update step -->
@@ -2519,90 +2339,31 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <h3 id="test-architecture">17.4 Test architecture — what each layer guards</h3>
   <figure>
-  <svg viewBox="0 0 1000 460" font-family="SF Mono,Menlo,monospace" font-size="11">
-    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram TA · what each test layer catches · narrow at top (most specific) → broad at bottom (most realistic)</text>
+  <svg viewBox="0 0 1000 180" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram TA · three test layers, fast → slow, narrow → broad</text>
 
-    <!-- Layer 1: unit tests -->
-    <rect x="40" y="50" width="920" height="105" rx="8" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="500" y="72" fill="#5db1ff" text-anchor="middle" font-size="12">Layer 1 · ctest (4/4) · local + remote · ~3 s</text>
+    <rect x="60" y="40" width="880" height="36" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="80"  y="62" fill="#5db1ff" font-size="11">Layer 1 · ctest 4/4</text>
+    <text x="500" y="62" fill="#cdd6e6" text-anchor="middle" font-size="11">config · ring · processing (largest) · broker</text>
+    <text x="920" y="62" fill="#9aa7bd" text-anchor="end" font-size="10">~3 s · per commit</text>
 
-    <rect x="60" y="84" width="218" height="60" rx="4" fill="#13391f" stroke="#6fd08c"/>
-    <text x="169" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">config</text>
-    <text x="169" y="116" fill="#cdd6e6" text-anchor="middle" font-size="9">YAML schema · taps · fading</text>
-    <text x="169" y="130" fill="#cdd6e6" text-anchor="middle" font-size="9">delay composition · validators</text>
+    <rect x="60" y="86" width="880" height="36" rx="6" fill="#0b101a" stroke="#ffb454"/>
+    <text x="80"  y="108" fill="#ffb454" font-size="11">Layer 2 · gpu-test-sequence.sh 7/7</text>
+    <text x="500" y="108" fill="#cdd6e6" text-anchor="middle" font-size="11">remote build + ctest + 5 relay scenarios on CUDA broker</text>
+    <text x="920" y="108" fill="#9aa7bd" text-anchor="end" font-size="10">~2 min · pre-ship</text>
 
-    <rect x="288" y="84" width="218" height="60" rx="4" fill="#13391f" stroke="#6fd08c"/>
-    <text x="397" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">ring</text>
-    <text x="397" y="116" fill="#cdd6e6" text-anchor="middle" font-size="9">push / read / overflow</text>
-    <text x="397" y="130" fill="#cdd6e6" text-anchor="middle" font-size="9">wrap-around · reset()</text>
-
-    <rect x="516" y="84" width="218" height="60" rx="4" fill="#13391f" stroke="#ffb454"/>
-    <text x="625" y="100" fill="#ffb454" text-anchor="middle" font-size="10">processing (largest)</text>
-    <text x="625" y="116" fill="#cdd6e6" text-anchor="middle" font-size="9">CPU↔CUDA parity 1e-3 · dispatch gate</text>
-    <text x="625" y="130" fill="#cdd6e6" text-anchor="middle" font-size="9">Bessel J₀ · Rician PDF · per-step CPU</text>
-
-    <rect x="744" y="84" width="216" height="60" rx="4" fill="#13391f" stroke="#6fd08c"/>
-    <text x="852" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">broker</text>
-    <text x="852" y="116" fill="#cdd6e6" text-anchor="middle" font-size="9">2-device loopback</text>
-    <text x="852" y="130" fill="#cdd6e6" text-anchor="middle" font-size="9">lockstep deadlock regression</text>
-
-    <!-- Layer 2: remote GPU 7-step -->
-    <rect x="40" y="170" width="920" height="135" rx="8" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="500" y="192" fill="#5db1ff" text-anchor="middle" font-size="12">Layer 2 · gpu-test-sequence.sh (7/7) · remote · ~2 min</text>
-
-    <rect x="60" y="204" width="180" height="40" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="150" y="220" fill="#5db1ff" text-anchor="middle" font-size="10">[1/7] CUDA build</text>
-    <text x="150" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">link, compile, smoke run</text>
-
-    <rect x="248" y="204" width="180" height="40" rx="4" fill="#181f2e" stroke="#5db1ff"/>
-    <text x="338" y="220" fill="#5db1ff" text-anchor="middle" font-size="10">[2/7] ctest 4/4</text>
-    <text x="338" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">all OCUDU_GPU_CHANNEL_HAS_CUDA blocks</text>
-
-    <rect x="436" y="204" width="180" height="40" rx="4" fill="#181f2e" stroke="#6fd08c"/>
-    <text x="526" y="220" fill="#6fd08c" text-anchor="middle" font-size="10">[3,4/7] clean + AWGN</text>
-    <text x="526" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">analytic power match</text>
-
-    <rect x="624" y="204" width="180" height="40" rx="4" fill="#181f2e" stroke="#6fd08c"/>
-    <text x="714" y="220" fill="#6fd08c" text-anchor="middle" font-size="10">[5,6/7] graph + multi-gNB</text>
-    <text x="714" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">superposition + counters</text>
-
-    <rect x="812" y="204" width="148" height="40" rx="4" fill="#181f2e" stroke="#ffb454"/>
-    <text x="886" y="220" fill="#ffb454" text-anchor="middle" font-size="10">[7/7] TDL-A profile</text>
-    <text x="886" y="234" fill="#cdd6e6" text-anchor="middle" font-size="9">TR 38.901 23-tap</text>
-
-    <text x="500" y="270" fill="#cdd6e6" text-anchor="middle" font-size="11">guards: CUDA broker · ZMQ wire flow · cross-stream concurrency · cumulative avg_power · slot deadline</text>
-    <text x="500" y="288" fill="#9aa7bd" text-anchor="middle" font-size="10">ctest can't reach the broker hot path; this layer does</text>
-
-    <!-- Layer 3: live OCUDU + srsRAN -->
-    <rect x="40" y="320" width="920" height="120" rx="8" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="500" y="342" fill="#5db1ff" text-anchor="middle" font-size="12">Layer 3 · live OCUDU + srsRAN smoke · ~5–10 min per variant</text>
-
-    <rect x="60" y="354" width="290" height="74" rx="4" fill="#181f2e" stroke="#ff8aa3"/>
-    <text x="205" y="370" fill="#ff8aa3" text-anchor="middle" font-size="10">ocudu-attach-smoke.sh</text>
-    <text x="205" y="386" fill="#cdd6e6" text-anchor="middle" font-size="9">Milestone A — 1 gNB + 1 UE</text>
-    <text x="205" y="400" fill="#cdd6e6" text-anchor="middle" font-size="9">rrc_connected · pdu_session · ping</text>
-    <text x="205" y="416" fill="#9aa7bd" text-anchor="middle" font-size="9">srsUE through Docker + Open5GS</text>
-
-    <rect x="358" y="354" width="290" height="74" rx="4" fill="#181f2e" stroke="#ff8aa3"/>
-    <text x="503" y="370" fill="#ff8aa3" text-anchor="middle" font-size="10">ocudu-multi-ue-smoke.sh</text>
-    <text x="503" y="386" fill="#cdd6e6" text-anchor="middle" font-size="9">Milestone B — 1 gNB + 2 UEs</text>
-    <text x="503" y="400" fill="#cdd6e6" text-anchor="middle" font-size="9">distinct C-RNTIs + PDU sessions</text>
-    <text x="503" y="416" fill="#9aa7bd" text-anchor="middle" font-size="9">per-link channel + AWGN</text>
-
-    <rect x="656" y="354" width="292" height="74" rx="4" fill="#181f2e" stroke="#ff8aa3"/>
-    <text x="802" y="370" fill="#ff8aa3" text-anchor="middle" font-size="10">ocudu-multi-gnb-smoke.sh</text>
-    <text x="802" y="386" fill="#cdd6e6" text-anchor="middle" font-size="9">Milestone C — 2 gNBs + 2 UEs</text>
-    <text x="802" y="400" fill="#cdd6e6" text-anchor="middle" font-size="9">inter-cell interference (ICI) graph</text>
-    <text x="802" y="416" fill="#9aa7bd" text-anchor="middle" font-size="9">8-link bipartite topology</text>
+    <rect x="60" y="132" width="880" height="36" rx="6" fill="#0b101a" stroke="#ff8aa3"/>
+    <text x="80"  y="154" fill="#ff8aa3" font-size="11">Layer 3 · OCUDU + srsRAN smoke</text>
+    <text x="500" y="154" fill="#cdd6e6" text-anchor="middle" font-size="11">Milestone A / B / C — live Docker gNB + UE attach + ping</text>
+    <text x="920" y="154" fill="#9aa7bd" text-anchor="end" font-size="10">~5–10 min · milestone</text>
   </svg>
-  <figcaption>Diagram TA — test architecture, top-down. Layer 1 catches
-  algorithmic + invariant regressions in seconds; Layer 2 catches anything
-  ctest can't reach (broker hot path, real ZMQ, cross-stream concurrency,
-  cumulative-statistic mismatches between CPU and CUDA); Layer 3 catches
-  protocol-stack-level wedges that survive layers 1–2 but only manifest with
-  a real radio stack on the other side of the wire. A change that touches
-  the broker or CUDA backend must pass all of Layer 1 + Layer 2 before
-  shipping; Layer 3 is the milestone gate, not the per-commit gate.</figcaption>
+  <figcaption>Diagram TA — Layer 1 catches algorithmic regressions in
+  seconds and runs per commit; Layer 2 catches anything ctest can't reach
+  (broker hot path, real ZMQ, cross-stream concurrency, cumulative-stat
+  mismatches between CPU and CUDA) and runs pre-ship; Layer 3 catches
+  protocol-stack wedges that only manifest with a real radio stack and
+  runs at milestone boundaries. The specific guards in each layer are
+  named in §17.1 – §17.3 above.</figcaption>
   </figure>
 
   <h2>18. Operational guidance</h2>
