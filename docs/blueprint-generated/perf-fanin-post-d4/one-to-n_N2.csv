@@ -1,0 +1,17 @@
+metric,count,p50_us,p95_us,p99_us,p999_us,max_us,slot_us,gate
+model_mix_latency,81423,117.130,135.058,138.005,155.310,587.834,500.000,yellow
+h2d_us,81423,27.519,38.047,38.880,41.280,241.408,500.000,n/a
+kernel_us,81423,12.575,12.831,13.024,13.055,286.240,500.000,n/a
+d2h_us,81423,15.871,17.855,20.959,21.056,21.056,500.000,n/a
+gpu_process_us,81423,67.252,77.386,78.505,81.569,358.369,500.000,n/a
+backend,cuda
+cuda_status,cuda:compiled,runtime:available
+iterations,81423
+raw_cf32_full_duplex_bits_per_device,rate_hz,bits_per_second
+gnb0,23040000,2949120000
+ue0,23040000,2949120000
+ue1,23040000,2949120000
+rx_output,device_id,avg_power_cum,sample0_i,sample0_q,sampleN_i,sampleN_q,total_samples
+rx_output,ue1,0.309,0.000,0.000,-0.509,0.104,625328640
+rx_output,ue0,0.309,0.000,0.000,-0.509,0.104,625328640
+rx_output,gnb0,1.235,0.000,0.000,-1.019,0.208,625328640

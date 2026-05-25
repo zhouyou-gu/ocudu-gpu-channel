@@ -446,10 +446,21 @@ needed.
   sized by `num_sources × count` (not `link_count × count`). Host pack
   walks unique sources via `source_first_edge[s]`; kernels read
   `source_iq[s->src_index * count + read_idx]`. Bandwidth saved per slot:
-  `(link_count − num_sources) × count` IqSamples. At tdl-a_E16: 16 edges
-  → 9 sources, ~44% fewer H2D bytes per slot. New ctest case: 2 edges
-  sharing 1 source, CPU↔CUDA parity at 1e-3 holds. Remote
-  `gpu-test-sequence.sh` 7/7 PASSED.
+  `(link_count − num_sources) × count` IqSamples.
+  **Dormant on production topologies**: the saving fires only when
+  multiple edges within one destination's incoming set share a source
+  (i.e. multiple links per `(from, to)` pair, e.g. desired + crosstalk
+  on the same physical pair). Every current production topology — TDL
+  profiles, one-to-N, multi-gNB, stress-16 — has at most one link per
+  `(from, to)` pair, so `num_sources == link_count` and the H2D byte
+  count is unchanged. The post-D4 `perf-fanin-sweep` confirmed:
+  `one-to-n_N8` H2D p99 = 121.0 µs (was 119.4 µs pre-D4 — within
+  run-to-run noise). The mechanism is correct (new ctest with 2 edges
+  from `gnb0` to `ue0` through different models verifies dedup +
+  parity at 1e-3) and is a future-proofing step for multi-model-per-
+  pair topologies that haven't shipped yet. Remote
+  `gpu-test-sequence.sh` 7/7 PASSED; `ocudu-attach-smoke.sh`
+  re-validated Milestone A on the post-D4 build.
 - **D5** (perf-measurement formalisation) — done implicitly via the
   sweeps banked here. A fresh `perf-fanin-sweep.sh` on the post-D4 build
   would update Diagram W (PCIe Gbps vs N).

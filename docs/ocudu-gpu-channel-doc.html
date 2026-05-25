@@ -1715,7 +1715,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <p class="key"><b>Per-edge invariant.</b> Multipath and Doppler are applied independently per link, with each link's own delay-line ring and Jakes sub-ray state, before aggregation. The channel <span class="mono">h<sub>(src→dst)</sub>(t, τ)</span> is a property of the link, not the receiver — summing raw IQ before applying the channel would collapse the per-link statistics and is mathematically wrong.</p>
 
-  <p><b>Two implementation paths share one numerical spec.</b> The default is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3 + D4, landed): per-link state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_source_iq[s->src_index · count + read_idx]</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>src_index indirection (D4)</b> means edges sharing a source share a single input slot — the host packs each unique source once and H2D bandwidth scales with source count, not edge count. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a> and the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in the channel-physics section (Diagrams P / Q / R).</p>
+  <p><b>Two implementation paths share one numerical spec.</b> The default is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3 + D4, landed): per-link state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_source_iq[s->src_index · count + read_idx]</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>src_index indirection (D4)</b> means edges sharing a source share a single input slot — the host packs each unique source once. H2D bandwidth therefore scales with source count rather than edge count <i>when multiple edges share a source</i>; for current production topologies (one link per (from, to) pair) the byte count is unchanged. See <a href="#perf-pcie">§20.5</a> for the empirical confirmation and the conditions under which D4 saves bytes. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a> and the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in the channel-physics section (Diagrams P / Q / R).</p>
 
   <h3 id="pipeline">12.0 Pipeline op order — what each stream actually launches</h3>
   <p>Before the per-component deep dives (Diagram S below, then dispatch
@@ -3258,18 +3258,24 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <code>max_link_width = 16</code>), so the cap is the slot's electrical
   routing or BIOS bifurcation. This cuts the theoretical ceiling 4× from
   what an RTX 5090 could otherwise do.</p>
-  <p class="key"><b>D4 source rebuffering (landed) defuses the per-edge
-  duplication.</b> The numbers below were measured BEFORE D4, when H2D
-  payload scaled with edge count. Post-D4 the H2D payload scales with
-  <i>unique source count</i>: edges sharing a source share a slot in
-  <code>device_source_iq</code>. For full-duplex topologies (every gNB↔UE
-  pair has two edges per direction) the savings are roughly N_edges /
-  N_sources × the numbers below. At <code>tdl-a_E16</code>: 16 edges → 9
-  sources, so the H2D per slot dropped from ~1.4 MiB to ~0.8 MiB — and
-  the kernel is now the dominant cost (~54 µs), not the H2D (~27 µs).
-  The §20.5 measurements and Diagram W below remain valid as the pre-D4
-  scaling reference; rerun <code>perf-fanin-sweep.sh</code> on the
-  post-D4 build to publish the new curve.</p>
+  <p class="key"><b>D4 source rebuffering (landed) is dormant on current
+  production topologies.</b> The mechanism is in place — H2D payload
+  scales with <i>unique source count</i> instead of edge count, indexed
+  per edge via <code>DeviceLinkState::src_index</code> — and the new
+  ctest (2 edges from <code>gnb0</code> to <code>ue0</code> through
+  different models) verifies the dedup is correct. But the byte-level
+  win only materializes when <b>multiple edges within one destination's
+  incoming set share a source</b> (i.e. multiple links exist for the same
+  <code>(from, to)</code> pair, e.g. a desired-path link plus a
+  crosstalk-model link). Every current production topology — including
+  every TDL profile, the one-to-N fan-in, the multi-gNB graph, and
+  stress-16 — has at most one link per <code>(from, to)</code> pair, so
+  <code>num_sources == link_count</code> at every destination and D4
+  saves zero H2D bytes. The post-D4 <code>perf-fanin-sweep</code>
+  re-measured H2D at <code>one-to-n_N8</code> at <b>121.0 µs</b> vs the
+  pre-D4 <b>119.4 µs</b> — within run-to-run noise, confirming the
+  topologies tested here don't benefit. D4 is a correct future-proofing
+  step for multi-model-per-pair topologies that haven't shipped yet.</p>
   <table>
     <tr><th>Direction</th><th>Bytes / call</th><th>Bench p99 µs</th><th>Achieved Gbps (p99)</th><th>nsys sustained</th><th>Ceiling (gen 5 x4)</th><th>Utilisation</th></tr>
     <tr><td>H2D (staged buffer)</td><td>1.40 MiB (8 edges × 23 040 × 8 B)</td><td>119.4</td><td>98.7</td><td>12.4 GB/s = 98.9 Gbps</td><td>≈ 126 Gbps</td><td><b>78 %</b></td></tr>
@@ -3592,12 +3598,15 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <p>The actual hardware fix for the PCIe bottleneck is a true gen-5 x16
   slot (<a href="#perf-pcie">§20.5</a>). The software levers below are
   worth pursuing only if the hardware can't change; listed in priority
-  order. <b>Post Phase 2 D3 + D4</b>: the channel runs on the GPU and
-  H2D bytes per slot scale with unique source count (not edge count).
-  The host <code>stage_link()</code> cost that was the dominant per-call
-  latency is gone for any all-leading-tdl topology, and the per-edge
-  PCIe duplication is gone for any topology with shared sources. The
-  remaining frontier work is now smaller per-µs trims. See
+  order. <b>Post Phase 2 D3 + D4</b>: the channel runs on the GPU; H2D
+  bytes per slot are indexed via <code>DeviceLinkState::src_index</code>
+  so they scale with source count <i>when multiple edges of a destination
+  share a source</i>. The host <code>stage_link()</code> cost that was
+  the dominant per-call latency is gone for any all-leading-tdl
+  topology. The per-edge PCIe duplication is gone in principle, but
+  doesn't reduce bytes in current production topologies because each
+  (from, to) pair has at most one link (see <a href="#perf-pcie">§20.5</a>).
+  The remaining frontier work is now smaller per-µs trims. See
   <code>docs/plans/device-channel-pipeline.md</code> for the measured
   pre / post numbers.</p>
   <p class="note"><b>D7 (source ring on GPU) — still parked.</b> D4 took
