@@ -678,10 +678,10 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="50" y="348" fill="#e7ecf5" font-size="11">co-init cursor[k] to ring[src].earliest_seq</text>
     <text x="50" y="364" fill="#9aa7bd" font-size="10">— §7 alignment / Diagram H</text>
     <text x="50" y="384" fill="#e7ecf5" font-size="11">read common window from ring[src] into inputs[k]</text>
-    <text x="50" y="404" fill="#e7ecf5" font-size="11">memcpy inputs[k] → host_pre_kernel + k·count    (raw IQ, no channel)</text>
+    <text x="50" y="404" fill="#e7ecf5" font-size="11">memcpy inputs[src_first[s]] → host_source_iq + s·count   (per unique source, D4)</text>
     <text x="50" y="420" fill="#9aa7bd" font-size="10">— device-default · channel runs in apply_channel_kernel on GPU (§12 Diagram S)</text>
     <text x="50" y="436" fill="#9aa7bd" font-size="10">— host-fallback · stage_link writes shaped IQ into host_staged if gate is false</text>
-    <text x="50" y="450" fill="#cdd6e6" font-size="11">build step_meta[0..2N−1] for the kernel</text>
+    <text x="50" y="450" fill="#cdd6e6" font-size="11">build step_meta[0..2N−1] for the kernel  ·  edges share src_index into device_source_iq</text>
 
     <rect x="700" y="280" width="280" height="174" rx="8" fill="#0b101a" stroke="#5db1ff"/>
     <text x="840" y="302" fill="#5db1ff" text-anchor="middle" font-size="11">DEVICE · superpose_kernel</text>
@@ -708,15 +708,19 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   lives on the host. <b>Bottom row (use):</b> every slot the server thread
   walks <span class="mono">k = 0 … N−1</span> on <code>superposition[k]</code>
   to drive cursor co-init, ring read, and the pack into
-  <code>host_pre_kernel</code>. The per-edge channel math
+  <code>host_source_iq</code>. <b>D4 source rebuffering</b>: the pack writes
+  one slot per UNIQUE source (not per edge) — edges sharing a source share
+  one slot. The per-edge channel math
   (<code>apply_tdl_step_fading</code> from <code>delay.h</code>) runs on the
   GPU as <code>apply_channel_kernel</code> by default; host
   <code>stage_link()</code> only runs as the fallback when a destination has any
   non-tdl-leading incoming edge. The device kernel never sees
   <code>superposition[]</code> directly — it sees the packed result
-  (<code>device_pre_kernel[k·count + idx]</code> + per-link
+  (<code>device_source_iq[s · count + idx]</code> indexed per edge via
+  <code>DeviceLinkState::src_index</code>, plus per-link
   <code>DeviceLinkState</code> + <code>step_meta[2N]</code>) built host-side
-  from <code>superposition[]</code> and shipped via H2D.</figcaption>
+  from <code>superposition[]</code> and shipped via H2D. H2D bytes per slot
+  scale with <b>source count</b>, not edge count.</figcaption>
   </figure>
 
   <p>The per-serve sequence in <code>src/broker.cpp</code> is a strict pipeline —
@@ -834,7 +838,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   host CPU / GPU device) on the Phase 2 device-default path. Each stage strictly
   blocks the next; the arrows between lanes mark hand-offs where ownership
   transfers (ZMQ→CPU after the request arrives, CPU→GPU after the pack into
-  <code>host_pre_kernel</code>, GPU→CPU after D2H, CPU→ZMQ after the throttle
+  <code>host_source_iq</code>, GPU→CPU after D2H, CPU→ZMQ after the throttle
   anchor hits). The per-edge channel work that used to live in CPU stage 4
   (<code>stage_link</code>) now runs on the GPU as sub-phase 6b
   (<code>apply_channel_kernel</code> — multi-tap convolution + Jakes + Rician
@@ -861,17 +865,22 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         per-edge sample arrays, each <code>serve</code> samples long, all representing
         the same source-time slice.</li>
     <li><b>Apply per-link leading propagation</b> — by default on the device kernel
-        <code>apply_channel_kernel</code> (Phase 2 D3): raw IQ ships H2D into
-        <code>device_pre_kernel</code>, the kernel materialises per-tap Jakes coarse
+        <code>apply_channel_kernel</code> (Phase 2 D3 + D4): raw IQ is packed per
+        UNIQUE source into <code>host_source_iq</code> (D4 source rebuffering —
+        N edges sharing a source share one slot, indexed by
+        <code>DeviceLinkState::src_index</code>), ships H2D into
+        <code>device_source_iq</code>, the kernel materialises per-tap Jakes coarse
         grids in block shared memory and writes shaped IQ into
         <code>device_staged</code>. Host fallback via <code>stage_link()</code> runs the
         same math in <code>delay.h</code> when the per-node dispatch gate doesn't fire
         (mixed-edge or non-tdl-leading nodes). Edges without a leading tdl just get a
-        plain copy. <b>Detail in <a href="#staged">section 7</a> top prose,
-        <a href="#channels">section 8</a> tdl row, and <a href="#kernels">section 11
+        plain copy. <b>Detail in <a href="#staged">section 8</a> top prose,
+        <a href="#channels">section 9</a> tdl row, and <a href="#kernels">section 12
         Diagram S</a>.</b></li>
-    <li><b>Stage</b> — pack the N per-edge arrays back-to-back into the pinned
-        <code>host_staged</code> buffer for one H2D copy. <b>Detail in
+    <li><b>Stage</b> — only used on the host-fallback path: pack the N per-edge arrays
+        back-to-back into the pinned <code>host_staged</code> buffer for one H2D copy.
+        The device-default path skips this entirely (it uses
+        <code>host_source_iq</code> directly). <b>Detail in
         <a href="#staged">section 7</a> + Diagram J.</b></li>
     <li><b>Kernel</b> — <code>process_superposition</code> runs the H2D, launches
         <code>superpose_kernel</code> (+ optional in-place <code>rx_model</code> pass),
@@ -1706,7 +1715,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <p class="key"><b>Per-edge invariant.</b> Multipath and Doppler are applied independently per link, with each link's own delay-line ring and Jakes sub-ray state, before aggregation. The channel <span class="mono">h<sub>(src→dst)</sub>(t, τ)</span> is a property of the link, not the receiver — summing raw IQ before applying the channel would collapse the per-link statistics and is mathematically wrong.</p>
 
-  <p><b>Two implementation paths share one numerical spec.</b> The default is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3, landed): per-link state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_pre_kernel</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a> and the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in the channel-physics section (Diagrams P / Q / R).</p>
+  <p><b>Two implementation paths share one numerical spec.</b> The default is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3 + D4, landed): per-link state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_source_iq[s->src_index · count + read_idx]</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>src_index indirection (D4)</b> means edges sharing a source share a single input slot — the host packs each unique source once and H2D bandwidth scales with source count, not edge count. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a> and the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in the channel-physics section (Diagrams P / Q / R).</p>
 
   <h3 id="pipeline">12.0 Pipeline op order — what each stream actually launches</h3>
   <p>Before the per-component deep dives (Diagram S below, then dispatch
@@ -1720,22 +1729,33 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   destination has a leading <code>tdl</code> step (gate
   <code>sp.use_device_channel == true</code>, see §12.1):</p>
   <ol class="tight">
-    <li><b>Host pack</b>: <code>memcpy</code> each edge's raw IQ window into
-        <span class="mono">host_pre_kernel[k·count]</span>. No channel math
-        on host.</li>
+    <li><b>Per-source pack (D4)</b>: <code>memcpy</code> each <i>unique
+        source</i>'s raw IQ window into
+        <span class="mono">host_source_iq[s·count]</span>. Multiple edges
+        that share a source write the same slot once — saving
+        <span class="mono">(link_count − num_sources) × count</span>
+        IqSamples of H2D bandwidth per slot. Source-to-slot mapping built
+        once at <code>prepare()</code>; each edge's
+        <code>DeviceLinkState::src_index</code> identifies its slot.</li>
     <li><b>3× H2D</b> (or 4× with <code>rx_model</code>):
-        <span class="mono">host_pre_kernel → device_pre_kernel</span>,
+        <span class="mono">host_source_iq → device_source_iq</span>
+        (sized by <span class="mono">num_sources × count</span>, not
+        <span class="mono">link_count × count</span>),
         <span class="mono">host_steps → device_steps</span>,
         <span class="mono">host_step_meta → device_step_meta</span>,
         (optional) <span class="mono">rx_steps</span>.</li>
     <li><b><code>apply_channel_kernel</code></b> — multi-tap convolution +
-        Jakes + Rician LOS per edge,
-        <span class="mono">device_pre_kernel → device_staged</span>.</li>
+        Jakes + Rician LOS per edge. Each thread block reads
+        <span class="mono">device_source_iq[s->src_index · count + i]</span>
+        — edges sharing a source share the input slot, then apply their
+        own per-link channel state. Writes
+        <span class="mono">device_staged[k · count + idx]</span>.</li>
     <li><b><code>update_delay_line_kernel</code></b> — roll each link's
         <span class="mono">delay_line</span> ring forward by
         <span class="mono">count</span> samples; advance
         <span class="mono">slot_start_samples</span> (cross-slot continuity,
-        §12.4).</li>
+        §12.4). Reads source IQ via the same
+        <span class="mono">src_index</span> indirection.</li>
     <li><b><code>superpose_kernel</code></b> — sum every edge's per-sample
         chain output into <span class="mono">device_output</span>.</li>
     <li><b><code>apply_steps_kernel</code></b> (only when
@@ -1772,13 +1792,13 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
     <!-- HOST top strip: raw IQ packing -->
     <rect x="20" y="20" width="960" height="100" rx="8" fill="#13391f" stroke="#6fd08c"/>
-    <text x="500" y="42" fill="#6fd08c" text-anchor="middle">HOST · per-source IqRing → pack raw IQ into host_pre_kernel[k · count + idx]</text>
-    <text x="500" y="64" fill="#cdd6e6" text-anchor="middle" font-size="11">No channel work on host (default path). Per-link DeviceLinkState already populated at startup.</text>
+    <text x="500" y="42" fill="#6fd08c" text-anchor="middle">HOST · per-source IqRing → pack raw IQ into host_source_iq[s · count + idx]   (D4 — one slot per UNIQUE source)</text>
+    <text x="500" y="64" fill="#cdd6e6" text-anchor="middle" font-size="11">No channel work on host (default path). Per-link DeviceLinkState (incl. src_index) already populated at startup.</text>
     <text x="500" y="86" fill="#9aa7bd" text-anchor="middle" font-size="10">Dispatch gate (sp.use_device_channel) set in prepare(): true when every incoming edge has a leading tdl step.</text>
     <text x="500" y="104" fill="#9aa7bd" text-anchor="middle" font-size="10">When false, falls back to host stage_link()/apply_tdl_step{_fading} (delay.h) → host_staged. Same math, same bit-exact spec.</text>
 
     <line x1="500" y1="130" x2="500" y2="170" stroke="#5db1ff" stroke-width="1.6" marker-end="url(#ars)"/>
-    <text x="510" y="156" fill="#5db1ff" font-size="11">cudaMemcpyAsync H2D · raw IQ → device_pre_kernel  (default path)</text>
+    <text x="510" y="156" fill="#5db1ff" font-size="11">cudaMemcpyAsync H2D · raw IQ → device_source_iq  (default path)</text>
 
     <!-- DEVICE channel kernel (apply_channel_kernel) -->
     <rect x="20" y="180" width="960" height="190" rx="8" fill="#0b101a" stroke="#ffb454"/>
@@ -1893,7 +1913,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <!-- Kernel reads -->
     <rect x="320" y="50" width="320" height="100" rx="6" fill="#0b101a" stroke="#5db1ff"/>
     <text x="480" y="74" fill="#5db1ff" text-anchor="middle" font-size="11">apply_channel_kernel · READ ONLY</text>
-    <text x="480" y="98" fill="#cdd6e6" text-anchor="middle" font-size="10">tap_* · fading_* · polyphase · alpha · phi · los_*</text>
+    <text x="480" y="98" fill="#cdd6e6" text-anchor="middle" font-size="10">tap_* · fading_* · polyphase · alpha · phi · los_* · src_index</text>
     <text x="480" y="118" fill="#9aa7bd" text-anchor="middle" font-size="9">never mutated after prepare</text>
     <text x="480" y="138" fill="#9aa7bd" text-anchor="middle" font-size="9">→ writes device_staged only</text>
 
@@ -1920,10 +1940,11 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   function of (state, raw IQ in) → (shaped IQ out, new state) — no
   malloc / lookup / lock on the hot path, no host round-trip during the
   serve. Read-only fields (alphabetical):
-  <code>tap_delay_int / tap_frac / tap_gain_amp / tap_cos_phi / tap_sin_phi /
-  tap_polyphase[K][8] / fading_enabled / f_d_max_hz / grid_us /
-  tap_alpha[K][M] / tap_phi[K][M] / tap_is_los / tap_los_factor /
-  tap_rayleigh_factor / tap_los_angle_rad / tap_phi_los</code>;
+  <code>src_index</code> (D4: which slot of <code>device_source_iq</code> this
+  edge reads from), <code>tap_delay_int / tap_frac / tap_gain_amp /
+  tap_cos_phi / tap_sin_phi / tap_polyphase[K][8] / fading_enabled /
+  f_d_max_hz / grid_us / tap_alpha[K][M] / tap_phi[K][M] / tap_is_los /
+  tap_los_factor / tap_rayleigh_factor / tap_los_angle_rad / tap_phi_los</code>;
   mutable fields: <code>delay_line[dl_size] / slot_start_samples</code>.</figcaption>
   </figure>
 
@@ -3236,8 +3257,19 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   on this workstation. The RTX 5090 silicon supports x16 (sysfs
   <code>max_link_width = 16</code>), so the cap is the slot's electrical
   routing or BIOS bifurcation. This cuts the theoretical ceiling 4× from
-  what an RTX 5090 could otherwise do — and our per-call H2D growth
-  saturates against the x4 ceiling well before the slot deadline.</p>
+  what an RTX 5090 could otherwise do.</p>
+  <p class="key"><b>D4 source rebuffering (landed) defuses the per-edge
+  duplication.</b> The numbers below were measured BEFORE D4, when H2D
+  payload scaled with edge count. Post-D4 the H2D payload scales with
+  <i>unique source count</i>: edges sharing a source share a slot in
+  <code>device_source_iq</code>. For full-duplex topologies (every gNB↔UE
+  pair has two edges per direction) the savings are roughly N_edges /
+  N_sources × the numbers below. At <code>tdl-a_E16</code>: 16 edges → 9
+  sources, so the H2D per slot dropped from ~1.4 MiB to ~0.8 MiB — and
+  the kernel is now the dominant cost (~54 µs), not the H2D (~27 µs).
+  The §20.5 measurements and Diagram W below remain valid as the pre-D4
+  scaling reference; rerun <code>perf-fanin-sweep.sh</code> on the
+  post-D4 build to publish the new curve.</p>
   <table>
     <tr><th>Direction</th><th>Bytes / call</th><th>Bench p99 µs</th><th>Achieved Gbps (p99)</th><th>nsys sustained</th><th>Ceiling (gen 5 x4)</th><th>Utilisation</th></tr>
     <tr><td>H2D (staged buffer)</td><td>1.40 MiB (8 edges × 23 040 × 8 B)</td><td>119.4</td><td>98.7</td><td>12.4 GB/s = 98.9 Gbps</td><td>≈ 126 Gbps</td><td><b>78 %</b></td></tr>
@@ -3560,13 +3592,21 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <p>The actual hardware fix for the PCIe bottleneck is a true gen-5 x16
   slot (<a href="#perf-pcie">§20.5</a>). The software levers below are
   worth pursuing only if the hardware can't change; listed in priority
-  order. <b>Post Phase 2 D3</b> (the channel runs on the GPU now), the
-  bench's per-call landscape changed substantially: the host
-  <code>stage_link()</code> cost that was the dominant per-call latency
-  is gone for any all-leading-tdl topology, and the remaining frontier
-  work is now smaller per-µs trims. See
+  order. <b>Post Phase 2 D3 + D4</b>: the channel runs on the GPU and
+  H2D bytes per slot scale with unique source count (not edge count).
+  The host <code>stage_link()</code> cost that was the dominant per-call
+  latency is gone for any all-leading-tdl topology, and the per-edge
+  PCIe duplication is gone for any topology with shared sources. The
+  remaining frontier work is now smaller per-µs trims. See
   <code>docs/plans/device-channel-pipeline.md</code> for the measured
   pre / post numbers.</p>
+  <p class="note"><b>D7 (source ring on GPU) — still parked.</b> D4 took
+  the biggest win in this neighbourhood (H2D bytes proportional to source
+  count, not edge count) without breaking the CPU↔GPU bit-exact parity
+  invariant. D7 would push further by keeping the ring itself on the GPU,
+  but it costs the parity invariant + destination-decoupling guarantee.
+  Trigger conditions for revisiting are unchanged
+  (<a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/device-channel-pipeline.md#d7-considered-not-pursued">plan doc D7 section</a>).</p>
   <ul class="tight">
     <li><b>CUDA Graphs — capture-and-replay the per-slot pipeline.</b>
         The H2D + kernel + D2H sequence is static after

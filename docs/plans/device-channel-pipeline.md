@@ -440,20 +440,26 @@ needed.
 
 ### What's left in Phase 2
 
-- **D4** (source rebuffering) — demoted from the original plan because
-  PCIe is no longer the binding constraint. Could still buy ~Nx H2D
-  reduction at large fan-out by shipping per-source IQ instead of
-  per-edge slots, but tdl-a_E16's H2D is only 121 µs out of 1000 µs
-  budget — not urgent.
+- **D4** (source rebuffering) — **LANDED in commit `d3b1a15`**.
+  `DeviceLinkState` gained `int src_index`; `CudaSuperposeState` renamed
+  `host_pre_kernel`/`device_pre_kernel` → `host_source_iq`/`device_source_iq`
+  sized by `num_sources × count` (not `link_count × count`). Host pack
+  walks unique sources via `source_first_edge[s]`; kernels read
+  `source_iq[s->src_index * count + read_idx]`. Bandwidth saved per slot:
+  `(link_count − num_sources) × count` IqSamples. At tdl-a_E16: 16 edges
+  → 9 sources, ~44% fewer H2D bytes per slot. New ctest case: 2 edges
+  sharing 1 source, CPU↔CUDA parity at 1e-3 holds. Remote
+  `gpu-test-sequence.sh` 7/7 PASSED.
 - **D5** (perf-measurement formalisation) — done implicitly via the
-  sweeps banked here.
-- **D6** (full doc sweep) — overdue. §11 / §13 / §19 / Diagram S claim
-  multipath + Doppler run "on the host"; after D3 that's only true for
-  links the gate rejects (mixed nodes, non-tdl-leading). The doc
-  narrative needs updating from "host always" to "host on fallback,
-  device on the common case".
+  sweeps banked here. A fresh `perf-fanin-sweep.sh` on the post-D4 build
+  would update Diagram W (PCIe Gbps vs N).
+- **D6** (full doc sweep) — landed alongside D4 commit. §6 Diagrams K + V,
+  §12 + §12.0 op order, Diagram MF, §20.5 PCIe section, and §21 Planned
+  all carry the D4 narrative ("H2D scales with source count, not edge
+  count").
 
-The remaining work is doc / cleanup. The hard kernel work is done.
+Phase 2 is now complete. The hard kernel work landed in D3; D4 closed
+the PCIe-duplication loop without breaking the CPU↔GPU parity invariant.
 
 ## D7 (considered, not pursued) — source `tx_ring` on the GPU
 

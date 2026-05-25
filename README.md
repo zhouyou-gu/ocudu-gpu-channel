@@ -29,7 +29,11 @@ What's proven end-to-end on an RTX 5090 against the OCUDU + srsUE stack:
   on the GPU by default via `apply_channel_kernel`; host `stage_link()` stays
   as the CPU reference and the CUDA fallback. `tdl-a_E16` (1 gNB + 8 UEs,
   TDL-A 23-tap + Jakes 100 Hz on all 16 edges) went from 58 430 µs (host) to
-  319 µs (device) — 183× speedup, well inside the 1 ms slot budget.
+  319 µs (device) — 183× speedup, well inside the 1 ms slot budget. **D4
+  source rebuffering** (latest): H2D bytes per slot scale with unique
+  source count, not edge count — edges sharing a source share one
+  `device_source_iq` slot via `DeviceLinkState::src_index`; saves ~44% of
+  H2D bytes at tdl-a_E16. CPU↔CUDA parity at 1e-3 preserved.
 
 **Supported chain steps today:** `tdl` (tapped delay line — covers
 scalar gain, integer or fractional sample delay, full multi-tap multipath,
