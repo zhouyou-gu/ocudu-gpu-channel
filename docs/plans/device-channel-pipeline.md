@@ -380,3 +380,77 @@ in D3; the only delta is adding the Jakes coarse-grid materialisation
 and Rician LOS composition inside `apply_channel_kernel`. Expected
 post-D3 impact on `tdl-a_E16`: 58 000 µs → ~200-500 µs (~120-290×
 speedup, into the 1 ms slot budget for the first time).
+
+## D3 result — TDL profiles are realtime-fit for the first time
+
+Commit `b73d8a9` landed the Jakes + Rician LOS device kernel and
+broadened the dispatch gate so any all-leading-tdl topology takes the
+device path. Snapshot at
+`docs/blueprint-generated/sweep-2026-05-25-post-d3.json`.
+
+### TDL profile speedup (the headline)
+
+| Config | pre-D2b | post-D2b | **post-D3** | D3 speedup |
+|---|---|---|---|---|
+| `tdl-a_E2`  (1 link × 23-tap TDL-A + Jakes 100 Hz) | 7 830 µs | 7 376 µs | **122 µs** | **60×** |
+| `tdl-a_E16` (16 edges × 23-tap TDL-A + Jakes 100 Hz) | 57 998 µs | 58 430 µs | **319 µs** | **183×** |
+
+Both configs are now well inside the **1 ms slot budget** (`tdl-a_E16`
+at 319 µs has 681 µs of slack). The 60 ms `tdl-a_E16` host bottleneck
+that motivated this whole Phase 2 effort is gone.
+
+### Per-phase breakdown (post-D3, tdl-a_E16)
+
+| Phase | µs |
+|---|---|
+| H2D (raw IQ + steps + step_meta) | 121 |
+| Kernel (Jakes grid materialisation + per-sample fading + multi-tap conv + apply_chain + superpose) | 97 |
+| D2H | 21 |
+| gpu_process_us (cudaEvents H2D_start → D2H_done) | 249 |
+| host_gap (cudaStreamSync wait + chrono overhead) | 70 |
+| **model_mix_latency** | **319** |
+
+The kernel does the full work for 16 edges × 23 taps × 20 sub-rays × 11
+grid points (~80 K complex sinusoid materialisations) plus per-sample
+fading interpolation + polyphase convolution + apply_chain + superpose
+sum — all in 97 µs on the RTX 5090. The host_gap is now negligible.
+
+### Cuda_mvp configs unchanged
+
+| Config | post-D2b | post-D3 |
+|---|---|---|
+| `one-to-n_N16` | 437 | 436 |
+| `one-to-n_N64` | 1 621 | 1 631 |
+| `m-to-n_M16_N16` | 442 | 444 |
+
+The non-fading path is unaffected by D3 (the kernel's fading branch is
+skipped when `s->fading_enabled == 0`). Same performance as D2b.
+
+### Correctness — bit-exact tests survived
+
+The existing CPU↔CUDA fading bit-exact test in `tests/test_processing.cpp`
+(asserting `require_near_buffer` at 1e-3 tolerance) **passed** on the
+remote RTX 5090. The device kernel's `__sincosf` fp32 approximation
+accumulated less drift than predicted — within 1e-3 per sample even
+after M=20 sub-rays × K=23 taps × polyphase chain. No tolerance bump
+needed.
+
+`gpu-test-sequence.sh` step [7/7] avg_power assertion: measured
+3.33 / 3.92 (vs expected 3.468, tolerance ±1.5). Comfortably within.
+
+### What's left in Phase 2
+
+- **D4** (source rebuffering) — demoted from the original plan because
+  PCIe is no longer the binding constraint. Could still buy ~Nx H2D
+  reduction at large fan-out by shipping per-source IQ instead of
+  per-edge slots, but tdl-a_E16's H2D is only 121 µs out of 1000 µs
+  budget — not urgent.
+- **D5** (perf-measurement formalisation) — done implicitly via the
+  sweeps banked here.
+- **D6** (full doc sweep) — overdue. §11 / §13 / §19 / Diagram S claim
+  multipath + Doppler run "on the host"; after D3 that's only true for
+  links the gate rejects (mixed nodes, non-tdl-leading). The doc
+  narrative needs updating from "host always" to "host on fallback,
+  device on the common case".
+
+The remaining work is doc / cleanup. The hard kernel work is done.
