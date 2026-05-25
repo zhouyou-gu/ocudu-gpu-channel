@@ -252,3 +252,70 @@ This plan is queued at **Phase 2** in the roadmap (`AGENT_PROGRESS.md`). The tri
 - The bit-exact CPU↔CUDA parity test value is outweighed by the PCIe headroom we'd gain.
 
 Until those trigger, the current host-side design is the right one. This plan is the path we'd take when the trigger fires.
+
+## May-25 perf measurement — trigger HAS fired, but reason has shifted
+
+A fresh `perf-fanin-sweep.sh` on the RTX 5090 (commit `55634fc`, snapshot
+at `docs/blueprint-generated/sweep-2026-05-25.json`) sharpened the picture
+in ways that change this plan's priorities.
+
+### What stayed the same
+
+GPU-side numbers are byte-for-byte identical to the May-22 baseline.
+`h2d_us`, `kernel_us`, `d2h_us`, `gpu_process_us` all unchanged — the
+GPU pipeline itself is healthy. PCIe gen-5 x4 utilisation at N=16 is
+**86 %** of the 15 GB/s ceiling, consistent with §21.5.
+
+### What changed
+
+`model_mix_latency` (the full chrono wall around `process_superposition`)
+exploded vs the May-22 baseline. The growth scales linearly with N edges
+and is entirely **host-side**, not GPU-side. The "host gap" (mix −
+gpu_process_us):
+
+| Config | gpu_process_us p99 | model_mix_latency p99 | host gap |
+|---|---|---|---|
+| `one-to-n_N1`  | 58 µs  | 347 µs   | **289 µs**     |
+| `one-to-n_N8`  | 157 µs | 2 407 µs | **2 250 µs**   |
+| `one-to-n_N16` | 275 µs | 4 771 µs | **4 496 µs**   |
+| `one-to-n_N64` | 968 µs | 18 926 µs| **17 958 µs**  |
+| **`tdl-a_E2`** | 61 µs  | **7 830 µs** | **7 769 µs** (1 bidirectional pair, TDL-A 23-tap + Jakes) |
+| **`tdl-a_E16`**| 157 µs | **57 998 µs**| **57 840 µs** (1 gNB + 8 UEs, TDL-A on all 16 edges) |
+
+`tdl-a_E16` exceeds the 1 ms slot budget by **60×**. This makes any
+production TR 38.901 deployment with realistic fan-out **unviable
+realtime** on the current host-side path.
+
+### Implications for this plan
+
+1. **The trigger has fired** — but the dominant cost is host-CPU
+   stage_link, not PCIe bandwidth. PCIe is real but secondary
+   (~228 µs/slot at N=16 vs ~4 500 µs host_gap).
+
+2. **D3 (fading on device) is now the highest-value phase**, not D4
+   (source rebuffering). The 58 ms → ~100 µs win on `tdl-a_E16` lives
+   in D3. D4 buys PCIe headroom but that's not the wall today.
+
+3. **Sequence remains D2b → D3.** D2b is the smaller, validatable first
+   step that proves the device pipeline works end-to-end on the
+   static-tdl path. It's a precursor risk-reducer before D3.
+
+4. **D4 demoted to optional polish.** Source-side rebuffering is still
+   correct and would still buy ~Nx H2D bandwidth, but only matters
+   after D3 closes the host-CPU gap; at that point we should re-measure
+   and decide whether D4 is worth the dispatch complexity.
+
+### Open follow-up
+
+The May-22 → May-25 jump in `model_mix_latency` on the simple cuda_mvp
+configs (5× slower at the same GPU numbers, same idle box, hot-path
+code diff is just comment changes) is unexplained by the diff. Worth a
+short investigation before D2b in case it's a pinned-memory first-touch
+issue from the new `host_pre_kernel` buffer or an nvcc optimisation
+drift. Not blocking — `gpu_process_us` is trustworthy.
+
+### Companion artifacts
+
+- `docs/blueprint-generated/sweep-2026-05-25.json` — full sweep data
+- `docs/blueprint-generated/perf-{T,U,W}-*.svg` — regenerated figures
+  (overwrite the May-22 versions; previous JSON kept for diff history)
