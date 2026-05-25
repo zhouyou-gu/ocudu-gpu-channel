@@ -319,3 +319,64 @@ drift. Not blocking — `gpu_process_us` is trustworthy.
 - `docs/blueprint-generated/sweep-2026-05-25.json` — full sweep data
 - `docs/blueprint-generated/perf-{T,U,W}-*.svg` — regenerated figures
   (overwrite the May-22 versions; previous JSON kept for diff history)
+
+## D2b validation — post-dispatch perf re-measurement
+
+After commit `57edf3d` wired the device-kernel dispatch behind the
+per-node `use_device_channel` gate, a fresh sweep on the RTX 5090
+(snapshot `docs/blueprint-generated/sweep-2026-05-25-post-d2b.json`)
+confirms D2b worked exactly as intended.
+
+### What dropped (cuda_mvp configs — now take the device-kernel path)
+
+| Config | mix p99 pre-D2b | mix p99 post-D2b | Δ |
+|---|---|---|---|
+| `one-to-n_N1`  | 347 µs    | 76 µs    | **−282 µs (−81%)** |
+| `one-to-n_N8`  | 2 407 µs  | 240 µs   | **−2 167 µs (−90%)** |
+| `one-to-n_N16` | 4 771 µs  | 437 µs   | **−4 334 µs (−91%)** |
+| `one-to-n_N64` | 18 926 µs | 1 621 µs | **−17 305 µs (−91%)** |
+| `m-to-n_M16_N16` | 4 798 µs | 442 µs  | **−4 356 µs (−91%)** |
+
+Post-D2b values are within 3-5 % of the **May-22 baseline** (which was
+the pre-Phase-2 measurement, taken when host_staged was the only buffer
+the host wrote). This means the "mysterious May-22 → May-25 host_gap
+regression" flagged in the section above was, in fact, **the host-side
+`stage_link()` cost itself** — Phase 1.5 + 1.6 made it visible by
+adding more measurement granularity, and Phase 2 D1/D2-C's extra
+pinned-memory allocations made it slightly worse via cache/NUMA
+pressure on `host_staged`. D2b bypasses stage_link entirely on the
+static-tdl path, removing the cost.
+
+### What went up (modest, expected)
+
+| Config | kernel µs pre-D2b | kernel µs post-D2b | Δ |
+|---|---|---|---|
+| `one-to-n_N1`  | 4.8  | 13.0 | +8.3 |
+| `one-to-n_N16` | 16.9 | 27.3 | +10.4 |
+| `one-to-n_N64` | 53.6 | 71.8 | +18.1 |
+
+The device kernel now does the multi-tap convolution + polyphase reads
++ delay-line ring touch. +18 µs at N=64 is trivial against the
+17 305 µs host saving.
+
+### What didn't change (TDL-A configs — still on host path)
+
+| Config | mix p99 pre-D2b | mix p99 post-D2b | Notes |
+|---|---|---|---|
+| `tdl-a_E2`  | 7 830 µs   | 7 376 µs  | Within run-to-run noise |
+| `tdl-a_E16` | 57 998 µs  | 58 430 µs | Within run-to-run noise |
+
+These configs have `fading_enabled = true`, so the dispatch gate keeps
+them on host. **This is exactly where D3 needs to land** — the 58 ms
+host work for a 23-tap × 16-edge TDL-A topology is the binding
+correctness constraint for any realistic 3GPP deployment.
+
+### D3 priority confirmed
+
+D2b's success validates the device-pipeline architecture (raw IQ H2D →
+device channel kernel → device_staged → superpose_kernel) end-to-end
+on a real workload. The same dispatch shape extends to the fading path
+in D3; the only delta is adding the Jakes coarse-grid materialisation
+and Rician LOS composition inside `apply_channel_kernel`. Expected
+post-D3 impact on `tdl-a_E16`: 58 000 µs → ~200-500 µs (~120-290×
+speedup, into the 1 ms slot budget for the first time).
