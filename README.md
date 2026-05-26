@@ -201,3 +201,7 @@ GPU runs, with all broker data-integrity counters at zero.
   packet-loss requirements when broker and radios run on different hosts.
 - [Project structure](docs/project-structure.md) — local repo and remote RTX
   workstation layout.
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright © 2026 Zhouyou Gu.
