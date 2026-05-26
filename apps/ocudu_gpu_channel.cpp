@@ -74,8 +74,14 @@ int main(int argc, char** argv)
     auto stats = broker.run(duration);
     std::cout << "event=stop tx_pulls=" << stats.tx_pulls << " rx_requests=" << stats.rx_requests
               << " rx_starvations=" << stats.rx_starvations << " tx_queue_overflows=" << stats.tx_queue_overflows
-              << " tx_sequence_gaps=" << stats.tx_sequence_gaps << " zmq_errors=" << stats.zmq_errors << "\n"
-              << std::flush;
+              << " tx_sequence_gaps=" << stats.tx_sequence_gaps << " zmq_errors=" << stats.zmq_errors;
+    if (control_server) {
+      const auto cs = control_server->stats();
+      std::cout << " control_msgs_received=" << cs.msgs_received
+                << " control_updates_applied=" << cs.updates_applied
+                << " control_updates_rejected=" << cs.updates_rejected;
+    }
+    std::cout << "\n" << std::flush;
     if (strict_realtime &&
         (stats.tx_pulls == 0 || stats.rx_requests == 0 || stats.rx_starvations != 0 || stats.tx_queue_overflows != 0 ||
          stats.tx_sequence_gaps != 0 || stats.zmq_errors != 0)) {

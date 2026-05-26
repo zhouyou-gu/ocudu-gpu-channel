@@ -18,8 +18,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 
@@ -34,6 +36,13 @@ struct ControlServerConfig {
   // shorten stop() latency; higher values reduce wakeups. Default 100 ms
   // keeps shutdown responsive without burning CPU on empty polls.
   int recv_timeout_ms = 100;
+
+  // Per-message log sink. Default writes one line to std::cout per
+  // applied update or rejection in the existing broker's k=v format
+  // (event=control_update / event=control_error). Tests override this to
+  // capture and assert log content. Pass an empty std::function to
+  // suppress logging entirely.
+  std::function<void(std::string_view)> logger;
 };
 
 class ControlServer {

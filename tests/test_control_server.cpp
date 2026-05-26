@@ -16,8 +16,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -53,9 +55,18 @@ int main()
       {"ue1-gnb0", ctl_b.get()},
   };
 
+  // Capture log lines so C4 assertions can grep them.
+  std::vector<std::string> log_lines;
+  std::mutex log_mu;
+  auto recording_logger = [&](std::string_view line) {
+    std::lock_guard<std::mutex> g(log_mu);
+    log_lines.emplace_back(line);
+  };
+
   ocg::ControlServerConfig cfg;
   cfg.endpoint = "inproc://test-c3a-not-bound";
   cfg.recv_timeout_ms = 100;
+  cfg.logger = recording_logger;
   ocg::ControlServer server(std::move(cfg), std::move(link_map));
 
   // ── Case 1: well-formed REQ updates shadow + bumps seqno + returns seqno
@@ -158,6 +169,29 @@ int main()
     require(s.msgs_received == 11, "msgs_received should equal total handled messages");
     require(s.updates_applied == 4, "4 successful updates: cases 1, 2, 3, 5");
     require(s.updates_rejected == 7, "7 rejections: cases 4, 6, 7, 8, 9, 10, 11");
+  }
+
+  // ── Case 13 (C4): log lines reconstruct the experiment trace
+  {
+    std::lock_guard<std::mutex> g(log_mu);
+    require(log_lines.size() == 11, "every REQ must emit exactly one log line");
+
+    // 4 control_update + 7 control_error
+    std::size_t updates = 0, errors = 0;
+    for (const auto& line : log_lines) {
+      if (line.rfind("event=control_update", 0) == 0) ++updates;
+      else if (line.rfind("event=control_error", 0) == 0) ++errors;
+    }
+    require(updates == 4, "should see 4 event=control_update lines");
+    require(errors == 7, "should see 7 event=control_error lines");
+
+    // First successful update should carry the before-and-after values.
+    require(contains(log_lines[0], "event=control_update"), "first line is an update");
+    require(contains(log_lines[0], "link_id=ue0-gnb0"), "first update names link");
+    require(contains(log_lines[0], "param=path_loss_db"), "first update names param");
+    require(contains(log_lines[0], "old=0"), "first update reports old=0 (YAML default)");
+    require(contains(log_lines[0], "new=-12.5"), "first update reports the new value");
+    require(contains(log_lines[0], "seqno=1"), "first update reports seqno=1");
   }
 
   // ── C3b: full end-to-end over real ZMQ REQ ↔ REP on a localhost TCP port

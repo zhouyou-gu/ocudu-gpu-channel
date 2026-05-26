@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -203,6 +204,20 @@ const ParamSpec* find_param_spec(const std::string& name)
   return nullptr;
 }
 
+// Read the current shadow value for a param (used for the old= field in
+// the event=control_update log line). Returns NaN for an unknown param.
+double read_shadow(const BrokerLinkControl& ctl, const ParamSpec& spec)
+{
+  if (spec.name == std::string_view("path_loss_db"))       return ctl.shadow.path_loss_db;
+  if (spec.name == std::string_view("awgn_sigma"))         return ctl.shadow.awgn_sigma;
+  if (spec.name == std::string_view("los_k_db"))           return ctl.shadow.los_k_db;
+  if (spec.name == std::string_view("cfo_hz"))             return ctl.shadow.cfo_hz;
+  if (spec.name == std::string_view("tap0_delay_samples")) return ctl.shadow.tap0_delay_samples;
+  if (spec.name == std::string_view("tap0_gain_db"))       return ctl.shadow.tap0_gain_db;
+  if (spec.name == std::string_view("tap0_phase_rad"))     return ctl.shadow.tap0_phase_rad;
+  return std::nan("");
+}
+
 // Apply a validated update to the shadow (MutableParams field selected by
 // name) and bump the seqno with release semantics. Returns true on success.
 bool apply_update(BrokerLinkControl& ctl, const ParamSpec& spec, double value)
@@ -223,6 +238,16 @@ bool apply_update(BrokerLinkControl& ctl, const ParamSpec& spec, double value)
   return true;
 }
 
+// Default log sink: one line to std::cout per applied update or rejection.
+// Matches the existing broker convention (k=v on a single line), not the
+// JSON shape the plan originally sketched — the plan was updated to follow
+// the codebase. Strings with whitespace are quoted to keep the line
+// awk-parseable.
+void default_logger(std::string_view line)
+{
+  std::cout << line << '\n';
+}
+
 std::string make_error_reply(const std::string& msg)
 {
   return std::string("{\"ok\":false,\"error\":\"") + json_escape(msg) + "\"}";
@@ -241,7 +266,11 @@ std::string make_success_reply(std::uint32_t seqno)
 
 ControlServer::ControlServer(ControlServerConfig config, LinkMap link_map)
     : config_(std::move(config)), link_map_(std::move(link_map))
-{}
+{
+  if (!config_.logger) {
+    config_.logger = default_logger;
+  }
+}
 
 ControlServer::~ControlServer()
 {
@@ -275,27 +304,35 @@ std::string ControlServer::handle_message(const std::string& request_body)
 {
   msgs_received_.fetch_add(1, std::memory_order_relaxed);
 
+  // Inner lambda: log the rejection in the existing broker's k=v format,
+  // bump the counter, and return the JSON REP body. Centralised so every
+  // exit path is consistent.
+  auto reject = [this](const std::string& reason) -> std::string {
+    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
+    if (config_.logger) {
+      config_.logger(std::string("event=control_error reason=\"") + reason + "\"");
+    }
+    return make_error_reply(reason);
+  };
+
   std::unordered_map<std::string, JsonValue> fields;
   try {
     JsonReader r(request_body);
     fields = r.read_flat_object();
   } catch (const std::exception& e) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply(std::string("malformed JSON: ") + e.what());
+    return reject(std::string("malformed JSON: ") + e.what());
   }
 
   auto it_link  = fields.find("link_id");
   auto it_param = fields.find("param");
   auto it_value = fields.find("value");
   if (it_link == fields.end() || it_param == fields.end() || it_value == fields.end()) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply("missing required field (need link_id, param, value)");
+    return reject("missing required field (need link_id, param, value)");
   }
   if (it_link->second.kind != JsonValue::Kind::String ||
       it_param->second.kind != JsonValue::Kind::String ||
       it_value->second.kind != JsonValue::Kind::Number) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply("type error: link_id/param must be strings, value must be a number");
+    return reject("type error: link_id/param must be strings, value must be a number");
   }
 
   const std::string& link_id = it_link->second.s;
@@ -304,34 +341,43 @@ std::string ControlServer::handle_message(const std::string& request_body)
 
   auto it_ctl = link_map_.find(link_id);
   if (it_ctl == link_map_.end() || it_ctl->second == nullptr) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply("unknown link_id: " + link_id);
+    return reject("unknown link_id: " + link_id);
   }
 
   const ParamSpec* spec = find_param_spec(param);
   if (spec == nullptr) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply("unknown param: " + param);
+    return reject("unknown param: " + param);
   }
   if (!std::isfinite(value) || value < spec->min || value > spec->max) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply(
+    return reject(
         "param '" + param + "' value " + format_double(value) + " out of range ["
         + format_double(spec->min) + ", " + format_double(spec->max) + "]");
   }
   if (spec->is_int && std::trunc(value) != value) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply("param '" + param + "' requires an integer value");
+    return reject("param '" + param + "' requires an integer value");
   }
 
+  // Capture old before the write so the log line reports both values.
+  const double old_value = read_shadow(*it_ctl->second, *spec);
+
   if (!apply_update(*it_ctl->second, *spec, value)) {
-    updates_rejected_.fetch_add(1, std::memory_order_relaxed);
-    return make_error_reply("internal: failed to apply update");
+    return reject("internal: failed to apply update");
   }
 
   updates_applied_.fetch_add(1, std::memory_order_relaxed);
   const std::uint32_t observed_seqno =
       it_ctl->second->seqno.load(std::memory_order_relaxed);
+
+  if (config_.logger) {
+    std::ostringstream o;
+    o << "event=control_update link_id=" << link_id
+      << " param=" << param
+      << " old=" << format_double(old_value)
+      << " new=" << format_double(value)
+      << " seqno=" << observed_seqno;
+    config_.logger(o.str());
+  }
+
   return make_success_reply(observed_seqno);
 }
 
