@@ -1,6 +1,6 @@
 # Plan — runtime-mutable channel parameters
 
-Status: **v1 landed (C1–C5)** · Phase target: **Phase 3** · Doc-update step **C6 landed** · v1 effort actual: **~1 focused day across 7 commits** · Risk: held to **low** (every commit kept tests green; CPU↔CUDA parity preserved by construction)
+Status: **v1 fully landed (C1–C6 + v1-fin-A/B/C)** · Phase target: **Phase 3** · v1 effort actual: **~1 focused day across 10 commits** · Risk: held to **low** (every commit kept tests green; CPU↔CUDA parity preserved on deterministic params, statistical on AWGN). All seven v1 params (`path_loss_db`, `awgn_snr_db`, `cfo_hz`, `tap0_delay_samples` (float), `tap0_gain_db`, `tap0_phase_rad`, `los_k_db`) flow end-to-end through the control plane and into kernel output. v2 (multi-tap profile swaps + `take_effect_at_slot`) is the next increment.
 
 ## Goal in one sentence
 

@@ -2274,15 +2274,21 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <p>Inside the per-thread loop of <code>superpose_kernel</code> (and in the body of <code>apply_steps_kernel</code> for an <code>rx_model</code>), each thread loads one (i, q) pair into registers and walks the link's chain via <code>apply_chain()</code>. The chain is a flat array of <code>GpuStep</code> structs built host-side from the YAML model; every iteration switches on <code>step.type</code> to apply one of three operations, each mutating the same (i, q) state in place. The same machinery serves every model in the topology — "desired" is tdl + phase + CFO (the leading tdl ran already in <code>apply_channel_kernel</code> on device — or <code>stage_link()</code> on host fallback — so on the device per-sample chain it is a no-op pass-through, leaving phase and CFO as the actual per-sample work); "crosstalk" is path-loss + phase; the receiver <code>noise_floor</code> is a single AWGN step.</p>
 
-  <p class="note"><b>Runtime mutability (Phase 3 v1).</b> The chain-step
-  parameter values <code>path_loss_db</code> and <code>cfo_hz</code> are
-  no longer baked in at startup — both backends read them from a per-link
-  <code>MutableParams</code> field (<code>live</code>) populated from YAML
-  at <code>prepare()</code> and snapped from a control-thread-written
-  <code>shadow</code> at the start of every serve. Updates arrive over a
-  ZMQ REP socket (opt-in via <code>--control-endpoint</code>); the snap is
-  a single acquire-load + early-return when no update is pending. See
-  <a href="#scope">§21</a> for scope and the design plan at
+  <p class="note"><b>Runtime mutability (Phase 3 v1).</b> All seven v1
+  params — <code>path_loss_db</code>, <code>awgn_snr_db</code>,
+  <code>cfo_hz</code>, <code>tap0_delay_samples</code>,
+  <code>tap0_gain_db</code>, <code>tap0_phase_rad</code>,
+  <code>los_k_db</code> — flow through a per-link
+  <code>MutableParams</code> field (<code>live</code>) populated from
+  YAML at <code>prepare()</code> and snapped from a control-thread-
+  written <code>shadow</code> at the start of every serve. Chain-step
+  params are read from <code>live</code> in the per-sample loop;
+  tap-0 / LOS params are refreshed into the derived
+  <code>DeviceLinkState</code> fields (CUDA) or rebuilt as effective
+  taps + polyphase (CPU) when the snap detects a change. Updates
+  arrive over a ZMQ REP socket (opt-in via <code>--control-endpoint</code>);
+  the snap on a steady-state slot is a single acquire-load + early-
+  return. See <a href="#scope">§21</a> for scope and the design plan at
   <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</p>
 
   <figure>
@@ -3803,25 +3809,26 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <h3>Done — operational flexibility</h3>
   <ul class="tight">
-    <li><b>Runtime-mutable channel parameters — v1 scalar params (Phase 3 C1–C5, landed).</b>
-        Per-link <code>path_loss_db</code> and <code>cfo_hz</code> are
-        live-mutable over a ZMQ REP control plane (opt-in via
-        <code>--control-endpoint tcp://*:5559</code>). JSON REQ
+    <li><b>Runtime-mutable channel parameters — v1 (Phase 3 C1–C6 + v1-fin-A/B/C, landed).</b>
+        All seven v1 params are live-mutable over a ZMQ REP control plane
+        (opt-in via <code>--control-endpoint tcp://*:5559</code>):
+        <code>path_loss_db</code>, <code>awgn_snr_db</code>,
+        <code>cfo_hz</code>, <code>tap0_delay_samples</code> (float —
+        fractional supported), <code>tap0_gain_db</code>,
+        <code>tap0_phase_rad</code>, <code>los_k_db</code>. JSON REQ
         <code>{"link_id","param","value"}</code> writes a per-link shadow;
         the server thread snaps shadow → <code>live</code> at the next
         slot boundary; both CPU and CUDA backends read from
-        <code>live</code>. Bit-exact CPU↔CUDA parity preserved
-        (<code>ctest -R runtime_update_parity</code>). v2 will add
-        multi-tap profile swaps with a delay_line warmup contract and
-        deterministic <code>take_effect_at_slot</code> timing. Design plan
-        and locked decisions at
-        <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.
-        The other seven v1 params (<code>awgn_sigma</code>,
-        <code>los_k_db</code>, <code>tap0_delay_samples</code>,
-        <code>tap0_gain_db</code>, <code>tap0_phase_rad</code>) accept and
-        validate REQs but the read-path rewire for tap-0 / AWGN is
-        deferred to a follow-on commit alongside the AWGN representation
-        refactor.</li>
+        <code>live</code>. CUDA tap-0 mutability uses a conditional
+        D2H+refresh+H2D round-trip on dirty edges (preserves the device-
+        owned cross-slot <code>delay_line</code>). Bit-exact CPU↔CUDA
+        parity preserved on all deterministic params; AWGN parity is
+        statistical at the same Jakes tolerance. Test:
+        <code>ctest -R runtime_update_parity</code>. v2 will add multi-
+        tap profile swaps with a delay_line warmup contract and
+        deterministic <code>take_effect_at_slot</code> timing. Design
+        plan + landed-scope details:
+        <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
   </ul>
 
   <h3>Planned — operational flexibility</h3>
