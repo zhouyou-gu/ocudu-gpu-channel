@@ -134,13 +134,21 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
 
     switch (step.type) {
       case ModelStepType::PathLoss: {
-        const float factor = static_cast<float>(std::pow(10.0, -param_or(step, "path_loss_db", 0.0) / 20.0));
+        // Phase 3 C2a: path_loss_db sourced from per-link `live` (populated
+        // from YAML at prepare; will be overwritten by snap-from-shadow in
+        // C2b once the control plane is wired).
+        const float factor = static_cast<float>(std::pow(10.0, -state.live.path_loss_db / 20.0));
         for (std::size_t i = 0; i != current.size(); ++i) {
           next[i] = scale(current[i], factor);
         }
         break;
       }
       case ModelStepType::Awgn: {
+        // AWGN sigma derives from runtime input power vs. YAML snr_db (or an
+        // explicit noise_power). Not yet sourced from `live` in C2a — the
+        // current MutableParams::awgn_sigma representation doesn't capture
+        // the SNR-relative-to-current-power semantics. A later commit will
+        // rework the struct (e.g. awgn_snr_db) and rewire this path.
         double noise_power = param_or(step, "noise_power", -1.0);
         if (noise_power < 0.0) {
           const double snr_db = param_or(step, "snr_db", 60.0);
@@ -156,8 +164,10 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
       }
       case ModelStepType::Phase:
       case ModelStepType::Cfo: {
+        // Phase 3 C2a: cfo_hz sourced from per-link `live`. phase_rad stays on
+        // the step (not a v1 mutable param).
         const double fixed_phase = param_or(step, "phase_rad", 0.0);
-        const double cfo_hz = param_or(step, "cfo_hz", 0.0);
+        const double cfo_hz = static_cast<double>(state.live.cfo_hz);
         const double phase_increment =
             sample_rate_hz == 0 ? 0.0 : 2.0 * std::numbers::pi * cfo_hz / static_cast<double>(sample_rate_hz);
         for (std::size_t i = 0; i != current.size(); ++i) {

@@ -814,15 +814,20 @@ private:
       auto& gpu_step = ms.host_steps[step_index];
       switch (step.type) {
         case ModelStepType::PathLoss: {
-          const float factor = static_cast<float>(std::pow(10.0, -param_or(step, "path_loss_db", 0.0) / 20.0));
+          // Phase 3 C2a: path_loss_db sourced from per-link `live` (populated
+          // from YAML at prepare; will be overwritten by snap-from-shadow in
+          // C2b once the control plane is wired).
+          const float factor = static_cast<float>(std::pow(10.0, -ms.live.path_loss_db / 20.0));
           gpu_step = make_step(Scale, factor, 0.0F);
           running_power *= static_cast<double>(factor) * factor;
           break;
         }
         case ModelStepType::Phase:
         case ModelStepType::Cfo: {
+          // Phase 3 C2a: cfo_hz sourced from per-link `live`. phase_rad stays
+          // on the step (not a v1 mutable param).
           const double fixed_phase = param_or(step, "phase_rad", 0.0);
-          const double cfo_hz = param_or(step, "cfo_hz", 0.0);
+          const double cfo_hz = static_cast<double>(ms.live.cfo_hz);
           const double phase_increment =
               sample_rate_hz == 0 ? 0.0 : 2.0 * kPi * cfo_hz / static_cast<double>(sample_rate_hz);
           gpu_step = make_step(Rotate, static_cast<float>(fixed_phase + ms.phase_rad[step_index]),
