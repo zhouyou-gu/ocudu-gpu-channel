@@ -90,6 +90,10 @@ if(OCUDU_GPU_CHANNEL_BUILD_TESTS)
   target_link_libraries(test_control_server PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME control_server COMMAND test_control_server)
 
+  add_executable(test_runtime_update_parity tests/test_runtime_update_parity.cpp)
+  target_link_libraries(test_runtime_update_parity PRIVATE ocudu_gpu_channel_lib)
+  add_test(NAME runtime_update_parity COMMAND test_runtime_update_parity)
+
   add_executable(test_processing tests/test_processing.cpp)
   target_link_libraries(test_processing PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME processing COMMAND test_processing)
