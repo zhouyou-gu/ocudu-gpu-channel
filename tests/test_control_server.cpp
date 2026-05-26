@@ -332,6 +332,102 @@ int main()
     require(s.updates_rejected == 12, "updates_rejected should be 12");
   }
 
+  // ── v2.3: multi-link atomic batches ─────────────────────────────────────
+
+  // Case 26: batch_begin + stage 2 scalars + batch_commit → both visible
+  // with the same take_effect_at_slot on their respective ctl.
+  {
+    // Pre-snapshot seqno baselines so we can assert "exactly 1 bump per
+    // staged op".
+    const std::uint32_t a_seqno_before = ctl_a->seqno.load();
+    const std::uint32_t b_seqno_before = ctl_b->seqno.load();
+
+    auto r1 = server.handle_message(R"({"type":"batch_begin","id":"exp-26"})");
+    require(contains(r1, "\"ok\":true"), "batch_begin should succeed");
+    require(contains(r1, "\"batch_id\":\"exp-26\""), "REP echoes batch_id");
+
+    auto r2 = server.handle_message(
+        R"({"link_id":"ue0-gnb0","param":"path_loss_db","value":-1.5,"batch_id":"exp-26"})");
+    require(contains(r2, "\"staged\":true"), "staged scalar should ack staged:true");
+
+    auto r3 = server.handle_message(
+        R"({"link_id":"ue1-gnb0","param":"cfo_hz","value":444.0,"batch_id":"exp-26"})");
+    require(contains(r3, "\"staged\":true"), "second staged scalar should ack staged:true");
+
+    // Shadow NOT yet updated by the stage step.
+    require(ctl_a->seqno.load() == a_seqno_before,
+            "staged op should not bump ctl_a seqno until commit");
+    require(ctl_b->seqno.load() == b_seqno_before,
+            "staged op should not bump ctl_b seqno until commit");
+
+    auto r4 = server.handle_message(
+        R"({"type":"batch_commit","id":"exp-26","take_effect_at_slot":777})");
+    require(contains(r4, "\"ok\":true"), "batch_commit should succeed");
+    require(contains(r4, "\"link_count\":2"), "REP reports 2 links applied");
+    require(contains(r4, "\"apply_at_slot\":777"), "REP carries the commit slot");
+
+    // Post-commit assertions
+    require(nearly(ctl_a->shadow.path_loss_db, -1.5F),
+            "staged ctl_a.path_loss applied at commit");
+    require(nearly(ctl_b->shadow.cfo_hz, 444.0F),
+            "staged ctl_b.cfo_hz applied at commit");
+    require(ctl_a->take_effect_at_slot == 777,
+            "ctl_a.take_effect_at_slot set by commit");
+    require(ctl_b->take_effect_at_slot == 777,
+            "ctl_b.take_effect_at_slot set by commit (SAME as ctl_a)");
+    require(ctl_a->seqno.load() == a_seqno_before + 1,
+            "ctl_a seqno bumped exactly once by commit");
+    require(ctl_b->seqno.load() == b_seqno_before + 1,
+            "ctl_b seqno bumped exactly once by commit");
+  }
+
+  // Case 27: batch_begin with id that's already open → rejected
+  {
+    server.handle_message(R"({"type":"batch_begin","id":"dup-27"})");
+    const std::string reply = server.handle_message(R"({"type":"batch_begin","id":"dup-27"})");
+    require(contains(reply, "\"ok\":false"), "duplicate batch_begin rejected");
+    require(contains(reply, "already open"), "error names the conflict");
+  }
+
+  // Case 28: stray scalar with unknown batch_id → rejected
+  {
+    const std::string reply = server.handle_message(
+        R"({"link_id":"ue0-gnb0","param":"cfo_hz","value":0.0,"batch_id":"ghost"})");
+    require(contains(reply, "\"ok\":false"), "scalar with unknown batch should be rejected");
+    require(contains(reply, "unknown batch_id"), "error names the missing batch");
+  }
+
+  // Case 29: batch_abort drops a batch without applying
+  {
+    const std::uint32_t a_seqno_before = ctl_a->seqno.load();
+    const float path_loss_before = ctl_a->shadow.path_loss_db;
+    server.handle_message(R"({"type":"batch_begin","id":"abrt-29"})");
+    server.handle_message(
+        R"({"link_id":"ue0-gnb0","param":"path_loss_db","value":42.0,"batch_id":"abrt-29"})");
+    const std::string reply = server.handle_message(R"({"type":"batch_abort","id":"abrt-29"})");
+    require(contains(reply, "\"ok\":true"), "batch_abort should succeed");
+    require(contains(reply, "\"dropped_ops\":1"), "REP reports dropped count");
+    require(ctl_a->seqno.load() == a_seqno_before,
+            "aborted batch must not bump shadow seqno");
+    require(nearly(ctl_a->shadow.path_loss_db, path_loss_before),
+            "shadow.path_loss must equal the pre-batch value (42 was staged, never applied)");
+  }
+
+  // Case 30: batch_commit / abort with unknown id → rejected
+  {
+    const std::string c = server.handle_message(R"({"type":"batch_commit","id":"nope"})");
+    require(contains(c, "\"ok\":false"), "commit unknown id should be rejected");
+    const std::string a = server.handle_message(R"({"type":"batch_abort","id":"nope"})");
+    require(contains(a, "\"ok\":false"), "abort unknown id should be rejected");
+  }
+
+  // Case 31: stats reflect v2.3 batch activity
+  {
+    const auto s = server.stats();
+    require(s.batches_committed == 1, "case 26 contributes one committed batch");
+    require(s.batches_aborted == 1, "case 29 contributes one aborted batch");
+  }
+
   // ── C3b: full end-to-end over real ZMQ REQ ↔ REP on a localhost TCP port
   // Uses a port the OS picks via tcp://127.0.0.1:0 isn't supported on bind
   // for the binding side in older zmq builds, so pick a high port unlikely

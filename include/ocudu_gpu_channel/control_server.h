@@ -24,6 +24,7 @@
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace ocg {
 
@@ -75,11 +76,32 @@ public:
 
   // Counters surfaced by event=stats logs (Phase 3 C4 wires the log line).
   struct Stats {
-    std::uint64_t msgs_received      = 0;
-    std::uint64_t updates_applied    = 0;
-    std::uint64_t updates_rejected   = 0;
+    std::uint64_t msgs_received       = 0;
+    std::uint64_t updates_applied     = 0;
+    std::uint64_t updates_rejected    = 0;
+    std::uint64_t batches_committed   = 0;   // v2.3
+    std::uint64_t batches_aborted     = 0;   // v2.3
   };
   Stats stats() const;
+
+  // v2.3 multi-link atomic batches. Public so the cpp-internal free
+  // handlers can append to them; control-thread-only access in practice.
+  // open_batches_ is keyed by caller-supplied batch_id and lives in the
+  // ControlServer instance for the duration between batch_begin and
+  // batch_commit/batch_abort.
+  struct StagedOp {
+    enum class Kind { Scalar, ProfileSwap };
+    Kind        kind = Kind::Scalar;
+    std::string link_id;
+    // Scalar fields (when kind == Scalar)
+    std::string param;
+    double      value = 0.0;
+    // Profile fields (when kind == ProfileSwap)
+    ProfileShadow profile;
+  };
+  struct StagedBatch {
+    std::vector<StagedOp> ops;
+  };
 
   // Synchronous message handler — exposed for unit testing. The REP socket
   // loop calls this for every received frame; tests can call it directly to
@@ -88,12 +110,13 @@ public:
   //
   // v2: dispatches on the `type` field of the JSON envelope. Defaults to
   // "scalar" for v1 back-compat. Currently recognised types: "scalar",
-  // "profile_swap".
+  // "profile_swap", "batch_begin", "batch_commit", "batch_abort".
   std::string handle_message(const std::string& request_body);
 
 private:
   ControlServerConfig config_;
   LinkMap link_map_;
+  std::unordered_map<std::string, StagedBatch> open_batches_;
 
   std::atomic<bool> running_{false};
   std::atomic<bool> stop_requested_{false};
@@ -102,6 +125,8 @@ private:
   mutable std::atomic<std::uint64_t> msgs_received_{0};
   mutable std::atomic<std::uint64_t> updates_applied_{0};
   mutable std::atomic<std::uint64_t> updates_rejected_{0};
+  mutable std::atomic<std::uint64_t> batches_committed_{0};
+  mutable std::atomic<std::uint64_t> batches_aborted_{0};
 
   void run_loop();
 };

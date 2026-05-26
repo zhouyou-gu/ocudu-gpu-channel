@@ -1,6 +1,6 @@
 # Plan — runtime-mutable channel parameters, v2
 
-Status: **v2.0 + v2.1 + v2.2 landed** · Builds on: [runtime-mutable-channel.md (v1, landed)](runtime-mutable-channel.md) · Phase target: **Phase 3.x** · Effort actual: **~half day across 6 commits**. v2.3 (multi-link batches) remains. Decisions deferred from v2.2: the configurable warmup cap (`--control-warmup-cap-slots`) is not yet implemented — the broker simply emits the actual warmup span; v2.3 or a follow-on can add the REQ-time rejection.
+Status: **v2 fully landed (v2.0 + v2.1 + v2.2 + v2.3)** · Builds on: [runtime-mutable-channel.md (v1, landed)](runtime-mutable-channel.md) · Phase target: **Phase 3.x** · Effort actual: **~half day across 7 commits**. Deferred items: configurable warmup cap (`--control-warmup-cap-slots`) and a runtime fading-swap with fresh sub-ray draws — both nominal-scope follow-ons.
 
 ## Goal in one sentence
 

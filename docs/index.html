@@ -3051,6 +3051,18 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <td><code>slot, link_id</code></td>
         <td>at the slot crossing the warmup target</td>
         <td>Pairs with the preceding <code>warmup_begin</code> for this link. Output from this slot onward matches the new profile bit-exact (CPU↔CUDA parity restored).</td></tr>
+    <tr><td><code>event=control_batch_begin</code></td>
+        <td><code>id</code></td>
+        <td>one line per batch_begin REQ</td>
+        <td>Phase 3 v2.3: caller opened a staging slot. Subsequent scalar / profile_swap REQs carrying the matching <code>batch_id</code> stage into this slot instead of applying.</td></tr>
+    <tr><td><code>event=control_batch_commit</code></td>
+        <td><code>id, link_count, apply_at_slot</code></td>
+        <td>one line per batch_commit REQ</td>
+        <td>All staged ops applied with a single <code>take_effect_at_slot</code>; per-link slot-index atomicity (different links may tick at slightly different wall-clock times).</td></tr>
+    <tr><td><code>event=control_batch_aborted</code></td>
+        <td><code>id, dropped_ops</code></td>
+        <td>one line per batch_abort REQ</td>
+        <td>Caller discarded the staged batch; no shadows touched. The data plane is unaffected.</td></tr>
   </table>
   <p class="key">Both per-serve event types
   (<code>cpu_stage_timings</code>, <code>gpu_timings</code>) publish the
@@ -3853,6 +3865,25 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         deterministic <code>take_effect_at_slot</code> timing. Design
         plan + landed-scope details:
         <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
+
+    <li><b>Runtime-mutable channel parameters — v2.3 multi-link atomic batches (landed).</b>
+        Three new message types: <code>batch_begin</code> opens a
+        caller-keyed staging slot; subsequent <code>scalar</code> /
+        <code>profile_swap</code> REQs that carry the matching
+        <code>batch_id</code> are staged instead of applied;
+        <code>batch_commit</code> flushes the staged ops with a single
+        <code>take_effect_at_slot</code> shared across every link
+        touched (per-link slot-index atomicity — different links may
+        tick at slightly different wall-clock times because the broker
+        has one server thread per destination); <code>batch_abort</code>
+        discards. Staged scalar / profile_swap REQs ack
+        <code>{"ok":true,"staged":true}</code> without bumping seqno.
+        New log events <code>event=control_batch_begin / commit /
+        aborted</code>; new stats counters
+        <code>batches_committed</code> and <code>batches_aborted</code>.
+        Validation: stray <code>scalar</code> / <code>profile_swap</code>
+        with a <code>batch_id</code> referencing an unopened batch is
+        rejected; duplicate <code>batch_begin</code> rejected.</li>
 
     <li><b>Runtime-mutable channel parameters — v2.2 delay-line warmup contract (landed).</b>
         On a <code>profile_swap</code> activation the snap path zero-fills

@@ -351,9 +351,11 @@ void ControlServer::stop()
 ControlServer::Stats ControlServer::stats() const
 {
   Stats s;
-  s.msgs_received    = msgs_received_.load(std::memory_order_relaxed);
-  s.updates_applied  = updates_applied_.load(std::memory_order_relaxed);
-  s.updates_rejected = updates_rejected_.load(std::memory_order_relaxed);
+  s.msgs_received     = msgs_received_.load(std::memory_order_relaxed);
+  s.updates_applied   = updates_applied_.load(std::memory_order_relaxed);
+  s.updates_rejected  = updates_rejected_.load(std::memory_order_relaxed);
+  s.batches_committed = batches_committed_.load(std::memory_order_relaxed);
+  s.batches_aborted   = batches_aborted_.load(std::memory_order_relaxed);
   return s;
 }
 
@@ -421,7 +423,12 @@ struct HandlerContext {
   const ControlServer::LinkMap& link_map;
   std::atomic<std::uint64_t>&   updates_applied;
   std::atomic<std::uint64_t>&   updates_rejected;
+  std::atomic<std::uint64_t>&   batches_committed;
+  std::atomic<std::uint64_t>&   batches_aborted;
   const std::function<void(std::string_view)>& logger;
+  // v2.3: control-thread-owned batch staging map. Pointer (not ref) so
+  // the lookup helpers can be const-friendly.
+  std::unordered_map<std::string, ControlServer::StagedBatch>* open_batches;
 };
 
 std::string emit_rejection(HandlerContext& ctx, const std::string& reason)
@@ -431,6 +438,42 @@ std::string emit_rejection(HandlerContext& ctx, const std::string& reason)
     ctx.logger(std::string("event=control_error reason=\"") + reason + "\"");
   }
   return make_error_reply(reason);
+}
+
+// v2.3 helper: resolve the optional batch_id field. Returns:
+//   * nullptr — field absent → caller applies immediately.
+//   * non-null pointer → field present + batch exists → caller stages.
+// Or emits a rejection and returns std::nullopt-shaped via the bool flag.
+//
+// `rejected_reply` is filled when the routine emits a rejection (batch_id
+// references an unopened batch). Caller propagates that string to the
+// client.
+ControlServer::StagedBatch* resolve_optional_batch(
+    HandlerContext& ctx,
+    const std::unordered_map<std::string, JsonValue>& fields,
+    std::string* rejected_reply)
+{
+  auto it_batch = fields.find("batch_id");
+  if (it_batch == fields.end()) return nullptr;
+  if (it_batch->second.kind != JsonValue::Kind::String) {
+    *rejected_reply = emit_rejection(ctx, "batch_id must be a string");
+    return reinterpret_cast<ControlServer::StagedBatch*>(-1);   // sentinel for "rejected"
+  }
+  const std::string& bid = it_batch->second.s;
+  if (bid.empty()) {
+    *rejected_reply = emit_rejection(ctx, "batch_id must be non-empty when present");
+    return reinterpret_cast<ControlServer::StagedBatch*>(-1);
+  }
+  if (!ctx.open_batches) {
+    *rejected_reply = emit_rejection(ctx, "internal: batch staging unavailable");
+    return reinterpret_cast<ControlServer::StagedBatch*>(-1);
+  }
+  auto it = ctx.open_batches->find(bid);
+  if (it == ctx.open_batches->end()) {
+    *rejected_reply = emit_rejection(ctx, "unknown batch_id: " + bid);
+    return reinterpret_cast<ControlServer::StagedBatch*>(-1);
+  }
+  return &it->second;
 }
 
 std::string handle_scalar_update(
@@ -481,6 +524,35 @@ std::string handle_scalar_update(
   }
   if (tea < 0.0) {
     return emit_rejection(ctx, "take_effect_at_slot must be >= 0");
+  }
+
+  // v2.3: optional batch_id. If present + batch open, stage the op
+  // instead of applying immediately. The commit's take_effect_at_slot
+  // (set on batch_commit) overrides any take_effect_at_slot inside the
+  // staged scalar message.
+  std::string maybe_reject;
+  ControlServer::StagedBatch* target = resolve_optional_batch(ctx, fields, &maybe_reject);
+  if (target == reinterpret_cast<ControlServer::StagedBatch*>(-1)) {
+    return maybe_reject;
+  }
+  if (target != nullptr) {
+    ControlServer::StagedOp op;
+    op.kind    = ControlServer::StagedOp::Kind::Scalar;
+    op.link_id = link_id;
+    op.param   = param;
+    op.value   = value;
+    target->ops.push_back(std::move(op));
+    ctx.updates_applied.fetch_add(1, std::memory_order_relaxed);
+    if (ctx.logger) {
+      std::ostringstream o;
+      o << "event=control_update link_id=" << link_id
+        << " param=" << param
+        << " value=" << format_double(value)
+        << " staged_in_batch";
+      ctx.logger(o.str());
+    }
+    // REP doesn't carry seqno yet (no apply) — return a minimal ack.
+    return std::string("{\"ok\":true,\"staged\":true}");
   }
 
   const double old_value = read_shadow(*it_ctl->second, *spec);
@@ -604,6 +676,30 @@ std::string handle_profile_swap(
     return emit_rejection(ctx, e.what());
   }
 
+  // v2.3: optional batch_id. Same staging semantics as scalar updates.
+  std::string maybe_reject;
+  ControlServer::StagedBatch* target = resolve_optional_batch(ctx, fields, &maybe_reject);
+  if (target == reinterpret_cast<ControlServer::StagedBatch*>(-1)) {
+    return maybe_reject;
+  }
+  if (target != nullptr) {
+    ControlServer::StagedOp op;
+    op.kind    = ControlServer::StagedOp::Kind::ProfileSwap;
+    op.link_id = link_id;
+    op.profile = staged;
+    target->ops.push_back(std::move(op));
+    ctx.updates_applied.fetch_add(1, std::memory_order_relaxed);
+    if (ctx.logger) {
+      std::ostringstream o;
+      o << "event=control_update link_id=" << link_id
+        << " param=profile_swap"
+        << " n_taps=" << staged.n_taps
+        << " staged_in_batch";
+      ctx.logger(o.str());
+    }
+    return std::string("{\"ok\":true,\"staged\":true}");
+  }
+
   // Commit to the shadow. Single writer → no lock; seqno bump publishes
   // the writes with release semantics, paired with the snap's acquire.
   BrokerLinkControl& ctl = *it_ctl->second;
@@ -628,13 +724,146 @@ std::string handle_profile_swap(
   return make_profile_swap_reply(observed_seqno, ctl);
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// v2.3 batch handlers (control-thread-only state — open_batches map).
+// ────────────────────────────────────────────────────────────────────────
+
+std::string handle_batch_begin(
+    HandlerContext& ctx,
+    const std::unordered_map<std::string, JsonValue>& fields)
+{
+  auto it_id = fields.find("id");
+  if (it_id == fields.end() || it_id->second.kind != JsonValue::Kind::String) {
+    return emit_rejection(ctx, "batch_begin: missing or non-string 'id'");
+  }
+  const std::string& bid = it_id->second.s;
+  if (bid.empty()) {
+    return emit_rejection(ctx, "batch_begin: 'id' must be non-empty");
+  }
+  if (!ctx.open_batches) {
+    return emit_rejection(ctx, "internal: batch staging unavailable");
+  }
+  if (ctx.open_batches->find(bid) != ctx.open_batches->end()) {
+    return emit_rejection(ctx, "batch_begin: id already open: " + bid);
+  }
+  ctx.open_batches->emplace(bid, ControlServer::StagedBatch{});
+
+  if (ctx.logger) {
+    ctx.logger(std::string("event=control_batch_begin id=") + bid);
+  }
+  return std::string("{\"ok\":true,\"batch_id\":\"") + bid + "\"}";
+}
+
+std::string handle_batch_commit(
+    HandlerContext& ctx,
+    const std::unordered_map<std::string, JsonValue>& fields)
+{
+  auto it_id = fields.find("id");
+  if (it_id == fields.end() || it_id->second.kind != JsonValue::Kind::String) {
+    return emit_rejection(ctx, "batch_commit: missing or non-string 'id'");
+  }
+  const std::string& bid = it_id->second.s;
+  if (!ctx.open_batches) {
+    return emit_rejection(ctx, "internal: batch staging unavailable");
+  }
+  auto it_batch = ctx.open_batches->find(bid);
+  if (it_batch == ctx.open_batches->end()) {
+    return emit_rejection(ctx, "batch_commit: unknown id: " + bid);
+  }
+
+  // Optional take_effect_at_slot — overrides any per-staged-message value.
+  double tea = 0.0;
+  try {
+    tea = get_number(fields, "take_effect_at_slot", 0.0);
+  } catch (const std::exception& e) {
+    return emit_rejection(ctx, e.what());
+  }
+  if (tea < 0.0) {
+    return emit_rejection(ctx, "batch_commit: take_effect_at_slot must be >= 0");
+  }
+  const std::uint64_t apply_at = static_cast<std::uint64_t>(tea);
+
+  // Apply staged ops in order. Per-link single-writer invariant holds:
+  // each ctl is written serially within this control thread, then its
+  // seqno bumped. The plan's "same per-link slot index" guarantee falls
+  // out of every link's ctl.take_effect_at_slot getting `apply_at` here.
+  std::size_t applied_count = 0;
+  for (auto& op : it_batch->second.ops) {
+    auto it_ctl = ctx.link_map.find(op.link_id);
+    if (it_ctl == ctx.link_map.end() || it_ctl->second == nullptr) {
+      // A link disappearing mid-batch is exceedingly unusual — log + skip.
+      if (ctx.logger) {
+        ctx.logger(std::string("event=control_error reason=\"batch_commit: link vanished mid-batch: ") +
+                   op.link_id + "\"");
+      }
+      continue;
+    }
+    BrokerLinkControl& ctl = *it_ctl->second;
+    ctl.take_effect_at_slot = apply_at;
+    if (op.kind == ControlServer::StagedOp::Kind::Scalar) {
+      const ParamSpec* spec = find_param_spec(op.param);
+      if (spec == nullptr) continue;   // shouldn't happen — validated at stage time
+      apply_update(ctl, *spec, op.value);
+    } else {
+      ctl.shadow_profile = op.profile;
+      ctl.profile_pending = true;
+      ctl.seqno.fetch_add(1, std::memory_order_release);
+    }
+    ++applied_count;
+  }
+
+  ctx.batches_committed.fetch_add(1, std::memory_order_relaxed);
+  if (ctx.logger) {
+    std::ostringstream o;
+    o << "event=control_batch_commit id=" << bid
+      << " link_count=" << applied_count
+      << " apply_at_slot=" << apply_at;
+    ctx.logger(o.str());
+  }
+
+  ctx.open_batches->erase(it_batch);
+  std::ostringstream rep;
+  rep << "{\"ok\":true,\"link_count\":" << applied_count
+      << ",\"apply_at_slot\":" << apply_at << "}";
+  return rep.str();
+}
+
+std::string handle_batch_abort(
+    HandlerContext& ctx,
+    const std::unordered_map<std::string, JsonValue>& fields)
+{
+  auto it_id = fields.find("id");
+  if (it_id == fields.end() || it_id->second.kind != JsonValue::Kind::String) {
+    return emit_rejection(ctx, "batch_abort: missing or non-string 'id'");
+  }
+  const std::string& bid = it_id->second.s;
+  if (!ctx.open_batches) {
+    return emit_rejection(ctx, "internal: batch staging unavailable");
+  }
+  auto it_batch = ctx.open_batches->find(bid);
+  if (it_batch == ctx.open_batches->end()) {
+    return emit_rejection(ctx, "batch_abort: unknown id: " + bid);
+  }
+  const std::size_t dropped = it_batch->second.ops.size();
+  ctx.open_batches->erase(it_batch);
+  ctx.batches_aborted.fetch_add(1, std::memory_order_relaxed);
+  if (ctx.logger) {
+    std::ostringstream o;
+    o << "event=control_batch_aborted id=" << bid << " dropped_ops=" << dropped;
+    ctx.logger(o.str());
+  }
+  return std::string("{\"ok\":true,\"dropped_ops\":") + std::to_string(dropped) + "}";
+}
+
 }  // namespace
 
 std::string ControlServer::handle_message(const std::string& request_body)
 {
   msgs_received_.fetch_add(1, std::memory_order_relaxed);
 
-  HandlerContext ctx{link_map_, updates_applied_, updates_rejected_, config_.logger};
+  HandlerContext ctx{link_map_, updates_applied_, updates_rejected_,
+                     batches_committed_, batches_aborted_,
+                     config_.logger, &open_batches_};
 
   std::unordered_map<std::string, JsonValue> fields;
   try {
@@ -654,12 +883,11 @@ std::string ControlServer::handle_message(const std::string& request_body)
     return emit_rejection(ctx, e.what());
   }
 
-  if (type_str == "scalar") {
-    return handle_scalar_update(ctx, fields);
-  }
-  if (type_str == "profile_swap") {
-    return handle_profile_swap(ctx, fields);
-  }
+  if (type_str == "scalar")       return handle_scalar_update(ctx, fields);
+  if (type_str == "profile_swap") return handle_profile_swap (ctx, fields);
+  if (type_str == "batch_begin")  return handle_batch_begin  (ctx, fields);
+  if (type_str == "batch_commit") return handle_batch_commit (ctx, fields);
+  if (type_str == "batch_abort")  return handle_batch_abort  (ctx, fields);
   return emit_rejection(ctx, std::string("unknown message type: ") + type_str);
 }
 
