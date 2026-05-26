@@ -51,8 +51,9 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
   if (it == states_.end()) {
     // Lazy creation only happens for single-shot use; the broker preallocates
     // every link in prepare() so process_superposition() never inserts
-    // concurrently.
-    it = states_.emplace(key, LinkState{}).first;
+    // concurrently. try_emplace() default-constructs LinkState in place —
+    // required since LinkState contains a non-movable BrokerLinkControl.
+    it = states_.try_emplace(key).first;
   }
 
   LinkState& state = it->second;
@@ -72,13 +73,14 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
         prepare_tdl_step(state.steps[i], model.chain[i], fading_seed);
       }
     }
-    // Phase 3 v1: populate runtime-mutable params from YAML. Not yet read by
-    // the chain execution path -- that wire-in lands in C2. Reference power
-    // is unknown at prepare time (depends on actual input); for the initial
-    // sigma seed pass 0 so it falls back to the SNR-based formula at execute
-    // time (matching the existing chain-step behaviour).
+    // Phase 3 v1: populate runtime-mutable params from YAML. apply_chain_to_link
+    // (post-C2a) reads path_loss_db + cfo_hz from `live`. The control plane
+    // (C3+) writes to `ctl.shadow` and bumps `ctl.seqno`; snap_mutable_params()
+    // at the top of every serve picks up shadow → live transitions. Initialise
+    // shadow == live so the first serve's snap is a no-op.
     state.live = populate_mutable_params_from_yaml(model, /*reference_power=*/0.0,
                                                    /*sample_rate_hz=*/0);
+    init_broker_link_control(state.ctl, state.live);
   }
   return state;
 }
@@ -123,6 +125,12 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
   }
 
   LinkState& state = ensure_link_state(link_key_value, model, input.size());
+
+  // Phase 3 C2b: snap any pending shadow update from the control plane into
+  // `live` before the chain reads it. No-op when seqno hasn't advanced
+  // (single relaxed-acquire load + early-return branch). In v1 with no
+  // control plane wired this is always a no-op; cost is negligible.
+  snap_mutable_params(state.live, state.live_seqno, state.ctl);
 
   std::copy(input.begin(), input.end(), state.scratch_a.begin());
   std::span<IqSample> current(state.scratch_a.data(), input.size());

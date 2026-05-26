@@ -1,7 +1,9 @@
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/mutable_params.h"
+#include "ocudu_gpu_channel/runtime_control.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 
@@ -123,6 +125,53 @@ int main()
     static_assert(sizeof(ocg::MutableParams) == 32,
                   "MutableParams size locked at 32 bytes for the control-plane "
                   "binary copy contract; field changes must update the assert.");
+  }
+
+  // ── Case 5: shadow → live snap mechanism (C2b) ──────────────────────────
+  // Models one server-thread serve loop: snap reads shadow, copies into
+  // live, advances live_seqno. Subsequent snaps with no shadow change are
+  // no-ops.
+  {
+    ocg::MutableParams live;
+    live.path_loss_db = 10.0F;
+    live.cfo_hz = 100.0F;
+    std::uint32_t live_seqno = 0;
+
+    ocg::BrokerLinkControl ctl;
+    ocg::init_broker_link_control(ctl, live);
+
+    // First snap on the initial seqno=0 is a no-op (live already == shadow).
+    require(!ocg::snap_mutable_params(live, live_seqno, ctl),
+            "first snap with seqno=0 should be a no-op");
+    require(nearly(live.path_loss_db, 10.0F), "live untouched on no-op snap");
+
+    // Simulate a control-plane write: update shadow + bump seqno.
+    ctl.shadow.path_loss_db = -7.5F;
+    ctl.shadow.cfo_hz = 250.0F;
+    ctl.seqno.store(1, std::memory_order_release);
+
+    // Second snap picks up the change.
+    require(ocg::snap_mutable_params(live, live_seqno, ctl),
+            "snap with advanced seqno should report true");
+    require(nearly(live.path_loss_db, -7.5F), "live picks up new path_loss");
+    require(nearly(live.cfo_hz, 250.0F), "live picks up new cfo_hz");
+    require(live_seqno == 1, "live_seqno advanced to 1");
+
+    // Third snap with no further shadow change is a no-op again.
+    require(!ocg::snap_mutable_params(live, live_seqno, ctl),
+            "third snap without seqno bump should be a no-op");
+    require(nearly(live.path_loss_db, -7.5F), "live held at last snapped value");
+
+    // Two writes between snaps: server should see the final value, not the
+    // intermediate one.
+    ctl.shadow.path_loss_db = -3.0F;
+    ctl.seqno.store(2, std::memory_order_release);
+    ctl.shadow.path_loss_db = -1.5F;
+    ctl.seqno.store(3, std::memory_order_release);
+    require(ocg::snap_mutable_params(live, live_seqno, ctl),
+            "snap should pick up batched writes");
+    require(nearly(live.path_loss_db, -1.5F), "live equals final shadow value");
+    require(live_seqno == 3, "live_seqno tracks the observed seqno");
   }
 
   std::cout << "test_mutable_params OK\n";

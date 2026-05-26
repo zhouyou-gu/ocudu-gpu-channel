@@ -3,6 +3,7 @@
 #include "ocudu_gpu_channel/device_channel.h"
 #include "ocudu_gpu_channel/mutable_params.h"
 #include "ocudu_gpu_channel/processing.h"
+#include "ocudu_gpu_channel/runtime_control.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -77,11 +78,14 @@ struct LinkModelState {
   // case. The seed is derived from the link key + step index so the CPU and
   // CUDA backends draw the same Jakes sub-ray angles.
   TdlFadingState tdl_fading;
-  // Runtime-mutable scalar params (Phase 3 v1). Populated from YAML at
-  // prepare(); mirrors DeviceLinkState::live so the host-fallback path
-  // observes the same initial state as the device path. C2 adds the snap-
-  // from-shadow step that updates this at slot boundaries.
+  // Runtime-mutable scalar params (Phase 3 v1). `live` is the canonical
+  // source read by build_steps (post-C2a). `ctl.shadow` is the write target
+  // for the ZMQ control thread (Phase 3 C3+); the snap step at the top of
+  // every serve copies shadow → live if ctl.seqno advanced since the last
+  // snap. `live_seqno` tracks the version this LinkModelState last consumed.
   MutableParams live;
+  BrokerLinkControl ctl;
+  std::uint32_t live_seqno = 0;
 };
 
 void init_model_state(LinkModelState& state, std::size_t steps, const std::string& seed_prefix)
@@ -385,10 +389,15 @@ public:
       auto& slot = link_slots_[link_key(link)];
       init_model_state(slot.model, model->chain.size(), link_key(link));
       configure_leading_propagation(slot.model, *model, link_key(link));
-      // Phase 3 v1: populate runtime-mutable params from YAML. Not yet read
-      // by the chain execution path -- C2 wires the snap-from-shadow step.
+      // Phase 3 v1: populate runtime-mutable params from YAML. build_steps
+      // (post-C2a) reads path_loss_db + cfo_hz from `live`. The control
+      // plane (C3+) writes to `ctl.shadow` and bumps `ctl.seqno`;
+      // snap_mutable_params() in process_superposition picks up shadow → live
+      // transitions per slot. Initialise shadow == live so the first serve's
+      // snap is a no-op.
       slot.model.live = populate_mutable_params_from_yaml(
           *model, /*reference_power=*/0.0, destination->sample_rate_hz);
+      init_broker_link_control(slot.model.ctl, slot.model.live);
     }
 
     // Per-destination superposition state: one entry per node that is the
@@ -637,6 +646,12 @@ public:
       if (ls_it == link_slots_.end()) {
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
+      // Phase 3 C2b: snap any pending shadow update from the control plane
+      // into `live` before build_steps reads it. No-op when seqno hasn't
+      // advanced (single acquire-load + early-return). In v1 with no control
+      // plane wired this is always a no-op.
+      auto& lms_for_snap = ls_it->second.model;
+      snap_mutable_params(lms_for_snap.live, lms_for_snap.live_seqno, lms_for_snap.ctl);
       if (sp.use_device_channel) {
         // Device-kernel path: build_steps reads the SHARED source slot for
         // this edge's snr_db power estimator. Edges sharing a source share
