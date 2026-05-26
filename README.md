@@ -10,8 +10,9 @@ bench default).
 
 This is the project landing page. For architecture, broker internals, GPU
 kernel design, profiling, and performance numbers, see the
-[**technical reference**](docs/index.html) (also published on GitHub Pages
-once enabled: `https://zhouyou-gu.github.io/ocudu-gpu-channel/`).
+[**technical reference**](https://zhouyou-gu.github.io/ocudu-gpu-channel/)
+(rendered via GitHub Pages — falls back to a local clone of
+[`docs/index.html`](docs/index.html) until Pages is enabled on the repo).
 
 ## Status
 
