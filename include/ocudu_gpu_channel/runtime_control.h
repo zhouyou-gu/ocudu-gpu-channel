@@ -112,6 +112,13 @@ struct BrokerLinkControl {
   // ControlServer::stats() aggregates by summing across link_map.
   std::atomic<std::uint64_t> force_inert_warnings{0};
 
+  // v2.2 follow-on: hints the backend writes at prepare() so the
+  // ControlServer can compute a prospective warmup window at REQ
+  // time and reject overlong swaps. Both fields are 0 on a link
+  // whose chain has no leading tdl (warmup never fires for those).
+  int dl_size_samples_hint = 0;
+  int slot_count_hint      = 0;
+
   BrokerLinkControl() = default;
 
   // Non-copyable / non-movable: BrokerLinkControl is pinned by reference

@@ -480,6 +480,53 @@ int main()
     // ControlServer dtor stops the loop + joins the thread.
   }
 
+  // ── v2.2 follow-on: --control-warmup-cap-slots rejects overlong swaps ──
+  {
+    auto ctl = std::make_unique<ocg::BrokerLinkControl>();
+    // Mimic what the backend writes at prepare(): a link whose
+    // ring is 4096 samples deep but whose slot count is 1024 →
+    // warmup span = 4 slots.
+    ctl->dl_size_samples_hint = 4096;
+    ctl->slot_count_hint      = 1024;
+
+    ocg::ControlServer::LinkMap m = {{"big-warmup", ctl.get()}};
+    ocg::ControlServerConfig c;
+    c.endpoint           = "inproc://test-warmup-cap";
+    c.recv_timeout_ms    = 50;
+    c.warmup_cap_slots   = 3;   // cap < computed span of 4
+    ocg::ControlServer s(std::move(c), std::move(m));
+
+    const std::string r = s.handle_message(R"({
+      "type":"profile_swap","link_id":"big-warmup",
+      "taps":[{"delay_samples":0,"gain_db":0}]
+    })");
+    require(contains(r, "\"ok\":false"), "warmup-cap should reject overlong swap");
+    require(contains(r, "exceeds --control-warmup-cap-slots"),
+            "error names the flag");
+    require(contains(r, "dl_size=4096"), "error reports dl_size hint");
+    require(contains(r, "count=1024"),   "error reports slot count hint");
+  }
+
+  // ── v2.2 follow-on: warmup span within cap → accepted ─────────────────
+  {
+    auto ctl = std::make_unique<ocg::BrokerLinkControl>();
+    ctl->dl_size_samples_hint = 128;
+    ctl->slot_count_hint      = 23040;   // production-typical → 1-slot warmup
+
+    ocg::ControlServer::LinkMap m = {{"prod-link", ctl.get()}};
+    ocg::ControlServerConfig c;
+    c.endpoint           = "inproc://test-warmup-cap-ok";
+    c.recv_timeout_ms    = 50;
+    c.warmup_cap_slots   = 3;
+    ocg::ControlServer s(std::move(c), std::move(m));
+
+    const std::string r = s.handle_message(R"({
+      "type":"profile_swap","link_id":"prod-link",
+      "taps":[{"delay_samples":0,"gain_db":0}]
+    })");
+    require(contains(r, "\"ok\":true"), "in-cap warmup should be accepted");
+  }
+
   // ── v3.0: telemetry PUB feed ────────────────────────────────────────────
   // Bring up a ControlServer with telemetry on a localhost TCP port,
   // populate per-link telemetry snapshots directly (mirrors what the

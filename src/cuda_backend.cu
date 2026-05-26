@@ -418,6 +418,16 @@ public:
       // profile_swap check.
       slot.model.chain_has_leading_tdl =
           !model->chain.empty() && model->chain.front().type == ModelStepType::Tdl;
+
+      // v2.2 follow-on: per-link hints for the control plane's
+      // warmup-cap check. delay_line.size() is set by
+      // configure_leading_propagation when has_leading_tdl is true.
+      if (slot.model.chain_has_leading_tdl) {
+        slot.model.ctl.dl_size_samples_hint =
+            static_cast<int>(slot.model.delay_line.size());
+      }
+      slot.model.ctl.slot_count_hint =
+          static_cast<int>(resolve_batch_samples(config.runtime, destination->sample_rate_hz));
     }
 
     // Per-destination superposition state: one entry per node that is the
@@ -1076,31 +1086,11 @@ HardwareProbe probe_cuda_hardware(int device_id)
     return p;
   }
 
-  p.ok               = true;
-  p.name             = props.name;
-  p.sm_major         = props.major;
-  p.sm_minor         = props.minor;
-  p.total_mem_bytes  = static_cast<std::uint64_t>(props.totalGlobalMem);
-  p.pcie_link_gen    = props.pciDeviceID == 0 ? 0 : 0;   // see note below
-  p.pcie_link_width  = 0;
-  // PCIe gen / width come from cudaDeviceGetAttribute, not cudaDeviceProp.
-  int v = 0;
-  if (cudaDeviceGetAttribute(&v, cudaDevAttrPciDeviceId, device_id) == cudaSuccess) {
-    // pciDeviceID isn't the link gen — read the gen attribute directly.
-  }
-  // Driver-reported link gen + width — these names changed across CUDA
-  // versions, so we read the attribute symbols defensively.
-  int link_gen = 0;
-  int link_width = 0;
-  cudaDeviceGetAttribute(&link_gen, cudaDevAttrMemoryBusWidth, device_id);
-  // cudaDevAttrMemoryBusWidth is the wrong attr; CUDA 12 exposes
-  // cudaDevAttrGPUDirectRDMASupported but not a stable link-gen
-  // attribute on all platforms. Leave 0 if unavailable; the field is
-  // informational only in the event=hardware_probe log line.
-  p.pcie_link_gen   = 0;
-  p.pcie_link_width = 0;
-  (void)link_gen;
-  (void)link_width;
+  p.ok              = true;
+  p.name            = props.name;
+  p.sm_major        = props.major;
+  p.sm_minor        = props.minor;
+  p.total_mem_bytes = static_cast<std::uint64_t>(props.totalGlobalMem);
 
   cudaDriverGetVersion(&p.driver_version);
   cudaRuntimeGetVersion(&p.runtime_version);

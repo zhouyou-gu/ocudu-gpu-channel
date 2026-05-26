@@ -16,7 +16,7 @@ void usage()
   std::cout << "usage: ocudu-gpu-channel --config topology.yaml [--duration 60s] [--strict-realtime] "
                "[--control-endpoint tcp://*:5559] "
                "[--telemetry-endpoint tcp://*:5560 --telemetry-rate-hz 20] "
-               "[--hardware-strict]\n";
+               "[--hardware-strict] [--control-warmup-cap-slots N]\n";
 }
 
 } // namespace
@@ -30,6 +30,7 @@ int main(int argc, char** argv)
   std::string telemetry_endpoint;   // empty = telemetry feed disabled (v3.0)
   double      telemetry_rate_hz = 20.0;
   bool        hardware_strict = false;  // v3.2 opt-in
+  int         warmup_cap_slots = 3;     // v2.2 follow-on; 0 = disabled
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -51,6 +52,8 @@ int main(int argc, char** argv)
       telemetry_rate_hz = std::atof(argv[++i]);
     } else if (arg == "--hardware-strict") {
       hardware_strict = true;
+    } else if (arg == "--control-warmup-cap-slots" && i + 1 < argc) {
+      warmup_cap_slots = std::atoi(argv[++i]);
     } else {
       std::cerr << "unknown or incomplete argument: " << arg << "\n";
       usage();
@@ -130,6 +133,7 @@ int main(int argc, char** argv)
       ccfg.endpoint = control_endpoint;
       ccfg.telemetry_endpoint = telemetry_endpoint;   // v3.0; empty = disabled
       ccfg.telemetry_rate_hz  = telemetry_rate_hz;
+      ccfg.warmup_cap_slots   = warmup_cap_slots;     // v2.2 follow-on
       control_server = std::make_unique<ocg::ControlServer>(
           std::move(ccfg), broker.collect_control_links());
       control_server->start();

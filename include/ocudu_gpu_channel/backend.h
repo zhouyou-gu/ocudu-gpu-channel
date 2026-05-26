@@ -28,10 +28,14 @@ struct HardwareProbe {
   int           sm_major = 0;
   int           sm_minor = 0;
   std::uint64_t total_mem_bytes = 0;
-  int           pcie_link_gen = 0;      // GPU's CURRENT generation reported by driver
-  int           pcie_link_width = 0;
   int           driver_version = 0;     // e.g. 12080
   int           runtime_version = 0;    // e.g. 12080
+  // pcie_link_gen / pcie_link_width are deliberately NOT included.
+  // The CUDA Runtime API has no clean attribute for them; reporting
+  // them accurately requires NVML, which would add a runtime
+  // dependency. Until the user opts into NVML the broker stays honest
+  // about the limitation rather than zero-filling fields that imply a
+  // measurement.
 };
 
 // Probe `device_id` (typically `config.runtime.gpu_device`). Safe to

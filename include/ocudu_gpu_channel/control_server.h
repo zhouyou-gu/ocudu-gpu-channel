@@ -45,6 +45,13 @@ struct ControlServerConfig {
   // suppress logging entirely.
   std::function<void(std::string_view)> logger;
 
+  // v2.2 follow-on: max slots of warmup the control plane will accept
+  // on a profile_swap. profile_swap REQs whose computed warmup span
+  // (ceil(dl_size_samples_hint / slot_count_hint)) exceeds this are
+  // rejected at REQ time with a clear error including the span. 0
+  // disables the check. Default 3 per v2 plan decision #3.
+  int warmup_cap_slots = 3;
+
   // v3.0: optional PUB socket for per-link telemetry. Disabled when
   // `telemetry_endpoint` is empty (the default). When set, a dedicated
   // background thread iterates the link_map every

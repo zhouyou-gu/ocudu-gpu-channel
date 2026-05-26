@@ -89,6 +89,16 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     // re-walk the chain.
     state.chain_has_leading_tdl =
         !model.chain.empty() && model.chain.front().type == ModelStepType::Tdl;
+
+    // v2.2 follow-on: write per-link hints for the control plane's
+    // warmup-cap check. dl_size_samples_hint is the leading tdl
+    // step's delay_line size (0 if no leading tdl); slot_count_hint
+    // is the per-slot sample count this link receives.
+    if (state.chain_has_leading_tdl && !state.steps.empty()) {
+      state.ctl.dl_size_samples_hint =
+          static_cast<int>(state.steps.front().delay_line.size());
+    }
+    state.ctl.slot_count_hint = static_cast<int>(sample_count);
   }
   return state;
 }

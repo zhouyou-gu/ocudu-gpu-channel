@@ -454,6 +454,8 @@ struct HandlerContext {
   // v2.3: control-thread-owned batch staging map. Pointer (not ref) so
   // the lookup helpers can be const-friendly.
   std::unordered_map<std::string, ControlServer::StagedBatch>* open_batches;
+  // v2.2 follow-on: warmup-cap-slots (0 = disabled).
+  int warmup_cap_slots = 0;
 };
 
 std::string emit_rejection(HandlerContext& ctx, const std::string& reason)
@@ -617,6 +619,26 @@ std::string handle_profile_swap(
   auto it_ctl = ctx.link_map.find(link_id);
   if (it_ctl == ctx.link_map.end() || it_ctl->second == nullptr) {
     return emit_rejection(ctx, "unknown link_id: " + link_id);
+  }
+
+  // v2.2 follow-on: warmup-cap check. Reject if the prospective
+  // warmup span exceeds the configured cap. Uses per-link hints the
+  // backend wrote at prepare() time. Skipped when cap is 0 (disabled)
+  // or when the link has no leading tdl (warmup never fires).
+  if (ctx.warmup_cap_slots > 0) {
+    const BrokerLinkControl& ctl = *it_ctl->second;
+    if (ctl.dl_size_samples_hint > 0 && ctl.slot_count_hint > 0) {
+      const int warmup_span = (ctl.dl_size_samples_hint + ctl.slot_count_hint - 1)
+                              / ctl.slot_count_hint;
+      if (warmup_span > ctx.warmup_cap_slots) {
+        return emit_rejection(ctx,
+            "profile_swap: warmup span " + std::to_string(warmup_span) +
+            " slots exceeds --control-warmup-cap-slots " +
+            std::to_string(ctx.warmup_cap_slots) +
+            " (dl_size=" + std::to_string(ctl.dl_size_samples_hint) +
+            ", count=" + std::to_string(ctl.slot_count_hint) + ")");
+      }
+    }
   }
 
   auto it_taps = fields.find("taps");
@@ -888,7 +910,8 @@ std::string ControlServer::handle_message(const std::string& request_body)
 
   HandlerContext ctx{link_map_, updates_applied_, updates_rejected_,
                      batches_committed_, batches_aborted_,
-                     config_.logger, &open_batches_};
+                     config_.logger, &open_batches_,
+                     config_.warmup_cap_slots};
 
   std::unordered_map<std::string, JsonValue> fields;
   try {
