@@ -8,7 +8,7 @@
   :root {
     --bg:#0f1420; --panel:#1a2233; --ink:#e7ecf5; --muted:#9aa7bd;
     --edge:#2c3850; --accent:#5db1ff; --warm:#ffb454; --good:#6fd08c;
-    --noise:#c98bff; --cell:#0b101a;
+    --cell:#0b101a;
   }
   * { box-sizing:border-box; }
   body {
@@ -50,14 +50,17 @@
     border-radius:8px; padding:14px 16px; background:var(--panel);
     border:1px solid var(--edge);
   }
-  .tier--broker { border-color:var(--warm); }
-  .tier--gpu { background:#13391f; border-color:var(--good); }
+  /* §2.1 conventions: host = EXTERNAL grey (external SDR), broker = HOST green, gpu = DEVICE blue */
+  .tier--host { border-color:var(--ink); }
+  .tier--broker { background:#13391f; border-color:var(--good); }
+  .tier--gpu { background:#0b101a; border-color:var(--accent); }
   .tier-label {
     font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
-    color:var(--warm); margin-bottom:10px; letter-spacing:.3px;
+    color:var(--muted); margin-bottom:10px; letter-spacing:.3px;
   }
-  .tier--host .tier-label { color:var(--muted); }
-  .tier--gpu .tier-label { color:var(--good); }
+  .tier--host .tier-label { color:var(--ink); }
+  .tier--broker .tier-label { color:var(--good); }
+  .tier--gpu .tier-label { color:var(--accent); }
   .tier-cells { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
   .tier-cell {
     background:var(--cell); padding:10px 12px; border-radius:6px;
@@ -89,9 +92,10 @@
     display:flex; align-items:center; justify-content:center; color:#0b101a;
     font-weight:600; overflow:hidden;
   }
-  .gantt-bar--h2d { background:var(--accent); }
-  .gantt-bar--kernel { background:var(--warm); }
-  .gantt-bar--d2h { background:var(--accent); opacity:.85; }
+  /* §2.1: all three bars are DEVICE class (GPU stream); differentiate by opacity. */
+  .gantt-bar--h2d { background:var(--accent); opacity:.55; }
+  .gantt-bar--kernel { background:var(--accent); }
+  .gantt-bar--d2h { background:var(--accent); opacity:.30; }
   .gantt-legend { display:flex; gap:14px; justify-content:center; font-size:11px;
     color:var(--muted); margin-top:6px; font-family:"SF Mono",Menlo,Consolas,monospace; }
   .gantt-swatch { display:inline-block; width:10px; height:10px; border-radius:2px;
@@ -154,9 +158,11 @@
     display:block; color:var(--muted); font-size:10px; margin-top:3px;
     font-family:-apple-system,sans-serif;
   }
-  .stage-strip .stage-seg.s0 { background:rgba(93,177,255,0.12); border-right:1px dashed var(--edge); color:var(--accent); }
-  .stage-strip .stage-seg.s1 { background:rgba(111,208,140,0.12); border-right:1px dashed var(--edge); color:var(--good); }
-  .stage-strip .stage-seg.sN { background:rgba(201,139,255,0.12); color:var(--noise); }
+  /* §2.1: all three packed slots are HOST pinned storage; use HOST green with
+     opacity variation to distinguish segments without inventing a class. */
+  .stage-strip .stage-seg.s0 { background:rgba(111,208,140,0.10); border-right:1px dashed var(--edge); color:var(--good); }
+  .stage-strip .stage-seg.s1 { background:rgba(111,208,140,0.18); border-right:1px dashed var(--edge); color:var(--good); }
+  .stage-strip .stage-seg.sN { background:rgba(111,208,140,0.26); color:var(--good); }
   .stage-offsets {
     display:grid; grid-template-columns:repeat(4, 1fr); font-family:"SF Mono",Menlo,Consolas,monospace;
     font-size:10px; color:var(--muted); margin-top:-2px;
@@ -167,9 +173,10 @@
     text-align:center; color:var(--warm); font-family:"SF Mono",Menlo,Consolas,monospace;
     font-size:12px; padding:6px 0 2px;
   }
+  /* device_staged → DEVICE blue per §2.1 */
   .stage-device {
     text-align:center; padding:10px 12px; border-radius:4px;
-    background:#13391f; border:1px solid var(--good); color:var(--ink);
+    background:#0b101a; border:1px solid var(--accent); color:var(--ink);
     font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
   }
   .stage-device small { display:block; color:var(--muted); font-size:11px; margin-top:3px; font-family:-apple-system,sans-serif; }
@@ -231,9 +238,10 @@
     font-family:"SF Mono",Menlo,Consolas,monospace; margin-top:2px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
   }
-  .bk-stage--zmq { background:rgba(154,167,189,0.20); border:1px solid var(--muted); }
-  .bk-stage--cpu { background:rgba(255,180,84,0.18); border:1px solid var(--warm); }
-  .bk-stage--gpu { background:rgba(111,208,140,0.25); border:1px solid var(--good); }
+  /* §2.1 conventions: ZMQ = EXTERNAL grey, CPU work = HOST green, GPU work = DEVICE blue */
+  .bk-stage--zmq { background:rgba(205,214,230,0.15); border:1px solid var(--ink); }
+  .bk-stage--cpu { background:rgba(111,208,140,0.18); border:1px solid var(--good); }
+  .bk-stage--gpu { background:rgba(93,177,255,0.18); border:1px solid var(--accent); }
   /* Lane-crossing hand-off arrow drawn as an overlay on the pipe container */
   .bk-handoff-layer {
     position:relative; height:0;
@@ -419,7 +427,7 @@
     <text x="60" y="130" fill="#9aa7bd" font-size="10">Modifiers (apply on top of any class)</text>
 
     <!-- HIGHLIGHT modifier -->
-    <rect x="30" y="140" width="150" height="50" rx="6" fill="rgba(255,180,84,0.45)" stroke="#ffb454" stroke-width="1.6"/>
+    <rect x="30" y="140" width="150" height="50" rx="6" fill="rgba(111,208,140,0.40)" stroke="#6fd08c" stroke-width="1.6"/>
     <text x="105" y="162" fill="#ffb454" text-anchor="middle" font-size="11">HIGHLIGHT</text>
     <text x="105" y="180" fill="#cdd6e6" text-anchor="middle" font-size="9">call-out slice (translucent fill)</text>
 
@@ -581,58 +589,61 @@
         <path d="M0,0 L9,4.5 L0,9 z" fill="#6fd08c"/>
       </marker>
       <marker id="argx" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
-        <path d="M0,0 L9,4.5 L0,9 z" fill="#c98bff"/>
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#ffb454"/>
       </marker>
     </defs>
 
     <text x="20" y="20" fill="#9aa7bd" font-size="11">3-node graph · examples/topology.graph.cuda.yaml · 6 edges total</text>
 
-    <!-- nodes -->
-    <circle cx="350" cy="90" r="42" fill="#13391f" stroke="#6fd08c" stroke-width="2"/>
+    <!-- nodes: EXTERNAL class (gnb0, ue0, ue1 are external SDR endpoints) -->
+    <circle cx="350" cy="90" r="42" fill="#181f2e" stroke="#cdd6e6" stroke-width="2"/>
     <text x="350" y="88" fill="#e7ecf5" text-anchor="middle">gnb0</text>
     <text x="350" y="104" fill="#9aa7bd" text-anchor="middle" font-size="10">gNB</text>
 
-    <circle cx="160" cy="280" r="42" fill="#1a2233" stroke="#5db1ff" stroke-width="2"/>
+    <circle cx="160" cy="280" r="42" fill="#181f2e" stroke="#cdd6e6" stroke-width="2"/>
     <text x="160" y="278" fill="#e7ecf5" text-anchor="middle">ue0</text>
     <text x="160" y="294" fill="#9aa7bd" text-anchor="middle" font-size="10">UE</text>
 
-    <circle cx="540" cy="280" r="42" fill="#1a2233" stroke="#5db1ff" stroke-width="2"/>
+    <circle cx="540" cy="280" r="42" fill="#181f2e" stroke="#cdd6e6" stroke-width="2"/>
     <text x="540" y="278" fill="#e7ecf5" text-anchor="middle">ue1</text>
     <text x="540" y="294" fill="#9aa7bd" text-anchor="middle" font-size="10">UE</text>
 
-    <!-- gnb0 -> ue0 (desired DL) -->
+    <!-- desired links (primary flow): solid green = host transport -->
+    <!-- gnb0 -> ue0 -->
     <path d="M 322 118 Q 235 180 188 246" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
     <text x="208" y="180" fill="#6fd08c" font-size="10">desired DL</text>
 
-    <!-- gnb0 -> ue1 (desired DL) -->
+    <!-- gnb0 -> ue1 -->
     <path d="M 378 118 Q 465 180 512 246" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
     <text x="450" y="180" fill="#6fd08c" font-size="10">desired DL</text>
 
-    <!-- ue0 -> gnb0 (desired UL) -->
+    <!-- ue0 -> gnb0 -->
     <path d="M 195 250 Q 280 185 322 128" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
     <text x="215" y="225" fill="#6fd08c" font-size="10">desired UL</text>
 
-    <!-- ue1 -> gnb0 (desired UL) -->
+    <!-- ue1 -> gnb0 -->
     <path d="M 505 250 Q 420 185 378 128" stroke="#6fd08c" stroke-width="1.6" fill="none" marker-end="url(#arg)"/>
     <text x="450" y="225" fill="#6fd08c" font-size="10">desired UL</text>
 
-    <!-- ue0 <-> ue1 crosstalk -->
-    <path d="M 205 290 Q 350 340 495 290" stroke="#c98bff" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#argx)"/>
-    <text x="350" y="335" fill="#c98bff" font-size="10" text-anchor="middle">crosstalk · −40 dB</text>
-    <path d="M 495 270 Q 350 220 205 270" stroke="#c98bff" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#argx)"/>
+    <!-- crosstalk: dashed amber = annotation / secondary path (FALLBACK modifier visual) -->
+    <path d="M 205 290 Q 350 340 495 290" stroke="#ffb454" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#argx)"/>
+    <text x="350" y="335" fill="#ffb454" font-size="10" text-anchor="middle">crosstalk · −40 dB</text>
+    <path d="M 495 270 Q 350 220 205 270" stroke="#ffb454" stroke-width="1.6" fill="none" stroke-dasharray="5 3" marker-end="url(#argx)"/>
 
     <!-- legend -->
     <g font-size="11">
       <line x1="20" y1="365" x2="40" y2="365" stroke="#6fd08c" stroke-width="1.6"/>
       <text x="46" y="369" fill="#9aa7bd">desired (tdl + phase + CFO)</text>
-      <line x1="290" y1="365" x2="310" y2="365" stroke="#c98bff" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <line x1="290" y1="365" x2="310" y2="365" stroke="#ffb454" stroke-width="1.6" stroke-dasharray="5 3"/>
       <text x="316" y="369" fill="#9aa7bd">crosstalk (path-loss + phase)</text>
       <text x="540" y="369" fill="#ffb454">+ rx_model per node</text>
     </g>
   </svg>
-  <figcaption>Diagram G — directed-graph topology. Solid green = desired links; dashed
-  purple = crosstalk. Every node has its own <code>rx_model</code> noise floor, applied
-  once to the summed RX. The broker sums all edges arriving at each node.</figcaption>
+  <figcaption>Diagram G — directed-graph topology. Nodes are EXTERNAL SDR
+  endpoints (grey per §2.1). Solid green = desired links (primary signal
+  flow); dashed amber = crosstalk (secondary path, FALLBACK modifier visual).
+  Every node has its own <code>rx_model</code> noise floor, applied once
+  to the summed RX. The broker sums all edges arriving at each node.</figcaption>
   </figure>
 
   <p class="key">YAML in 10 lines:</p>
@@ -700,8 +711,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
     <text x="500" y="18" fill="#cdd6e6" text-anchor="middle">Node ↔ edge mapping: built host-side at startup, consumed by host every serve, exposed to the device as packed indices</text>
 
-    <!-- Column 1: YAML topology (config-time, input) -->
-    <rect x="20" y="36" width="300" height="190" rx="8" fill="#1a2233" stroke="#2c3850"/>
+    <!-- Column 1: YAML topology — EXTERNAL class (config file outside the runtime) -->
+    <rect x="20" y="36" width="300" height="190" rx="8" fill="#181f2e" stroke="#cdd6e6" stroke-width="1.6"/>
     <text x="170" y="58" fill="#cdd6e6" text-anchor="middle" font-size="11">YAML topology (config-time input)</text>
     <line x1="30" y1="68" x2="310" y2="68" stroke="#2c3850"/>
     <text x="34" y="86"  fill="#9aa7bd" font-size="11">devices:</text>
@@ -731,8 +742,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
     <line x1="684" y1="130" x2="714" y2="130" stroke="#5db1ff" marker-end="url(#arv)"/>
 
-    <!-- Column 3: gnb0's resolved incoming set -->
-    <rect x="716" y="36" width="264" height="190" rx="8" fill="#1a2233" stroke="#ffb454"/>
+    <!-- Column 3: gnb0's resolved incoming set — HIGHLIGHT modifier (example call-out) -->
+    <rect x="716" y="36" width="264" height="190" rx="8" fill="rgba(255,180,84,0.18)" stroke="#ffb454" stroke-width="1.6"/>
     <text x="848" y="58" fill="#ffb454" text-anchor="middle" font-size="11">e.g. for d = gnb0</text>
     <line x1="724" y1="68" x2="972" y2="68" stroke="#2c3850"/>
     <text x="728" y="86"  fill="#cdd6e6" font-size="11">incoming = [0, 1]    (N=2)</text>
@@ -899,9 +910,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     </div>
 
     <div class="bk-legend">
-      <span><span class="bk-legend-sw" style="background:rgba(154,167,189,0.45); border:1px solid #9aa7bd;"></span>ZMQ network</span>
-      <span><span class="bk-legend-sw" style="background:rgba(255,180,84,0.45); border:1px solid #ffb454;"></span>host CPU work</span>
-      <span><span class="bk-legend-sw" style="background:rgba(111,208,140,0.55); border:1px solid #6fd08c;"></span>GPU device work</span>
+      <span><span class="bk-legend-sw" style="background:rgba(205,214,230,0.30); border:1px solid #cdd6e6;"></span>ZMQ (EXTERNAL)</span>
+      <span><span class="bk-legend-sw" style="background:rgba(111,208,140,0.45); border:1px solid #6fd08c;"></span>host CPU work (HOST)</span>
+      <span><span class="bk-legend-sw" style="background:rgba(93,177,255,0.45); border:1px solid #5db1ff;"></span>GPU device work (DEVICE)</span>
       <span>↓↑ = hand-off (resource transfer)</span>
     </div>
     <div class="bk-disclaimer">
@@ -989,7 +1000,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="20" y="22" fill="#9aa7bd">Per-source IQ rings (one per radio TX) · sequence-tagged samples 0, 1, 2, …</text>
 
     <!-- Ring src 0 -->
-    <text x="20" y="58" fill="#5db1ff" font-size="11">src 0 ring</text>
+    <text x="20" y="58" fill="#6fd08c" font-size="11">src 0 ring</text>
     <g fill="#1a2233" stroke="#2c3850">
       <rect x="100" y="42" width="40" height="28"/>
       <rect x="140" y="42" width="40" height="28"/>
@@ -1013,7 +1024,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="438" y="60" fill="#9aa7bd" font-size="11">… next_seq</text>
 
     <!-- Ring src 1 -->
-    <text x="20" y="116" fill="#5db1ff" font-size="11">src 1 ring</text>
+    <text x="20" y="116" fill="#6fd08c" font-size="11">src 1 ring</text>
     <g fill="#1a2233" stroke="#2c3850">
       <rect x="100" y="100" width="40" height="28"/>
       <rect x="140" y="100" width="40" height="28"/>
@@ -1032,9 +1043,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     </g>
     <text x="358" y="118" fill="#9aa7bd" font-size="11">… next_seq</text>
 
-    <!-- Common window highlight -->
-    <rect x="98" y="34" width="244" height="104" fill="#5db1ff" fill-opacity="0.08" stroke="#5db1ff" stroke-dasharray="4 3"/>
-    <text x="220" y="158" fill="#5db1ff" text-anchor="middle" font-size="11">common window = min(batch, min over k of (next_seq − cursor))</text>
+    <!-- Common window highlight (HIGHLIGHT modifier: translucent amber + amber dashed border) -->
+    <rect x="98" y="34" width="244" height="104" fill="rgba(255,180,84,0.12)" stroke="#ffb454" stroke-dasharray="4 3"/>
+    <text x="220" y="158" fill="#ffb454" text-anchor="middle" font-size="11">common window = min(batch, min over k of (next_seq − cursor))</text>
     <text x="220" y="174" fill="#9aa7bd" text-anchor="middle" font-size="10">(here 6 samples — src 1's ring limits the window)</text>
 
     <!-- Cursor marker: orange arrow pointing up at column 0 from below the rings -->
@@ -1088,7 +1099,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="100" y="74" fill="#9aa7bd" font-size="10" text-anchor="middle">throttle anchor</text>
 
     <!-- src 0 ring -->
-    <text x="20" y="98" fill="#5db1ff" font-size="11">src 0 ring</text>
+    <text x="20" y="98" fill="#6fd08c" font-size="11">src 0 ring</text>
     <g stroke="#2c3850">
       <rect x="100" y="82" width="293" height="28" fill="#1a2233"/>
       <rect x="393" y="82" width="293" height="28" fill="#1a2233"/>
@@ -1101,7 +1112,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     </g>
 
     <!-- src 1 ring -->
-    <text x="20" y="135" fill="#5db1ff" font-size="11">src 1 ring</text>
+    <text x="20" y="135" fill="#6fd08c" font-size="11">src 1 ring</text>
     <g stroke="#2c3850">
       <rect x="100" y="119" width="293" height="28" fill="#1a2233"/>
       <rect x="393" y="119" width="293" height="28" fill="#1a2233"/>
@@ -1116,7 +1127,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="540" y="162" fill="#9aa7bd" font-size="11" text-anchor="middle">⋮  (one row per incoming edge)</text>
 
     <!-- src N-1 ring -->
-    <text x="20" y="190" fill="#5db1ff" font-size="11">src N−1</text>
+    <text x="20" y="190" fill="#6fd08c" font-size="11">src N−1</text>
     <g stroke="#2c3850">
       <rect x="100" y="174" width="293" height="28" fill="#1a2233"/>
       <rect x="393" y="174" width="293" height="28" fill="#1a2233"/>
@@ -1191,7 +1202,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     </g>
 
     <!-- src 0 row -->
-    <text x="20" y="94" fill="#5db1ff" font-size="11">src 0</text>
+    <text x="20" y="94" fill="#6fd08c" font-size="11">src 0</text>
     <g stroke="#2c3850">
       <rect x="140" y="76" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
       <rect x="200" y="76" width="60" height="28" fill="#0b101a" stroke-dasharray="3 2"/>
@@ -1204,7 +1215,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <rect x="620" y="76" width="60" height="28" fill="#1a2233"/>
       <rect x="680" y="76" width="60" height="28" fill="#1a2233"/>
     </g>
-    <g fill="#5db1ff" text-anchor="middle" font-size="11">
+    <g fill="#6fd08c" text-anchor="middle" font-size="11">
       <text x="170" y="94" fill="#9aa7bd" font-size="10">(no signal yet)</text>
       <text x="230" y="94" fill="#9aa7bd" font-size="10">⋯</text>
       <text x="290" y="94">a₀</text>
@@ -2109,9 +2120,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <text x="200" y="103" fill="#5db1ff" text-anchor="middle" font-size="9">h[6]</text>
       <rect x="280" y="65" width="40" height="55" fill="rgba(93,177,255,0.55)" stroke="#5db1ff"/>
       <text x="300" y="93"  fill="#5db1ff" text-anchor="middle" font-size="9">h[5]</text>
-      <rect x="380" y="50" width="40" height="70" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <rect x="380" y="50" width="40" height="70" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
       <text x="400" y="78" fill="#6fd08c" text-anchor="middle" font-size="9">h[4]</text>
-      <rect x="480" y="50" width="40" height="70" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <rect x="480" y="50" width="40" height="70" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
       <text x="500" y="78" fill="#6fd08c" text-anchor="middle" font-size="9">h[3] · peak</text>
       <rect x="580" y="65" width="40" height="55" fill="rgba(93,177,255,0.55)" stroke="#5db1ff"/>
       <text x="600" y="93"  fill="#5db1ff" text-anchor="middle" font-size="9">h[2]</text>
@@ -2135,11 +2146,11 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="275" y="338" fill="#cdd6e6" text-anchor="middle" font-size="10">x[read_idx] from delay_line[dl_size + read_idx]</text>
     <text x="275" y="354" fill="#9aa7bd" text-anchor="middle" font-size="9">(previous slot's tail — cross-slot continuity, Diagram Z)</text>
 
-    <rect x="510" y="240" width="430" height="120" rx="6" fill="#13391f" stroke="#ff8aa3"/>
-    <text x="725" y="258" fill="#ff8aa3" text-anchor="middle" font-size="11">read_idx ≥ count</text>
+    <rect x="510" y="240" width="430" height="120" rx="6" fill="rgba(255,180,84,0.10)" stroke="#ffb454"/>
+    <text x="725" y="258" fill="#ffb454" text-anchor="middle" font-size="11">read_idx ≥ count</text>
     <text x="725" y="276" fill="#cdd6e6" text-anchor="middle" font-size="10">x = 0  (zero-padding into future)</text>
     <text x="725" y="294" fill="#cdd6e6" text-anchor="middle" font-size="10">edge effect: filter spans up to idx + 3</text>
-    <text x="725" y="320" fill="#ff8aa3" text-anchor="middle" font-size="11">read_idx &lt; −dl_size</text>
+    <text x="725" y="320" fill="#ffb454" text-anchor="middle" font-size="11">read_idx &lt; −dl_size</text>
     <text x="725" y="338" fill="#cdd6e6" text-anchor="middle" font-size="10">x = 0  (zero-padding before history)</text>
     <text x="725" y="354" fill="#9aa7bd" text-anchor="middle" font-size="9">only triggers on the very first slot</text>
   </svg>
@@ -2252,18 +2263,18 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <rect x="20" y="20" width="960" height="40" rx="4" fill="#1a2233" stroke="#2c3850"/>
     <text x="500" y="44" fill="#e7ecf5" text-anchor="middle">load into per-thread registers:  i = staged[k·count + idx].i  ·  q = staged[k·count + idx].q</text>
     <line x1="500" y1="64" x2="500" y2="82" stroke="#5db1ff" marker-end="url(#are)"/>
-    <rect x="20" y="90" width="960" height="240" rx="8" fill="#0b101a" stroke="#ffb454"/>
-    <text x="500" y="112" fill="#ffb454" text-anchor="middle">apply_chain():  for step_idx in 0 … step_count − 1:  switch (steps[step_idx].type)</text>
-    <rect x="30" y="130" width="305" height="190" rx="6" fill="#1a2233" stroke="#6fd08c"/>
-    <text x="182" y="150" fill="#6fd08c" text-anchor="middle">Scale</text>
+    <rect x="20" y="90" width="960" height="240" rx="8" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="500" y="112" fill="#5db1ff" text-anchor="middle">apply_chain():  for step_idx in 0 … step_count − 1:  switch (steps[step_idx].type)</text>
+    <rect x="30" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="182" y="150" fill="#5db1ff" text-anchor="middle">Scale</text>
     <text x="182" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">path-loss · tdl no-op</text>
     <line x1="50" y1="180" x2="315" y2="180" stroke="#2c3850"/>
     <text x="50" y="206" fill="#e7ecf5">i ← step.a · i</text>
     <text x="50" y="226" fill="#e7ecf5">q ← step.a · q</text>
     <text x="50" y="266" fill="#9aa7bd" font-size="11">step.a built host-side from</text>
     <text x="50" y="282" fill="#9aa7bd" font-size="11">gain_db or path_loss_db.</text>
-    <rect x="345" y="130" width="305" height="190" rx="6" fill="#1a2233" stroke="#6fd08c"/>
-    <text x="497" y="150" fill="#6fd08c" text-anchor="middle">Phase  /  CFO</text>
+    <rect x="345" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="497" y="150" fill="#5db1ff" text-anchor="middle">Phase  /  CFO</text>
     <text x="497" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">sincos + complex multiply</text>
     <line x1="365" y1="180" x2="630" y2="180" stroke="#2c3850"/>
     <text x="365" y="200" fill="#e7ecf5">φ = step.a + step.b · idx</text>
@@ -2272,8 +2283,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="365" y="262" fill="#9aa7bd" font-size="11">simultaneous: both use the original (i, q)</text>
     <text x="365" y="288" fill="#9aa7bd" font-size="11">b = 0  →  static phase rotate.</text>
     <text x="365" y="304" fill="#9aa7bd" font-size="11">b = 2π·f_cfo / f_s  →  CFO drift.</text>
-    <rect x="660" y="130" width="305" height="190" rx="6" fill="#1a2233" stroke="#c98bff"/>
-    <text x="812" y="150" fill="#c98bff" text-anchor="middle">AddNoise  (AWGN)</text>
+    <rect x="660" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="812" y="150" fill="#5db1ff" text-anchor="middle">AddNoise  (AWGN)</text>
     <text x="812" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">counter-based Philox</text>
     <line x1="680" y1="180" x2="945" y2="180" stroke="#2c3850"/>
     <text x="680" y="200" fill="#e7ecf5">rng = Philox4_32_10(</text>
@@ -2284,7 +2295,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="680" y="296" fill="#9aa7bd" font-size="11">stateless: same (seed, ctr + idx)</text>
     <text x="680" y="312" fill="#9aa7bd" font-size="11">→ same noise, every run.</text>
     <line x1="500" y1="334" x2="500" y2="352" stroke="#5db1ff" marker-end="url(#are)"/>
-    <rect x="20" y="360" width="960" height="40" rx="4" fill="#1a2233" stroke="#ffb454"/>
+    <rect x="20" y="360" width="960" height="40" rx="4" fill="#0b101a" stroke="#5db1ff"/>
     <text x="500" y="384" fill="#e7ecf5" text-anchor="middle">acc_i += i  ·  acc_q += q       (dst[idx] = (acc_i, acc_q) once all N edges are summed)</text>
   </svg>
   <figcaption>Diagram E — <span class="mono">apply_chain()</span> on one (i, q) sample.
@@ -2313,9 +2324,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
       </marker>
     </defs>
-    <text x="20" y="34" fill="#9aa7bd">one 1 ms slot — 23 040 IQ samples</text>
+    <text x="20" y="34" fill="#9aa7bd">one 1 ms slot — 23 040 IQ samples (device_staged · DEVICE class)</text>
     <g>
-      <g fill="#1a2233" stroke="#2c3850">
+      <g fill="#0b101a" stroke="#5db1ff">
         <rect x="20"  y="44" width="48" height="34"/>
         <rect x="68"  y="44" width="48" height="34"/>
         <rect x="116" y="44" width="48" height="34"/>
@@ -2323,7 +2334,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <rect x="212" y="44" width="48" height="34"/>
         <rect x="800" y="44" width="60" height="34"/>
       </g>
-      <g fill="#e7ecf5" text-anchor="middle">
+      <g fill="#5db1ff" text-anchor="middle">
         <text x="44"  y="65">s0</text>
         <text x="92"  y="65">s1</text>
         <text x="140" y="65">s2</text>
@@ -2342,7 +2353,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <line x1="830" y1="80" x2="830" y2="156"/>
     </g>
     <text x="20" y="118" fill="#9aa7bd" font-size="11">GPU threads — one per sample, all running concurrently</text>
-    <g fill="#13391f" stroke="#6fd08c">
+    <g fill="#0b101a" stroke="#5db1ff">
       <rect x="20"  y="160" width="48" height="34"/>
       <rect x="68"  y="160" width="48" height="34"/>
       <rect x="116" y="160" width="48" height="34"/>
@@ -2350,7 +2361,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <rect x="212" y="160" width="48" height="34"/>
       <rect x="800" y="160" width="60" height="34"/>
     </g>
-    <g fill="#6fd08c" text-anchor="middle">
+    <g fill="#5db1ff" text-anchor="middle">
       <text x="44"  y="181">t0</text>
       <text x="92"  y="181">t1</text>
       <text x="140" y="181">t2</text>
@@ -2462,13 +2473,13 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="238" y="174" fill="#9aa7bd" text-anchor="middle" font-size="10">(same source-time instant on every edge)</text>
 
     <g>
-      <rect x="540" y="40" width="430" height="210" rx="8" fill="#13391f" stroke="#6fd08c"/>
-      <text x="560" y="64" fill="#6fd08c">thread idx   —   computes dst[idx]</text>
+      <rect x="540" y="40" width="430" height="210" rx="8" fill="#0b101a" stroke="#5db1ff"/>
+      <text x="560" y="64" fill="#5db1ff">thread idx   —   computes dst[idx]</text>
       <text x="560" y="92"  fill="#e7ecf5">acc = (0, 0)</text>
       <text x="560" y="116" fill="#cdd6e6">for k in 0 … N-1:</text>
       <text x="582" y="140" fill="#5db1ff">s = staged[k·count + idx]</text>
-      <text x="582" y="164" fill="#c98bff">apply_chain(s, steps + step_meta[k],</text>
-      <text x="652" y="180" fill="#c98bff">step_meta[N+k], idx)</text>
+      <text x="582" y="164" fill="#5db1ff">apply_chain(s, steps + step_meta[k],</text>
+      <text x="652" y="180" fill="#5db1ff">step_meta[N+k], idx)</text>
       <text x="600" y="200" fill="#9aa7bd" font-size="11">scale ·  rotate sincos  ·  AWGN (Philox)</text>
       <text x="582" y="222" fill="#ffb454">acc += s</text>
       <text x="560" y="244" fill="#e7ecf5">dst[idx] = acc</text>
@@ -2479,8 +2490,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <line x1="254" y1="82"  x2="536" y2="135"/>
       <line x1="254" y1="128" x2="536" y2="150"/>
     </g>
-    <rect x="540" y="268" width="430" height="34" rx="4" fill="#1a2233" stroke="#ffb454"/>
-    <text x="755" y="289" fill="#ffb454" text-anchor="middle">dst[0 … 23039] — node's RX signal (all threads' writes)</text>
+    <rect x="540" y="268" width="430" height="34" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="755" y="289" fill="#5db1ff" text-anchor="middle">device_output[0 … 23039] — node's RX signal (all threads' writes)</text>
     <line x1="755" y1="250" x2="755" y2="260" stroke="#5db1ff" marker-end="url(#ar2)"/>
     <text x="20" y="300" fill="#cdd6e6">desired, interference, and crosstalk are the same operation:</text>
     <text x="20" y="320" fill="#cdd6e6">every term of dst[idx] is one edge arriving at the node.</text>
@@ -2514,44 +2525,44 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     </defs>
     <text x="200" y="20" fill="#9aa7bd" text-anchor="middle">HOST</text>
     <text x="500" y="20" fill="#9aa7bd" text-anchor="middle">PCIe · cudaMemcpyAsync</text>
-    <text x="800" y="20" fill="#6fd08c" text-anchor="middle">DEVICE · global (cudaMalloc)</text>
+    <text x="800" y="20" fill="#5db1ff" text-anchor="middle">DEVICE · global (cudaMalloc)</text>
     <text x="20" y="44" fill="#ffb454" font-size="13">CudaSuperposeState — one per RX node · preallocated in prepare() · reused every serve</text>
-    <rect x="20" y="58" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <rect x="20" y="58" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
     <text x="30" y="75" fill="#e7ecf5">host_staged <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
     <text x="30" y="89" fill="#9aa7bd" font-size="10.5">N × 23 040 IQ &nbsp; (180 KB per edge)</text>
-    <rect x="620" y="58" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c"/>
+    <rect x="620" y="58" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
     <text x="630" y="75" fill="#e7ecf5">device_staged</text>
     <text x="630" y="89" fill="#9aa7bd" font-size="10.5">N × 23 040 IQ &nbsp; (kernel reads staged[k·count + idx])</text>
     <line x1="384" y1="77" x2="614" y2="77" stroke="#5db1ff" marker-end="url(#ard)"/>
     <text x="499" y="73" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · samples</text>
-    <rect x="20" y="104" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <rect x="20" y="104" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
     <text x="30" y="121" fill="#e7ecf5">host_steps <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
     <text x="30" y="135" fill="#9aa7bd" font-size="10.5">Σ steps × GpuStep &nbsp; (flattened per-edge chains)</text>
-    <rect x="620" y="104" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c"/>
+    <rect x="620" y="104" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
     <text x="630" y="121" fill="#e7ecf5">device_steps</text>
     <text x="630" y="135" fill="#9aa7bd" font-size="10.5">Σ steps × GpuStep</text>
     <line x1="384" y1="123" x2="614" y2="123" stroke="#5db1ff" marker-end="url(#ard)"/>
     <text x="499" y="119" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · chain</text>
-    <rect x="20" y="150" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <rect x="20" y="150" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
     <text x="30" y="167" fill="#e7ecf5">host_step_meta <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
     <text x="30" y="181" fill="#9aa7bd" font-size="10.5">2N × int &nbsp; (first N: offsets · next N: counts)</text>
-    <rect x="620" y="150" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c"/>
+    <rect x="620" y="150" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
     <text x="630" y="167" fill="#e7ecf5">device_step_meta</text>
     <text x="630" y="181" fill="#9aa7bd" font-size="10.5">2N × int</text>
     <line x1="384" y1="169" x2="614" y2="169" stroke="#5db1ff" marker-end="url(#ard)"/>
     <text x="499" y="165" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · meta</text>
-    <rect x="20" y="196" width="360" height="38" rx="4" fill="#1a2233" stroke="#2c3850" stroke-dasharray="4 3"/>
+    <rect x="20" y="196" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c" stroke-dasharray="4 3"/>
     <text x="30" y="213" fill="#cdd6e6">rx_model.host_steps <tspan fill="#9aa7bd" font-size="10.5">· optional</tspan></text>
     <text x="30" y="227" fill="#9aa7bd" font-size="10.5">noise-floor chain · only when node has rx_model</text>
-    <rect x="620" y="196" width="360" height="38" rx="4" fill="#13391f" stroke="#6fd08c" stroke-dasharray="4 3"/>
+    <rect x="620" y="196" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff" stroke-dasharray="4 3"/>
     <text x="630" y="213" fill="#cdd6e6">device_rx_steps</text>
     <text x="630" y="227" fill="#9aa7bd" font-size="10.5">consumed by the in-place apply_steps_kernel pass</text>
     <line x1="384" y1="215" x2="614" y2="215" stroke="#5db1ff" stroke-dasharray="4 3" marker-end="url(#ard)"/>
     <text x="499" y="211" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · rx (opt)</text>
-    <rect x="20" y="242" width="360" height="38" rx="4" fill="#1a2233" stroke="#ffb454"/>
+    <rect x="20" y="242" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
     <text x="30" y="259" fill="#e7ecf5">host_output <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
     <text x="30" y="273" fill="#9aa7bd" font-size="10.5">23 040 IQ · the served signal</text>
-    <rect x="620" y="242" width="360" height="38" rx="4" fill="#13391f" stroke="#ffb454"/>
+    <rect x="620" y="242" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
     <text x="630" y="259" fill="#e7ecf5">device_output</text>
     <text x="630" y="273" fill="#9aa7bd" font-size="10.5">23 040 IQ · kernel write target</text>
     <line x1="614" y1="261" x2="384" y2="261" stroke="#5db1ff" marker-end="url(#ard)"/>
@@ -2634,8 +2645,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       </div>
     </div>
     <div class="gantt-legend">
-      <span><span class="gantt-swatch" style="background:#5db1ff;"></span>cudaMemcpyAsync H2D / D2H (copy engine)</span>
-      <span><span class="gantt-swatch" style="background:#ffb454;"></span>apply_channel_kernel + superpose_kernel (compute engine)</span>
+      <span><span class="gantt-swatch" style="background:#5db1ff; opacity:.55;"></span>cudaMemcpyAsync H2D (copy engine)</span>
+      <span><span class="gantt-swatch" style="background:#5db1ff;"></span>apply_channel_kernel + superpose_kernel (compute engine)</span>
+      <span><span class="gantt-swatch" style="background:#5db1ff; opacity:.30;"></span>cudaMemcpyAsync D2H (copy engine)</span>
     </div>
   </div>
   <figcaption>Diagram I — per-node CUDA streams overlap, zoomed to the first 200 µs
@@ -3193,41 +3205,41 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
     <g>
       <!-- mvp-2-edge x=180 -->
-      <rect x="158" y="341.0" width="20" height="39.0" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
-      <rect x="180" y="371.5" width="20" height="8.5" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
-      <text x="168" y="335" fill="#ffb454" font-size="9" text-anchor="middle">295</text>
-      <text x="190" y="365" fill="#6fd08c" font-size="9" text-anchor="middle">65</text>
+      <rect x="158" y="341.0" width="20" height="39.0" fill="rgba(111,208,140,0.40)" stroke="#6fd08c"/>
+      <rect x="180" y="371.5" width="20" height="8.5" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
+      <text x="168" y="335" fill="#6fd08c" font-size="9" text-anchor="middle">295</text>
+      <text x="190" y="365" fill="#5db1ff" font-size="9" text-anchor="middle">65</text>
 
       <!-- multi-ue-4-edge x=340 -->
-      <rect x="318" y="275.3" width="20" height="104.7" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
-      <rect x="340" y="365.8" width="20" height="14.2" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
-      <text x="328" y="269" fill="#ffb454" font-size="9" text-anchor="middle">793</text>
-      <text x="350" y="359" fill="#6fd08c" font-size="9" text-anchor="middle">107</text>
+      <rect x="318" y="275.3" width="20" height="104.7" fill="rgba(111,208,140,0.40)" stroke="#6fd08c"/>
+      <rect x="340" y="365.8" width="20" height="14.2" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
+      <text x="328" y="269" fill="#6fd08c" font-size="9" text-anchor="middle">793</text>
+      <text x="350" y="359" fill="#5db1ff" font-size="9" text-anchor="middle">107</text>
 
       <!-- graph-6-edge x=500 -->
-      <rect x="478" y="270.1" width="20" height="109.9" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
-      <rect x="500" y="367.8" width="20" height="12.2" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
-      <text x="488" y="264" fill="#ffb454" font-size="9" text-anchor="middle">833</text>
-      <text x="510" y="361" fill="#6fd08c" font-size="9" text-anchor="middle">93</text>
+      <rect x="478" y="270.1" width="20" height="109.9" fill="rgba(111,208,140,0.40)" stroke="#6fd08c"/>
+      <rect x="500" y="367.8" width="20" height="12.2" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
+      <text x="488" y="264" fill="#6fd08c" font-size="9" text-anchor="middle">833</text>
+      <text x="510" y="361" fill="#5db1ff" font-size="9" text-anchor="middle">93</text>
 
       <!-- multi-gnb-8-edge x=660 -->
-      <rect x="638" y="288.0" width="20" height="92.0" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
-      <rect x="660" y="366.8" width="20" height="13.2" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
-      <text x="648" y="282" fill="#ffb454" font-size="9" text-anchor="middle">697</text>
-      <text x="670" y="360" fill="#6fd08c" font-size="9" text-anchor="middle">100</text>
+      <rect x="638" y="288.0" width="20" height="92.0" fill="rgba(111,208,140,0.40)" stroke="#6fd08c"/>
+      <rect x="660" y="366.8" width="20" height="13.2" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
+      <text x="648" y="282" fill="#6fd08c" font-size="9" text-anchor="middle">697</text>
+      <text x="670" y="360" fill="#5db1ff" font-size="9" text-anchor="middle">100</text>
 
       <!-- stress-16-edge x=820 -->
-      <rect x="798" y="84.6" width="20" height="295.4" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
-      <rect x="820" y="350.1" width="20" height="29.9" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
-      <text x="808" y="78" fill="#ffb454" font-size="9" text-anchor="middle">2236</text>
-      <text x="830" y="344" fill="#6fd08c" font-size="9" text-anchor="middle">227</text>
+      <rect x="798" y="84.6" width="20" height="295.4" fill="rgba(111,208,140,0.40)" stroke="#6fd08c"/>
+      <rect x="820" y="350.1" width="20" height="29.9" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
+      <text x="808" y="78" fill="#6fd08c" font-size="9" text-anchor="middle">2236</text>
+      <text x="830" y="344" fill="#5db1ff" font-size="9" text-anchor="middle">227</text>
     </g>
 
     <!-- Legend -->
     <g font-size="11">
-      <rect x="160" y="442" width="14" height="10" fill="rgba(255,180,84,0.45)" stroke="#ffb454"/>
+      <rect x="160" y="442" width="14" height="10" fill="rgba(111,208,140,0.40)" stroke="#6fd08c"/>
       <text x="180" y="451" fill="#9aa7bd">CPU backend (loop+sum on the host)</text>
-      <rect x="540" y="442" width="14" height="10" fill="rgba(111,208,140,0.55)" stroke="#6fd08c"/>
+      <rect x="540" y="442" width="14" height="10" fill="rgba(93,177,255,0.45)" stroke="#5db1ff"/>
       <text x="560" y="451" fill="#9aa7bd">CUDA backend (one fused superposition call per RX node)</text>
     </g>
   </svg>
@@ -3338,9 +3350,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <circle cx="890" cy="212.9" r="3"/>
     </g>
 
-    <!-- kernel (purple) -->
+    <!-- kernel (DEVICE blue, solid; H2D line above already light blue) -->
     <polyline points="140,379.1 280,379.1 410,378.7 530,378.1 650,376.8 770,374.5 890,369.8"
-              fill="none" stroke="#c98bff" stroke-width="1.6"/>
+              fill="none" stroke="#5db1ff" stroke-width="1.6" stroke-opacity="0.55"/>
     <!-- d2h (gray) -->
     <polyline points="140,376.6 280,376.2 410,376.2 530,376.6 650,376.6 770,376.6 890,376.6"
               fill="none" stroke="#9aa7bd" stroke-width="1.6" stroke-dasharray="2 2"/>
@@ -3351,7 +3363,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <text x="178" y="442" fill="#9aa7bd">total model_mix p99</text>
       <line x1="340" y1="438" x2="370" y2="438" stroke="#5db1ff" stroke-width="1.8"/>
       <text x="378" y="442" fill="#9aa7bd">H2D p99 (dominates)</text>
-      <line x1="540" y1="438" x2="570" y2="438" stroke="#c98bff" stroke-width="1.6"/>
+      <line x1="540" y1="438" x2="570" y2="438" stroke="#5db1ff" stroke-width="1.6" stroke-opacity="0.55"/>
       <text x="578" y="442" fill="#9aa7bd">kernel p99 (scales mildly)</text>
       <line x1="760" y1="438" x2="790" y2="438" stroke="#9aa7bd" stroke-width="1.6" stroke-dasharray="2 2"/>
       <text x="798" y="442" fill="#9aa7bd">D2H p99 (flat)</text>
@@ -3475,8 +3487,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="32" y="200" fill="#9aa7bd" font-size="11" transform="rotate(-90 32 200)">H2D achieved Gbps (p99)</text>
 
     <!-- Reference line at 126 Gbps = y = 320 - 126/125 * 270 = 320 - 272 = 48 -->
-    <line x1="100" y1="48" x2="900" y2="48" stroke="#ff8aa3" stroke-dasharray="4 3" stroke-width="1.4"/>
-    <text x="990" y="44" fill="#ff8aa3" font-size="10" text-anchor="end">126 Gbps = PCIe 5.0 x4 effective ceiling (gen 5 x16 would be ~504 Gbps, 4× off-chart)</text>
+    <line x1="100" y1="48" x2="900" y2="48" stroke="#ffb454" stroke-dasharray="4 3" stroke-width="1.4"/>
+    <text x="990" y="44" fill="#ffb454" font-size="10" text-anchor="end">126 Gbps = PCIe 5.0 x4 effective ceiling (gen 5 x16 would be ~504 Gbps, 4× off-chart)</text>
 
     <!-- X same as before -->
     <g fill="#cdd6e6" font-size="11" text-anchor="middle">
@@ -3496,14 +3508,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
        (Pre-D4 was 56.9 / 73.2 / 86.3 / 99.2 / 103.2 / 106.0 / 106.7 —
         D4 unchanged for one-to-N because num_sources == N == link_count.) -->
     <polyline points="140,209.2 280,156.1 410,135.1 530,109.4 650,96.9 770,91.0 890,90.0"
-              fill="none" stroke="#6fd08c" stroke-width="2.4"/>
-    <g fill="#6fd08c">
+              fill="none" stroke="#5db1ff" stroke-width="2.4"/>
+    <g fill="#5db1ff">
       <circle cx="140" cy="209.2" r="4"/><circle cx="280" cy="156.1" r="4"/>
       <circle cx="410" cy="135.1" r="4"/><circle cx="530" cy="109.4" r="4"/>
       <circle cx="650" cy="96.9" r="4"/><circle cx="770" cy="91.0" r="4"/>
       <circle cx="890" cy="90.0" r="4"/>
     </g>
-    <g fill="#6fd08c" font-size="9" text-anchor="middle">
+    <g fill="#5db1ff" font-size="9" text-anchor="middle">
       <text x="140" y="202">51</text>
       <text x="280" y="150">76</text>
       <text x="410" y="129">86</text>
@@ -3514,8 +3526,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     </g>
 
     <!-- Annotation: saturation regime (placed mid-chart to avoid the rightmost label) -->
-    <path d="M 380 130 Q 500 110 620 100" fill="none" stroke="#ff8aa3" stroke-width="1.2" stroke-dasharray="3 2"/>
-    <text x="470" y="142" fill="#ff8aa3" font-size="10" text-anchor="middle">saturating ~85 % of x4 ceiling by N=8</text>
+    <path d="M 380 130 Q 500 110 620 100" fill="none" stroke="#ffb454" stroke-width="1.2" stroke-dasharray="3 2"/>
+    <text x="470" y="142" fill="#ffb454" font-size="10" text-anchor="middle">saturating ~85 % of x4 ceiling by N=8</text>
   </svg>
   <figcaption>Diagram W — achieved H2D bandwidth on the gNB's
   superposition call. <b>Measured post-D4</b>
@@ -3615,8 +3627,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <polygon points="520,329 530,313 540,329"/>           <!-- (4,8) max=8 (overlap with above) -->
       <polygon points="640,298 650,282 660,298"/>           <!-- (4,16) max=16 -->
     </g>
-    <!-- m-n asym M-larger (purple diamonds): (4,2)max=4:136, (8,2)max=8:228, (16,2)max=16:421, (8,4)max=8:229, (16,4)max=16:423 -->
-    <g fill="#c98bff">
+    <!-- m-n asym M-larger (open diamonds, neutral grey — 4th series; not a §2.1 class signal) -->
+    <g fill="none" stroke="#cdd6e6" stroke-width="1.4">
       <polygon points="396,340 404,332 412,340 404,348"/>   <!-- (4,2) max=4 -->
       <polygon points="516,325 524,317 532,325 524,333"/>   <!-- (8,2) max=8 -->
       <polygon points="636,294 644,286 652,294 644,302"/>   <!-- (16,2) max=16 -->
@@ -3632,7 +3644,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <text x="294" y="421" fill="#9aa7bd">M-N symmetric (M=N)</text>
       <polygon points="490,422 500,406 510,422" fill="#5db1ff"/>
       <text x="514" y="421" fill="#9aa7bd">M-N many-N (N&gt;M)</text>
-      <polygon points="716,418 724,410 732,418 724,426" fill="#c98bff"/>
+      <polygon points="716,418 724,410 732,418 724,426" fill="none" stroke="#cdd6e6" stroke-width="1.4"/>
       <text x="738" y="421" fill="#9aa7bd">M-N many-M (M&gt;N)</text>
     </g>
   </svg>
