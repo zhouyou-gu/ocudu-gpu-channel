@@ -147,6 +147,20 @@ bool build_device_link_state(
 // ignored, matching the build_device_link_state semantics.
 void refresh_tap0_from_live(DeviceLinkState& s);
 
+// Phase 3 v2.0-F3b: recompute ALL per-tap derived fields in `s` from a
+// caller-supplied tap layout (`n_taps` × `taps[]` — the layout the ZMQ
+// control plane's profile_swap REQ delivered, stored as
+// LinkModelState::live_profile on the host side). Mirrors the per-tap
+// derivation in build_device_link_state, but uses the live tap layout
+// instead of the YAML chain step. Fading sub-config (alpha/phi
+// sub-rays, f_d_max_hz, grid_us) is NOT updated here — runtime
+// fading-swap is deferred to a follow-on (would need fresh sub-ray
+// draws + a regenerated coarse grid). The kernel-side fading params on
+// `s` keep whatever they were at prepare time.
+void refresh_all_taps_from_live(DeviceLinkState& s,
+                                int n_taps,
+                                const TapSpec* taps);
+
 // Per-edge channel kernel.
 //
 // For each (edge k, output sample idx), computes the multi-tap polyphase

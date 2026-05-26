@@ -424,6 +424,56 @@ void refresh_tap0_from_live(DeviceLinkState& s)
   }
 }
 
+void refresh_all_taps_from_live(DeviceLinkState& s, int n_taps, const TapSpec* taps)
+{
+  // v2.0-F3b: replace ALL per-tap derived fields from a runtime profile.
+  // Caller is the snap-and-refresh path in cuda_backend.cu after
+  // observing a profile_swap on the link's BrokerLinkControl. Mirrors
+  // build_device_link_state's per-tap derivation. Fading sub-config
+  // (alpha/phi sub-rays, f_d_max_hz, grid_us) is not touched here —
+  // runtime fading-swap is deferred (would require fresh sub-ray draws
+  // + a regenerated coarse grid).
+  if (s.has_tdl == 0) return;
+  if (n_taps <= 0) {
+    // Empty taps array means "no kernel work" — set n_taps to 1 and zero
+    // the leading tap so the kernel produces unit-impulse output rather
+    // than reading uninitialised memory. Treat this as a degraded but
+    // defined state; the control plane validator (F2) already rejects
+    // empty taps arrays, so this branch is paranoia.
+    s.n_taps = 0;
+    return;
+  }
+  if (n_taps > kDeviceMaxTaps) n_taps = kDeviceMaxTaps;
+  s.n_taps = n_taps;
+  for (int k = 0; k < n_taps; ++k) {
+    const TapSpec& t = taps[k];
+    const double tau_int = std::floor(t.delay_samples);
+    s.tap_delay_int[k] = static_cast<int>(tau_int);
+    s.tap_frac[k]      = static_cast<float>(t.delay_samples - tau_int);
+    compute_windowed_sinc_taps(s.tap_frac[k], s.tap_polyphase[k]);
+    s.tap_gain_amp[k]  = static_cast<float>(std::pow(10.0, t.gain_db / 20.0));
+    s.tap_cos_phi[k]   = static_cast<float>(std::cos(t.phase_rad));
+    s.tap_sin_phi[k]   = static_cast<float>(std::sin(t.phase_rad));
+    s.tap_is_los[k]    = t.is_los ? 1 : 0;
+    s.tap_los_angle_rad[k] = static_cast<float>(t.los_angle_rad);
+    if (t.is_los) {
+      const double K_lin = std::pow(10.0, t.los_k_db / 10.0);
+      s.tap_los_factor[k]      = static_cast<float>(std::sqrt(K_lin / (K_lin + 1.0)));
+      s.tap_rayleigh_factor[k] = static_cast<float>(std::sqrt(1.0 / (K_lin + 1.0)));
+    } else {
+      s.tap_los_factor[k]      = 0.0F;
+      s.tap_rayleigh_factor[k] = 1.0F;
+    }
+  }
+  // Zero the unused tail so the kernel's read-from-the-end safety on a
+  // shorter profile doesn't read whatever was left from the previous
+  // (longer) profile.
+  for (int k = n_taps; k < kDeviceMaxTaps; ++k) {
+    s.tap_gain_amp[k] = 0.0F;
+    s.tap_is_los[k]   = 0;
+  }
+}
+
 void launch_apply_channel_kernel_static(
     const DeviceLinkState* states,
     const IqSample* source_iq,
