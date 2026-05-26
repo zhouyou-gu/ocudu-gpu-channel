@@ -131,6 +131,34 @@ void write_shadow_tap0_gain(ocg::ChannelProcessor& proc, float gain_db)
   it->second->seqno.fetch_add(1, std::memory_order_release);
 }
 
+// v2.0-F3a: write a 2-tap profile_swap into the link's shadow. Caller
+// passes raw tap params; helper writes shadow_profile + profile_pending
+// and bumps seqno (mirrors what ControlServer's handle_profile_swap
+// does without going through ZMQ).
+void write_shadow_profile_swap_2tap(
+    ocg::ChannelProcessor& proc,
+    double delay0, double gain_db0,
+    double delay1, double gain_db1)
+{
+  auto map = proc.collect_control_links();
+  auto it = map.find("gnb0>ue0");
+  require(it != map.end() && it->second != nullptr, "link found in control map");
+  ocg::ProfileShadow& sp = it->second->shadow_profile;
+  sp.n_taps = 2;
+  sp.taps[0].delay_samples = delay0;
+  sp.taps[0].gain_db       = gain_db0;
+  sp.taps[0].phase_rad     = 0.0;
+  sp.taps[0].is_los        = false;
+  sp.taps[1].delay_samples = delay1;
+  sp.taps[1].gain_db       = gain_db1;
+  sp.taps[1].phase_rad     = 0.0;
+  sp.taps[1].is_los        = false;
+  sp.fading_enabled = false;
+  sp.force = false;
+  it->second->profile_pending = true;
+  it->second->seqno.fetch_add(1, std::memory_order_release);
+}
+
 double mean_power(const std::vector<ocg::IqSample>& samples)
 {
   double p = 0.0;
@@ -310,6 +338,60 @@ int main()
     const double p_snr40 = mean_power(out_snr40);
     require(std::fabs(p_snr40 - 1.0) < 0.1,
             "AWGN: snr=40 → output power should be ~1.0 after runtime update");
+  }
+
+  // ── v2.0-F3a: CPU profile_swap changes the per-edge filter ────────────
+  // Drives a sharp impulse through a single-tap pass-through chain, then
+  // does a profile_swap to a 2-tap (impulse + delayed-echo) profile and
+  // checks the output now has both the direct impulse AND the echo at
+  // the new delay. Demonstrates the live_profile path replaces the YAML
+  // taps wholesale at runtime — not just tap-0 scalars.
+  {
+    ocg::TopologyConfig prof_cfg;
+    prof_cfg.runtime.backend = ocg::Backend::Cpu;
+    prof_cfg.runtime.batch_samples_auto = false;
+    prof_cfg.runtime.batch_samples = 16;
+    prof_cfg.runtime.queue_samples = 128;
+    prof_cfg.devices = {
+        {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000,
+         .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+        {.id = "ue0",  .role = "ue",  .sample_rate_hz = 23040000,
+         .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+    prof_cfg.links = {{.from = "gnb0", .to = "ue0", .model = "pass"}};
+    ocg::ModelConfig m;
+    m.id = "pass";
+    m.chain.push_back({.type = ocg::ModelStepType::Tdl,
+                       .params = {},
+                       .taps = {{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}},
+                       .taps_declared = true});
+    prof_cfg.models.emplace(m.id, m);
+
+    ocg::CpuChannelProcessor proc_cpu;
+    proc_cpu.prepare(prof_cfg);
+    const ocg::ModelConfig& prof_model = prof_cfg.models["pass"];
+
+    // Impulse at sample 0; zeros elsewhere. Single-tap YAML chain should
+    // pass it through unchanged.
+    std::vector<ocg::IqSample> impulse(16, {0.0F, 0.0F});
+    impulse[0] = {1.0F, 0.0F};
+    auto p0 = run_slot(proc_cpu, prof_model, impulse);
+    require(near_float(p0[0].i, 1.0F), "profile_swap: YAML chain — impulse at sample 0");
+    require(near_float(p0[3].i, 0.0F), "profile_swap: YAML chain — no echo at sample 3");
+
+    // Runtime profile swap to 2 taps: impulse + an echo at delay 3 with
+    // -6 dB (~0.5x amplitude).
+    write_shadow_profile_swap_2tap(proc_cpu, /*d0=*/0.0, /*g0=*/0.0,
+                                                /*d1=*/3.0, /*g1=*/-6.020599913);
+    // Fresh impulse input — the cross-slot delay_line still has residue
+    // from the prior slot's impulse, so this test deliberately uses zero
+    // input plus a fresh impulse to keep the assertion clean.
+    std::vector<ocg::IqSample> impulse_after(16, {0.0F, 0.0F});
+    impulse_after[0] = {1.0F, 0.0F};
+    auto p1 = run_slot(proc_cpu, prof_model, impulse_after);
+    require(near_float(p1[0].i, 1.0F),
+            "profile_swap: after — direct impulse still passes through tap 0");
+    require(near_float(p1[3].i, 0.5F, 1e-3F),
+            "profile_swap: after — tap 1 produces 0.5x echo at delay 3");
   }
 
   std::cout << "test_runtime_update_parity OK\n";

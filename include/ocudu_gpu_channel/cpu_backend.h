@@ -78,6 +78,16 @@ private:
     MutableParams live;
     BrokerLinkControl ctl;
     std::uint32_t live_seqno = 0;
+
+    // v2.0-F3: live profile-swap state. When `live_profile_active` is true,
+    // the chain executor reads ALL Tdl taps from `live_profile.taps[..n_taps]`
+    // instead of the YAML `step.taps`. Set by the snap path on the first
+    // accepted profile_swap REQ for this link. `chain_has_leading_tdl` is
+    // cached at prepare() so the snap path can do the eligibility check
+    // without re-walking the chain each slot.
+    ProfileShadow live_profile;
+    bool          live_profile_active = false;
+    bool          chain_has_leading_tdl = false;
   };
 
   LinkState& ensure_link_state(const std::string& link_key,

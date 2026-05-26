@@ -45,6 +45,13 @@ struct ProfileShadow {
   float      fading_f_d_max_hz = 0.0F;
   int        fading_spectrum = 0;            // 0=Jakes (only one implemented)
   float      fading_grid_us = 100.0F;
+  // v2.0-F3 eligibility override. When false (default), the snap path
+  // refuses to apply a profile to a link whose chain does not start with
+  // a tdl step (the new taps would have nothing to flow through). force
+  // = true accepts the profile + snaps it; on a non-tdl-leading chain
+  // the snapped profile is stored but kernel output is unchanged until
+  // a YAML reload re-establishes the dispatch.
+  bool       force = false;
 };
 
 // One BrokerLinkControl per emulator link. The shadow buffer is initialised
@@ -103,6 +110,26 @@ inline bool snap_mutable_params(MutableParams& live,
   }
   live = ctl.shadow;
   live_seqno = observed;
+  return true;
+}
+
+// v2.0-F3: snap the pending profile shadow into the caller's live profile
+// storage. Caller is responsible for: (a) deciding whether to call this
+// (typically when snap_mutable_params returned true AND ctl.profile_pending
+// is set), and (b) the eligibility check (chain has leading tdl OR
+// ctl.shadow_profile.force is true). Eligibility check is outside this
+// helper because the chain shape lives on the backend's per-link state,
+// not on BrokerLinkControl.
+//
+// Returns true if the profile was copied. ctl.profile_pending is NOT
+// cleared — it remains a "this link has been profile-swapped at least
+// once" marker. Subsequent snap calls re-copy idempotently when seqno
+// advances; cost is one ~1KB memcpy on the rare seqno-bump path.
+inline bool snap_profile_from_shadow(ProfileShadow& live_profile,
+                                     BrokerLinkControl& ctl)
+{
+  if (!ctl.profile_pending) return false;
+  live_profile = ctl.shadow_profile;
   return true;
 }
 

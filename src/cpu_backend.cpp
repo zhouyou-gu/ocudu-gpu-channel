@@ -81,6 +81,13 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     state.live = populate_mutable_params_from_yaml(model, /*reference_power=*/0.0,
                                                    /*sample_rate_hz=*/0);
     init_broker_link_control(state.ctl, state.live);
+
+    // v2.0-F3: cache the eligibility flag — a profile_swap is only
+    // honoured when the chain starts with a tdl step (or when force=true
+    // on the swap REQ). Done at prepare so the per-slot snap doesn't
+    // re-walk the chain.
+    state.chain_has_leading_tdl =
+        !model.chain.empty() && model.chain.front().type == ModelStepType::Tdl;
   }
   return state;
 }
@@ -130,7 +137,22 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
   // `live` before the chain reads it. No-op when seqno hasn't advanced
   // (single relaxed-acquire load + early-return branch). In v1 with no
   // control plane wired this is always a no-op; cost is negligible.
-  snap_mutable_params(state.live, state.live_seqno, state.ctl);
+  const bool snap_changed = snap_mutable_params(state.live, state.live_seqno, state.ctl);
+
+  // v2.0-F3: profile-swap snap. Idempotent re-copy on every seqno bump
+  // (cheap — single ~1KB memcpy). Eligibility check is local: if the
+  // chain has no leading tdl AND force=false on the shadow, drop the
+  // pending profile silently this slot (control plane gets no feedback
+  // beyond the existing event=control_update line — F4 doc will note
+  // this). Future commits can add a counter / log_line.
+  if (snap_changed && state.ctl.profile_pending) {
+    if (state.chain_has_leading_tdl || state.ctl.shadow_profile.force) {
+      snap_profile_from_shadow(state.live_profile, state.ctl);
+      state.live_profile_active = true;
+    }
+    // else: eligibility failed, profile sits unused — `force=true` is the
+    // documented escape hatch for non-tdl-leading chains.
+  }
 
   std::copy(input.begin(), input.end(), state.scratch_a.begin());
   std::span<IqSample> current(state.scratch_a.data(), input.size());
@@ -205,23 +227,40 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
         // pass through unchanged from the YAML chain and the cached
         // polyphase. Per-slot copy cost is O(n_taps) ≤ 32 — negligible
         // compared to the per-sample convolution.
-        std::vector<ocg::TapSpec> effective_taps = step.taps;
-        std::vector<std::array<float, kTdlFracFilterTaps>> effective_polyphase = step_state.tdl_polyphase;
-        if (!effective_taps.empty()) {
-          effective_taps[0].delay_samples = static_cast<double>(state.live.tap0_delay_samples);
-          effective_taps[0].gain_db       = static_cast<double>(state.live.tap0_gain_db);
-          effective_taps[0].phase_rad     = static_cast<double>(state.live.tap0_phase_rad);
-          if (effective_taps[0].is_los) {
-            effective_taps[0].los_k_db = static_cast<double>(state.live.los_k_db);
+        std::vector<ocg::TapSpec> effective_taps;
+        std::vector<std::array<float, kTdlFracFilterTaps>> effective_polyphase;
+
+        if (state.live_profile_active) {
+          // v2.0-F3: ALL taps sourced from the live profile. Polyphase
+          // recomputed per-tap from each tap's fractional delay so the
+          // resulting kernel output matches a fresh prepare with the new
+          // profile. CPU↔CUDA parity holds post-warmup because both
+          // backends derive polyphase from compute_windowed_sinc_taps.
+          const int n_taps = state.live_profile.n_taps;
+          effective_taps.resize(static_cast<std::size_t>(n_taps));
+          effective_polyphase.resize(static_cast<std::size_t>(n_taps));
+          for (int k = 0; k < n_taps; ++k) {
+            effective_taps[k] = state.live_profile.taps[k];
+            const double tau_int = std::floor(effective_taps[k].delay_samples);
+            const double frac    = effective_taps[k].delay_samples - tau_int;
+            compute_windowed_sinc_taps(frac, effective_polyphase[k]);
           }
-          if (!effective_polyphase.empty()) {
-            // v1-fin-C: tap0_delay is float — recompute the 8-tap
-            // windowed-sinc polyphase from the fractional part. Same
-            // helper apply_tdl_step uses at prepare; keeps CPU↔CUDA
-            // parity intact.
-            const double tau_int = std::floor(effective_taps[0].delay_samples);
-            const double frac    = effective_taps[0].delay_samples - tau_int;
-            compute_windowed_sinc_taps(frac, effective_polyphase[0]);
+        } else {
+          // v1 path: YAML chain + per-tap-0 scalar overrides from `live`.
+          effective_taps = step.taps;
+          effective_polyphase = step_state.tdl_polyphase;
+          if (!effective_taps.empty()) {
+            effective_taps[0].delay_samples = static_cast<double>(state.live.tap0_delay_samples);
+            effective_taps[0].gain_db       = static_cast<double>(state.live.tap0_gain_db);
+            effective_taps[0].phase_rad     = static_cast<double>(state.live.tap0_phase_rad);
+            if (effective_taps[0].is_los) {
+              effective_taps[0].los_k_db = static_cast<double>(state.live.los_k_db);
+            }
+            if (!effective_polyphase.empty()) {
+              const double tau_int = std::floor(effective_taps[0].delay_samples);
+              const double frac    = effective_taps[0].delay_samples - tau_int;
+              compute_windowed_sinc_taps(frac, effective_polyphase[0]);
+            }
           }
         }
 

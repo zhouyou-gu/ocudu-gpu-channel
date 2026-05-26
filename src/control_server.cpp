@@ -544,10 +544,10 @@ std::string handle_profile_swap(
     return emit_rejection(ctx, "profile_swap: take_effect_at_slot must be >= 0");
   }
 
-  // `force` is parsed for forward-compat (F3 consumes it). Validate the
-  // type here; the eligibility decision belongs in F3.
+  // Optional force flag. F3 consumes it at snap time to override the
+  // chain-eligibility check (default reject for non-tdl-leading chains).
   try {
-    (void)get_bool(fields, "force", false);
+    staged.force = get_bool(fields, "force", false);
   } catch (const std::exception& e) {
     return emit_rejection(ctx, e.what());
   }
