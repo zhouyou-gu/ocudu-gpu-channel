@@ -1,5 +1,7 @@
 # ocudu-gpu-channel
 
+Author: **Zhouyou Gu**, SUTD
+
 **GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks.**
 Drops between two ZMQ radios, routes `cf32` IQ across multi-gNB / multi-UE
 topologies, and applies CUDA channel models inside the 5G&nbsp;NR slot
@@ -8,7 +10,8 @@ bench default).
 
 This is the project landing page. For architecture, broker internals, GPU
 kernel design, profiling, and performance numbers, see the
-[**technical reference**](docs/ocudu-gpu-channel-doc.html).
+[**technical reference**](docs/index.html) (also published on GitHub Pages
+once enabled: `https://zhouyou-gu.github.io/ocudu-gpu-channel/`).
 
 ## Status
 
@@ -50,7 +53,7 @@ device kernel by default.
 **Next:** full CDL (TR 38.901 §7.7.1) with per-cluster angles, polarisation,
 and antenna array response, once a real MIMO / beamforming use case
 surfaces. See
-[technical reference §19](docs/ocudu-gpu-channel-doc.html#scope) for the
+[technical reference §19](docs/index.html#scope) for the
 architecture and decisions; the Phase 2 device pipeline plan + measured
 record lives in
 [`docs/plans/device-channel-pipeline.md`](docs/plans/device-channel-pipeline.md).
@@ -147,7 +150,7 @@ is rejected at load.
 CUDA output emits `model_mix_latency` plus `h2d_us`, `kernel_us`, `d2h_us`,
 `gpu_process_us`. The per-slot gate (green / yellow / red), the methodology,
 and the measured fan-in scaling live in
-[technical reference §21](docs/ocudu-gpu-channel-doc.html#perf).
+[technical reference §21](docs/index.html#perf).
 
 Strict-realtime validation (fails the process on any flow / starvation /
 continuity error):
@@ -187,7 +190,7 @@ GPU runs, with all broker data-integrity counters at zero.
 
 ## Deeper docs
 
-- [Technical reference](docs/ocudu-gpu-channel-doc.html) — architecture,
+- [Technical reference](docs/index.html) — architecture,
   topology and YAML model, broker per-slot loop, signal alignment, GPU compute,
   signal memory, multi-stream concurrency, profiling, performance, planned
   work. **Start here for design questions.**

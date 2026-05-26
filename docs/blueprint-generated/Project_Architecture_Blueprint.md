@@ -1,7 +1,7 @@
 # ocudu-gpu-channel — Project Architecture Blueprint
 
 > Generated 2026-05-23 by the [`architecture-blueprint-generator`](https://skills.sh/github/awesome-copilot/architecture-blueprint-generator) skill against commit `52b52f3`.
-> This is an auto-derived companion to the hand-written technical reference at [`docs/ocudu-gpu-channel-doc.html`](../ocudu-gpu-channel-doc.html). It surfaces the architecture from code-structure evidence only; the existing doc is the human-curated narrative.
+> This is an auto-derived companion to the hand-written technical reference at [`docs/index.html`](../index.html). It surfaces the architecture from code-structure evidence only; the existing doc is the human-curated narrative.
 
 ---
 
@@ -177,7 +177,7 @@ sequenceDiagram
 
 ## 8. Things this blueprint surfaces that Diagram F (§3) does not
 
-Diagram F (in [`docs/ocudu-gpu-channel-doc.html`](../ocudu-gpu-channel-doc.html#L369)) shows three layers: **ZMQ I/O → channel processing → ZMQ I/O**, one direction per slot. It's tight, narrative-tuned, and intentionally hides everything below the broker boundary. This blueprint, by contrast:
+Diagram F (in [`docs/index.html`](../index.html#L369)) shows three layers: **ZMQ I/O → channel processing → ZMQ I/O**, one direction per slot. It's tight, narrative-tuned, and intentionally hides everything below the broker boundary. This blueprint, by contrast:
 
 1. **Names the thread-pool shape explicitly** — Diagram F shows "channel processing" as one box; this blueprint surfaces "one server thread per destination node + one puller thread per source node" because the codebase makes that the central concurrency invariant.
 2. **Names the strategy boundary** — `ChannelProcessor` interface with two implementations is invisible in Diagram F (it shows just "channel processing"). The strategy boundary is what makes CPU↔CUDA bit-exact testing possible.

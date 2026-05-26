@@ -11,7 +11,7 @@ Tracked project content belongs in:
 - `src/` for implementation.
 - `tests/` for unit and integration tests.
 - `examples/` for small reproducible config examples.
-- `docs/` for the technical reference (`ocudu-gpu-channel-doc.html`), OCUDU interop runbook, distributed-IQ network notes, and:
+- `docs/` for the technical reference (`index.html` — also served at the project's GitHub Pages URL), OCUDU interop runbook, distributed-IQ network notes, and:
   - `docs/plans/` — staged implementation plans with measured pre/post numbers (currently: `device-channel-pipeline.md` for the Phase 2 host→device migration).
   - `docs/figures/` — SVG/PNG artwork referenced from the long HTML doc.
   - `docs/blueprint-generated/` — auto-generated architecture blueprints and perf-sweep JSON results; never hand-edit.

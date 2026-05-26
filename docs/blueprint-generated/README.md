@@ -1,7 +1,7 @@
 # Generated companion artifacts
 
 These files are **auto-generated companions** to the hand-written technical
-reference at [`docs/ocudu-gpu-channel-doc.html`](../ocudu-gpu-channel-doc.html).
+reference at [`docs/index.html`](../index.html).
 They surface the same data the doc's bespoke figures show, but make it
 reproducible — re-run the perf sweep, re-run the regen script, get fresh
 charts. The doc's inline SVGs remain the primary narrative figures.
@@ -39,7 +39,7 @@ python3 scripts/perf/regen_perf_figures.py docs/blueprint-generated/sweep-LATEST
 - **Diagrams A through N** — these are conceptual diagrams (kernel layout,
   memory map, broker pipeline, etc.) hand-coded as inline SVG for tight
   narrative fit; there is no data file behind them to regenerate from.
-- **Inline SVGs in `docs/ocudu-gpu-channel-doc.html`** — these are NOT replaced
+- **Inline SVGs in `docs/index.html`** — these are NOT replaced
   by the regen script. The doc's bespoke figures stay as the primary narrative;
   these companions are an additional reproducibility surface.
 

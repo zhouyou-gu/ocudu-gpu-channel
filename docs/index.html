@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ocudu-gpu-channel — Technical Reference</title>
+<meta name="author" content="Zhouyou Gu, SUTD">
+<meta name="description" content="GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks. Per-edge multi-tap fading + Jakes Doppler + Rician LOS on CUDA, inside the 5G NR slot deadline.">
+<meta property="og:title" content="ocudu-gpu-channel — Technical Reference">
+<meta property="og:description" content="GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks. TR 38.901 §7.7.2 TDL profiles on the GPU at slot cadence.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://zhouyou-gu.github.io/ocudu-gpu-channel/">
+<meta name="twitter:card" content="summary">
 <style>
   :root {
     --bg:#0f1420; --panel:#1a2233; --ink:#e7ecf5; --muted:#9aa7bd;
@@ -281,6 +288,11 @@
 <div class="wrap">
 
   <h1>ocudu-gpu-channel — Technical Reference</h1>
+  <p class="byline" style="color:#9aa7bd; margin-top:-8px; font-size:13px;">
+    Author: <b>Zhouyou Gu</b>, SUTD
+    &nbsp;·&nbsp;
+    <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel">github.com/zhouyou-gu/ocudu-gpu-channel</a>
+  </p>
   <p class="sub">The deep technical doc behind <span class="mono">README.md</span>. Covers the
   whole project: broker architecture, topology and YAML model, per-slot signal alignment,
   GPU compute, signal memory, multi-stream concurrency, observability, and validation.</p>
