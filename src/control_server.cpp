@@ -279,6 +279,22 @@ std::string make_success_reply(std::uint32_t seqno)
   return std::string("{\"ok\":true,\"seqno\":") + std::to_string(seqno) + "}";
 }
 
+// v2.1: REP body that includes the link's expected apply slot. The slot
+// is read from ctl.current_slot (last value the server thread wrote);
+// scheduled-in-future updates report take_effect_at_slot instead. The
+// field is informational — the actual apply slot may differ by ±1 due
+// to the snap-thread / control-thread race.
+std::string make_success_reply_v2(std::uint32_t seqno,
+                                  const BrokerLinkControl& ctl)
+{
+  const std::uint64_t now = ctl.current_slot.load(std::memory_order_relaxed);
+  const std::uint64_t apply_at = ctl.take_effect_at_slot > now
+                                 ? ctl.take_effect_at_slot
+                                 : now;
+  return std::string("{\"ok\":true,\"seqno\":") + std::to_string(seqno) +
+         ",\"applied_at_slot\":" + std::to_string(apply_at) + "}";
+}
+
 }  // namespace
 
 // ────────────────────────────────────────────────────────────────────────
@@ -435,7 +451,22 @@ std::string handle_scalar_update(
     return emit_rejection(ctx, "param '" + param + "' requires an integer value");
   }
 
+  // v2.1: optional take_effect_at_slot — if omitted, snap applies ASAP
+  // (preserves v1 semantics). Validated as a non-negative number.
+  double tea = 0.0;
+  try {
+    tea = get_number(fields, "take_effect_at_slot", 0.0);
+  } catch (const std::exception& e) {
+    return emit_rejection(ctx, e.what());
+  }
+  if (tea < 0.0) {
+    return emit_rejection(ctx, "take_effect_at_slot must be >= 0");
+  }
+
   const double old_value = read_shadow(*it_ctl->second, *spec);
+  // Write the apply-slot gate before bumping seqno so the snap sees both
+  // under one acquire-load.
+  it_ctl->second->take_effect_at_slot = static_cast<std::uint64_t>(tea);
   if (!apply_update(*it_ctl->second, *spec, value)) {
     return emit_rejection(ctx, "internal: failed to apply update");
   }
@@ -450,10 +481,11 @@ std::string handle_scalar_update(
       << " param=" << param
       << " old=" << format_double(old_value)
       << " new=" << format_double(value)
-      << " seqno=" << observed_seqno;
+      << " seqno=" << observed_seqno
+      << " take_effect_at_slot=" << static_cast<std::uint64_t>(tea);
     ctx.logger(o.str());
   }
-  return make_success_reply(observed_seqno);
+  return make_success_reply_v2(observed_seqno, *it_ctl->second);
 }
 
 std::string handle_profile_swap(
@@ -569,10 +601,11 @@ std::string handle_profile_swap(
       << " param=profile_swap"
       << " n_taps=" << staged.n_taps
       << " fading=" << (staged.fading_enabled ? "1" : "0")
-      << " seqno=" << observed_seqno;
+      << " seqno=" << observed_seqno
+      << " take_effect_at_slot=" << static_cast<std::uint64_t>(tea);
     ctx.logger(o.str());
   }
-  return make_success_reply(observed_seqno);
+  return make_success_reply_v2(observed_seqno, ctl);
 }
 
 }  // namespace

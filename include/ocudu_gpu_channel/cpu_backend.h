@@ -78,6 +78,11 @@ private:
     MutableParams live;
     BrokerLinkControl ctl;
     std::uint32_t live_seqno = 0;
+    // v2.1: per-link slot index, incremented on every snap call. Passed
+    // into snap_mutable_params so it can update ctl.current_slot and
+    // honour ctl.take_effect_at_slot. Starts at 0 (the first slot the
+    // link serves becomes slot 0).
+    std::uint64_t next_slot = 0;
 
     // v2.0-F3: live profile-swap state. When `live_profile_active` is true,
     // the chain executor reads ALL Tdl taps from `live_profile.taps[..n_taps]`

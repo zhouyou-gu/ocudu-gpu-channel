@@ -96,16 +96,35 @@ struct BrokerLinkControl {
 // from each backend's hot path, immediately before the chain executes (CPU)
 // or build_steps generates the per-slot GpuStep array (CUDA).
 //
+// `slot_idx` (v2.1+) is the link's current slot index, written into
+// ctl.current_slot so the control thread can know how far the link has
+// progressed (used by REP "applied_at_slot" replies). It also gates the
+// snap: when ctl.take_effect_at_slot > slot_idx, the snap is deferred
+// (live_seqno is NOT bumped) and the next slot retries. take_effect_at_
+// slot == 0 means "apply ASAP" — preserves v1 semantics for callers that
+// pass the default.
+//
 // Returns true if `live` was updated this call (caller may want to log it
 // or trigger downstream recomputation of derived fields, e.g. tap-0 fields
-// once tap-0 mutability lands in a follow-on commit).
+// once tap-0 mutability lands in a follow-on commit, or profile refresh
+// once v2 lands).
 inline bool snap_mutable_params(MutableParams& live,
                                 std::uint32_t& live_seqno,
-                                BrokerLinkControl& ctl)
+                                BrokerLinkControl& ctl,
+                                std::uint64_t slot_idx = 0)
 {
+  // Update the per-link slot counter unconditionally so the control
+  // thread can read it for scheduled-in-past detection / REP enrichment.
+  ctl.current_slot.store(slot_idx, std::memory_order_relaxed);
+
   // Acquire-load pairs with the control thread's release-store on bump.
   const std::uint32_t observed = ctl.seqno.load(std::memory_order_acquire);
   if (observed == live_seqno) {
+    return false;
+  }
+  // v2.1 take_effect_at_slot gate. Deferred snaps leave live_seqno alone
+  // so subsequent slots will re-check until the gate opens.
+  if (ctl.take_effect_at_slot > slot_idx) {
     return false;
   }
   live = ctl.shadow;

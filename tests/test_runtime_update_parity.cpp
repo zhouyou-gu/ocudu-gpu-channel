@@ -394,6 +394,54 @@ int main()
             "profile_swap: after — tap 1 produces 0.5x echo at delay 3");
   }
 
+  // ── v2.1: take_effect_at_slot defers a scalar update by N slots ───────
+  // Drives the same path_loss chain as the v2.0-F3 block. Runs one warm-up
+  // slot (so process_superposition lazily creates the lookup-keyed link
+  // state for `gnb0>ue0`), then writes a path_loss update with
+  // take_effect_at_slot = 4. Slots 1..3 see the YAML default; slot 4 sees
+  // the deferred update (-20 dB → 10x amplitude).
+  {
+    auto tea_cfg = make_topology(ocg::Backend::Cpu);
+    ocg::CpuChannelProcessor tea_cpu;
+    tea_cpu.prepare(tea_cfg);
+    const ocg::ModelConfig& tea_model = tea_cfg.models["chain"];
+
+    const std::vector<ocg::IqSample> unit = {
+        {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F},
+        {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}};
+
+    // Warm-up slot 0 → ensures the link's per-edge state is lazily
+    // created with the "gnb0>ue0" key the helpers use. After this call
+    // the link's next_slot is 1.
+    auto warm = run_slot(tea_cpu, tea_model, unit);
+    require(near_float(warm[0].i, 1.0F), "v2.1: warm-up slot 0 sees default");
+
+    // Write the deferred update directly into the link's shadow with
+    // take_effect_at_slot=4. Mirrors what ControlServer's
+    // handle_scalar_update + v2.1 take_effect_at_slot does, without ZMQ.
+    {
+      auto map = tea_cpu.collect_control_links();
+      auto it = map.find("gnb0>ue0");
+      require(it != map.end() && it->second != nullptr, "link in control map");
+      it->second->shadow.path_loss_db = -20.0F;
+      it->second->take_effect_at_slot = 4;
+      it->second->seqno.fetch_add(1, std::memory_order_release);
+    }
+
+    // Slots 1, 2, 3: gate not yet open → unit gain.
+    auto sa = run_slot(tea_cpu, tea_model, unit);
+    require(near_float(sa[0].i, 1.0F), "v2.1: slot 1 sees pre-take_effect default");
+    auto sb = run_slot(tea_cpu, tea_model, unit);
+    require(near_float(sb[0].i, 1.0F), "v2.1: slot 2 sees pre-take_effect default");
+    auto sc = run_slot(tea_cpu, tea_model, unit);
+    require(near_float(sc[0].i, 1.0F), "v2.1: slot 3 sees pre-take_effect default");
+
+    // Slot 4: gate opens → 10x amplitude from the -20 dB path_loss.
+    auto sd = run_slot(tea_cpu, tea_model, unit);
+    require(near_float(sd[0].i, 10.0F),
+            "v2.1: slot 4 sees the deferred update applied");
+  }
+
   std::cout << "test_runtime_update_parity OK\n";
   return 0;
 }

@@ -1,6 +1,6 @@
 # Plan — runtime-mutable channel parameters, v2
 
-Status: **v2.0 landed (F1–F3b + F4 doc)** · Builds on: [runtime-mutable-channel.md (v1, landed)](runtime-mutable-channel.md) · Phase target: **Phase 3.x** · v2.0 effort actual: **~half day across 4 commits** (F1 scaffolding → F2 dispatch + parsing → F3a CPU snap-and-rebuild → F3b CUDA refresh + round-trip). v2.1 (`take_effect_at_slot`), v2.2 (warmup contract), v2.3 (multi-link batches) remain. Risk held to **medium**: profile shadow stays a single-writer-per-link POD; eligibility check keeps the use_device_channel dispatch gate static.
+Status: **v2.0 + v2.1 landed** · Builds on: [runtime-mutable-channel.md (v1, landed)](runtime-mutable-channel.md) · Phase target: **Phase 3.x** · Effort actual: **~half day across 5 commits** (v2.0 F1–F4 + v2.1 take_effect_at_slot). v2.2 (warmup contract), v2.3 (multi-link batches) remain. Risk held to **medium**: profile shadow stays a single-writer-per-link POD; eligibility check keeps the use_device_channel dispatch gate static; take_effect_at_slot gating is a single-comparison addition to the snap helper.
 
 ## Goal in one sentence
 

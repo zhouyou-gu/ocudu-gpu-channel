@@ -3846,6 +3846,17 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         plan + landed-scope details:
         <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
 
+    <li><b>Runtime-mutable channel parameters — v2.1 take_effect_at_slot (landed).</b>
+        Optional <code>take_effect_at_slot</code> field on any
+        <code>scalar</code> / <code>profile_swap</code> REQ defers the
+        apply: the snap path gates on
+        <code>current_slot &gt;= take_effect_at_slot</code>; until the
+        gate opens, the shadow stays pending and successive snaps re-check.
+        Per-link <code>current_slot</code> atomic is written by the snap
+        path each call. REP body carries
+        <code>applied_at_slot</code> for caller correlation. Omitting the
+        field is the v1 ASAP semantics (gate trivially open at slot 0).</li>
+
     <li><b>Runtime-mutable channel parameters — v2.0 profile_swap (Phase 3 v2.0-F1…F3b, landed).</b>
         New JSON message type <code>"profile_swap"</code> replaces the
         whole per-edge tap layout at runtime (up to

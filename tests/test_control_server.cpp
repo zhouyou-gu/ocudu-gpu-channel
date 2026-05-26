@@ -289,15 +289,47 @@ int main()
     require(contains(reply, "unknown message type"), "error names the dispatch failure");
   }
 
-  // Case 22: counters after the v2 cases
+  // ── v2.1: take_effect_at_slot in REQ + applied_at_slot in REP ─────────
+
+  // Case 22: scalar update with explicit take_effect_at_slot — REP echoes
+  {
+    const std::string reply = server.handle_message(
+        R"({"link_id":"ue0-gnb0","param":"cfo_hz","value":-200.0,"take_effect_at_slot":42})");
+    require(contains(reply, "\"ok\":true"), "scalar+take_effect should be accepted");
+    require(contains(reply, "\"applied_at_slot\":42"),
+            "REP should echo the take_effect_at_slot");
+    require(ctl_a->take_effect_at_slot == 42,
+            "ctl.take_effect_at_slot persisted");
+  }
+
+  // Case 23: scalar update with no take_effect_at_slot — applied_at_slot = 0
+  // (current_slot of an unused link is 0).
+  {
+    const std::string reply = server.handle_message(
+        R"({"link_id":"ue1-gnb0","param":"path_loss_db","value":3.0})");
+    require(contains(reply, "\"ok\":true"), "scalar without take_effect should work");
+    require(contains(reply, "\"applied_at_slot\":"),
+            "REP should still include applied_at_slot field");
+  }
+
+  // Case 24: negative take_effect_at_slot → rejected
+  {
+    const std::string reply = server.handle_message(
+        R"({"link_id":"ue0-gnb0","param":"path_loss_db","value":0.0,"take_effect_at_slot":-1})");
+    require(contains(reply, "\"ok\":false"), "negative take_effect should be rejected");
+    require(contains(reply, "take_effect_at_slot must be >= 0"),
+            "error names the constraint");
+  }
+
+  // Case 25: counters after v2.1 cases
   {
     const auto s = server.stats();
-    // 13 priors + 8 new (14-21) = 21
-    require(s.msgs_received == 19, "msgs_received tracks all v2 cases");
-    // Successes: 1,2,3,4,5 (=5) + 14,15,20 (=3) = 8
-    require(s.updates_applied == 8, "updates_applied should be 8");
-    // Rejections: 6,7,8,9,10,11 (=6) + 16,17,18,19,21 (=5) = 11
-    require(s.updates_rejected == 11, "updates_rejected should be 11");
+    // 13 priors + 8 v2.0 (14-21) + 3 v2.1 (22-24) = 24
+    require(s.msgs_received == 22, "msgs_received tracks all v2.1 cases");
+    // Successes: 1,2,3,4,5 (=5) + 14,15,20 (=3) + 22,23 (=2) = 10
+    require(s.updates_applied == 10, "updates_applied should be 10");
+    // Rejections: 6,7,8,9,10,11 (=6) + 16,17,18,19,21 (=5) + 24 (=1) = 12
+    require(s.updates_rejected == 12, "updates_rejected should be 12");
   }
 
   // ── C3b: full end-to-end over real ZMQ REQ ↔ REP on a localhost TCP port

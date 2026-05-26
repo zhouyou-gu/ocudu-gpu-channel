@@ -86,6 +86,8 @@ struct LinkModelState {
   MutableParams live;
   BrokerLinkControl ctl;
   std::uint32_t live_seqno = 0;
+  // v2.1: per-link slot index, mirror of CPU LinkState::next_slot.
+  std::uint64_t next_slot = 0;
 
   // v2.0-F3b: live profile-swap state, mirror of CPU LinkState. When
   // live_profile_active is true, the next slot's snap path calls
@@ -660,10 +662,13 @@ public:
       }
       // Phase 3 C2b: snap any pending shadow update from the control plane
       // into `live` before build_steps reads it. No-op when seqno hasn't
-      // advanced (single acquire-load + early-return).
+      // advanced (single acquire-load + early-return). v2.1 also gates on
+      // take_effect_at_slot via the per-link slot counter.
       auto& lms_for_snap = ls_it->second.model;
+      const std::uint64_t snap_idx = lms_for_snap.next_slot;
       const bool live_changed = snap_mutable_params(
-          lms_for_snap.live, lms_for_snap.live_seqno, lms_for_snap.ctl);
+          lms_for_snap.live, lms_for_snap.live_seqno, lms_for_snap.ctl, snap_idx);
+      lms_for_snap.next_slot = snap_idx + 1;
 
       // v2.0-F3b: profile-swap snap with eligibility check. Same logic
       // as the CPU branch in apply_chain_to_link — if profile_pending

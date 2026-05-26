@@ -137,7 +137,14 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
   // `live` before the chain reads it. No-op when seqno hasn't advanced
   // (single relaxed-acquire load + early-return branch). In v1 with no
   // control plane wired this is always a no-op; cost is negligible.
-  const bool snap_changed = snap_mutable_params(state.live, state.live_seqno, state.ctl);
+  //
+  // v2.1: pass the link's per-link slot counter so the snap can honour
+  // ctl.take_effect_at_slot. Counter advances after the snap so each
+  // call's snap_idx matches "the slot we're about to compute".
+  const std::uint64_t snap_idx = state.next_slot;
+  const bool snap_changed = snap_mutable_params(state.live, state.live_seqno,
+                                                state.ctl, snap_idx);
+  state.next_slot = snap_idx + 1;
 
   // v2.0-F3: profile-swap snap. Idempotent re-copy on every seqno bump
   // (cheap — single ~1KB memcpy). Eligibility check is local: if the
