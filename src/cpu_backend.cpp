@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <iostream>
 #include <numbers>
 #include <stdexcept>
 
@@ -152,13 +153,65 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
   // pending profile silently this slot (control plane gets no feedback
   // beyond the existing event=control_update line — F4 doc will note
   // this). Future commits can add a counter / log_line.
+  bool profile_just_activated = false;
   if (snap_changed && state.ctl.profile_pending) {
     if (state.chain_has_leading_tdl || state.ctl.shadow_profile.force) {
       snap_profile_from_shadow(state.live_profile, state.ctl);
+      if (!state.live_profile_active) {
+        // First-time activation. Future commits could also re-arm
+        // profile_just_activated when the profile's tap layout changes
+        // (current heuristic: any seqno bump with a pending profile
+        // counts, so successive profile_swap REQs trigger fresh warmup).
+        // Simplest correct: always arm warmup on any new profile snap.
+      }
       state.live_profile_active = true;
+      profile_just_activated = true;
     }
     // else: eligibility failed, profile sits unused — `force=true` is the
     // documented escape hatch for non-tdl-leading chains.
+  }
+
+  // v2.2 W1: when a profile snap arms, zero the cross-slot delay_line so
+  // the new tap layout doesn't convolve with stale ring contents. Set
+  // warmup_until_slot so the broker can flag the next dl_size samples
+  // as warmup artefacts. ceil(dl_size / count) slots; typically 1 in
+  // production (count=23040 >> dl_size=~128). Find the leading tdl
+  // step's StepState (its delay_line is the link's cross-slot ring).
+  if (profile_just_activated) {
+    StepState* leading_tdl_state = nullptr;
+    for (std::size_t i = 0; i < model.chain.size(); ++i) {
+      if (model.chain[i].type == ModelStepType::Tdl) {
+        leading_tdl_state = &state.steps[i];
+        break;
+      }
+    }
+    std::size_t dl_size_samples = 0;
+    if (leading_tdl_state) {
+      std::fill(leading_tdl_state->delay_line.begin(),
+                leading_tdl_state->delay_line.end(), IqSample{});
+      dl_size_samples = leading_tdl_state->delay_line.size();
+    }
+    const std::size_t count_samples = input.size();
+    const std::uint64_t warmup_slots = count_samples == 0
+        ? 1
+        : ((dl_size_samples + count_samples - 1) / count_samples);
+    // The snap call we just completed is the FIRST slot to run with the
+    // new profile (snap_idx == state.next_slot - 1). Warmup ends when
+    // the link finishes `warmup_slots` slots, so end-slot = snap_idx + warmup_slots.
+    state.warmup_until_slot = snap_idx + warmup_slots;
+    std::cout << "event=control_warmup_begin slot=" << snap_idx
+              << " link_id=" << link_key_value
+              << " dl_samples=" << dl_size_samples
+              << " warmup_slots=" << warmup_slots << '\n';
+  }
+
+  // v2.2 W2: emit end-event when this slot is the one that closes the
+  // warmup window. `warmup_until_slot - 1` is the last warmup slot (so
+  // snap_idx == warmup_until_slot means "first post-warmup slot").
+  if (state.warmup_until_slot != 0 && snap_idx >= state.warmup_until_slot) {
+    std::cout << "event=control_warmup_end slot=" << snap_idx
+              << " link_id=" << link_key_value << '\n';
+    state.warmup_until_slot = 0;
   }
 
   std::copy(input.begin(), input.end(), state.scratch_a.begin());

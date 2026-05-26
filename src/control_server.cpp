@@ -295,6 +295,26 @@ std::string make_success_reply_v2(std::uint32_t seqno,
          ",\"applied_at_slot\":" + std::to_string(apply_at) + "}";
 }
 
+// v2.2 W3: REP for profile_swap REQs. Same fields as the scalar reply
+// PLUS a conservative warmup window estimate: warmup_until_slot =
+// apply_at + 1 (one slot covers the warmup for any production
+// topology where slot count >> delay_line size). The exact value is
+// authoritatively logged via event=control_warmup_begin on the
+// backend; this REP field is a hint so the caller doesn't need to tail
+// the broker log to know roughly when warmup ends.
+std::string make_profile_swap_reply(std::uint32_t seqno,
+                                    const BrokerLinkControl& ctl)
+{
+  const std::uint64_t now = ctl.current_slot.load(std::memory_order_relaxed);
+  const std::uint64_t apply_at = ctl.take_effect_at_slot > now
+                                 ? ctl.take_effect_at_slot
+                                 : now;
+  const std::uint64_t warmup_end = apply_at + 1;
+  return std::string("{\"ok\":true,\"seqno\":") + std::to_string(seqno) +
+         ",\"applied_at_slot\":" + std::to_string(apply_at) +
+         ",\"warmup_until_slot\":" + std::to_string(warmup_end) + "}";
+}
+
 }  // namespace
 
 // ────────────────────────────────────────────────────────────────────────
@@ -605,7 +625,7 @@ std::string handle_profile_swap(
       << " take_effect_at_slot=" << static_cast<std::uint64_t>(tea);
     ctx.logger(o.str());
   }
-  return make_success_reply_v2(observed_seqno, ctl);
+  return make_profile_swap_reply(observed_seqno, ctl);
 }
 
 }  // namespace

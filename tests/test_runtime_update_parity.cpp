@@ -14,6 +14,7 @@
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/cpu_backend.h"
 #include "ocudu_gpu_channel/processing.h"
+#include "ocudu_gpu_channel/control_server.h"
 #include "ocudu_gpu_channel/runtime_control.h"
 
 #include <atomic>
@@ -21,6 +22,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -440,6 +443,77 @@ int main()
     auto sd = run_slot(tea_cpu, tea_model, unit);
     require(near_float(sd[0].i, 10.0F),
             "v2.1: slot 4 sees the deferred update applied");
+  }
+
+  // ── v2.2: profile_swap arms a delay-line warmup window ────────────────
+  // Same chain as the v2.0-F3a profile_swap test. After a profile_swap
+  // activates, the snap path zero-fills the link's delay_line and emits
+  // event=control_warmup_begin/end. We capture stdout to count events.
+  {
+    auto warm_cfg = make_topology(ocg::Backend::Cpu);
+    ocg::CpuChannelProcessor warm_cpu;
+    warm_cpu.prepare(warm_cfg);
+    const ocg::ModelConfig& warm_model = warm_cfg.models["chain"];
+
+    const std::vector<ocg::IqSample> unit = {
+        {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F},
+        {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}};
+
+    // Warm-up slot 0 lazily creates the link state with the "gnb0>ue0"
+    // key the helpers expect.
+    (void)run_slot(warm_cpu, warm_model, unit);
+
+    // Redirect std::cout into a stringstream so the assertion can grep
+    // for warmup events without depending on the broker's normal stderr
+    // path. RAII restores the original buf on scope exit.
+    std::ostringstream captured;
+    std::streambuf* const old_buf = std::cout.rdbuf(captured.rdbuf());
+
+    // Profile swap: same two-tap (impulse + echo at delay 3) used in
+    // v2.0-F3a, no take_effect_at_slot → applies ASAP.
+    write_shadow_profile_swap_2tap(warm_cpu, 0.0, 0.0, 3.0, -6.020599913);
+
+    // First slot post-swap: snap fires, warmup begin emitted.
+    (void)run_slot(warm_cpu, warm_model, unit);
+    // Second slot: warmup_until_slot was snap_idx+1, so this slot
+    // crosses the threshold and emits the end event.
+    (void)run_slot(warm_cpu, warm_model, unit);
+
+    std::cout.rdbuf(old_buf);
+
+    const std::string log = captured.str();
+    require(log.find("event=control_warmup_begin") != std::string::npos,
+            "v2.2: warmup_begin event should appear after profile_swap snap");
+    require(log.find("event=control_warmup_end") != std::string::npos,
+            "v2.2: warmup_end event should appear after warmup window closes");
+    require(log.find("link_id=gnb0>ue0") != std::string::npos,
+            "v2.2: log lines should name the link");
+    require(log.find("dl_samples=") != std::string::npos,
+            "v2.2: begin event should include dl_samples=K");
+  }
+
+  // ── v2.2-W3: profile_swap REP carries warmup_until_slot ───────────────
+  {
+    // ControlServer test seam (no ZMQ) — synthesised link + a profile_
+    // swap REQ. Confirms the REP envelope grew the new field.
+    auto ctl = std::make_unique<ocg::BrokerLinkControl>();
+    ocg::ControlServer::LinkMap link_map = {{"foo", ctl.get()}};
+    ocg::ControlServerConfig cfg;
+    cfg.endpoint = "inproc://test-v22";
+    cfg.recv_timeout_ms = 100;
+    ocg::ControlServer server(std::move(cfg), std::move(link_map));
+
+    const std::string reply = server.handle_message(R"({
+      "type":"profile_swap",
+      "link_id":"foo",
+      "taps":[{"delay_samples":0,"gain_db":0}]
+    })");
+    require(reply.find("\"ok\":true") != std::string::npos,
+            "v2.2: profile_swap should succeed");
+    require(reply.find("\"applied_at_slot\":") != std::string::npos,
+            "v2.2: REP keeps applied_at_slot");
+    require(reply.find("\"warmup_until_slot\":") != std::string::npos,
+            "v2.2: REP adds warmup_until_slot");
   }
 
   std::cout << "test_runtime_update_parity OK\n";

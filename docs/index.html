@@ -3043,6 +3043,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <td><code>reason="…"</code></td>
         <td>one line per rejected REQ</td>
         <td>Validation failure (unknown link, unknown param, out of range, malformed JSON). The data plane is unaffected — the REP socket replies with <code>{"ok":false,"error":"…"}</code> and the broker keeps running.</td></tr>
+    <tr><td><code>event=control_warmup_begin</code></td>
+        <td><code>slot, link_id, dl_samples, warmup_slots</code></td>
+        <td>at each profile_swap activation</td>
+        <td>Phase 3 v2.2: a profile_swap on this link zeroed the cross-slot delay_line. Output samples in the next <code>warmup_slots</code> are warmup artefacts; downstream analysis pipelines should skip this window.</td></tr>
+    <tr><td><code>event=control_warmup_end</code></td>
+        <td><code>slot, link_id</code></td>
+        <td>at the slot crossing the warmup target</td>
+        <td>Pairs with the preceding <code>warmup_begin</code> for this link. Output from this slot onward matches the new profile bit-exact (CPU↔CUDA parity restored).</td></tr>
   </table>
   <p class="key">Both per-serve event types
   (<code>cpu_stage_timings</code>, <code>gpu_timings</code>) publish the
@@ -3845,6 +3853,21 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         deterministic <code>take_effect_at_slot</code> timing. Design
         plan + landed-scope details:
         <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
+
+    <li><b>Runtime-mutable channel parameters — v2.2 delay-line warmup contract (landed).</b>
+        On a <code>profile_swap</code> activation the snap path zero-fills
+        the link's cross-slot <code>delay_line</code> ring and emits
+        <code>event=control_warmup_begin slot=N link_id=L dl_samples=K
+        warmup_slots=W</code>; <code>event=control_warmup_end</code>
+        fires when the per-link <code>current_slot</code> crosses the
+        target. Output samples produced during the warmup window are
+        explicitly typed as artefacts — first formal exception to the
+        broker's "every emitted sample is meaningful" contract. The
+        <code>profile_swap</code> REP gains
+        <code>warmup_until_slot</code>; default warmup is one slot for
+        any production topology (<code>count = 23 040 ≫
+        dl_size ≈ 128</code>). Tap-0 / scalar updates that don't change
+        layout skip warmup entirely.</li>
 
     <li><b>Runtime-mutable channel parameters — v2.1 take_effect_at_slot (landed).</b>
         Optional <code>take_effect_at_slot</code> field on any

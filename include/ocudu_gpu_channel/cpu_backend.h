@@ -93,6 +93,13 @@ private:
     ProfileShadow live_profile;
     bool          live_profile_active = false;
     bool          chain_has_leading_tdl = false;
+    // v2.2: delay-line warmup contract. When a profile_swap activates a
+    // new tap layout the cross-slot ring is stale; the snap path zero-
+    // fills it and sets warmup_until_slot. Output samples produced before
+    // current_slot >= warmup_until_slot are warmup artefacts (typed
+    // exception to the broker's "every sample is meaningful" contract).
+    // 0 = not in warmup.
+    std::uint64_t warmup_until_slot = 0;
   };
 
   LinkState& ensure_link_state(const std::string& link_key,

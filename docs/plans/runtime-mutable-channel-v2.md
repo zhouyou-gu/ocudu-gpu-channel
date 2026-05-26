@@ -1,6 +1,6 @@
 # Plan — runtime-mutable channel parameters, v2
 
-Status: **v2.0 + v2.1 landed** · Builds on: [runtime-mutable-channel.md (v1, landed)](runtime-mutable-channel.md) · Phase target: **Phase 3.x** · Effort actual: **~half day across 5 commits** (v2.0 F1–F4 + v2.1 take_effect_at_slot). v2.2 (warmup contract), v2.3 (multi-link batches) remain. Risk held to **medium**: profile shadow stays a single-writer-per-link POD; eligibility check keeps the use_device_channel dispatch gate static; take_effect_at_slot gating is a single-comparison addition to the snap helper.
+Status: **v2.0 + v2.1 + v2.2 landed** · Builds on: [runtime-mutable-channel.md (v1, landed)](runtime-mutable-channel.md) · Phase target: **Phase 3.x** · Effort actual: **~half day across 6 commits**. v2.3 (multi-link batches) remains. Decisions deferred from v2.2: the configurable warmup cap (`--control-warmup-cap-slots`) is not yet implemented — the broker simply emits the actual warmup span; v2.3 or a follow-on can add the REQ-time rejection.
 
 ## Goal in one sentence
 

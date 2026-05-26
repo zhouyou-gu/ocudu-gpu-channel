@@ -10,6 +10,7 @@
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -96,6 +97,11 @@ struct LinkModelState {
   ProfileShadow live_profile;
   bool          live_profile_active = false;
   bool          chain_has_leading_tdl = false;
+  // v2.2: warmup window — see LinkState comment on CPU side. Same
+  // semantic on CUDA; the zero-fill targets host_state->delay_line[]
+  // before the H2D back so the device's cross-slot ring starts the
+  // next slot clear.
+  std::uint64_t warmup_until_slot = 0;
 };
 
 void init_model_state(LinkModelState& state, std::size_t steps, const std::string& seed_prefix)
@@ -721,7 +727,30 @@ public:
             refresh_all_taps_from_live(*h_state,
                                        lms_for_snap.live_profile.n_taps,
                                        lms_for_snap.live_profile.taps);
-            (void)profile_just_activated;   // unused; future v2.2 warmup uses it
+            // v2.2 W1: on profile activation, zero the cross-slot
+            // delay_line so the new tap layout doesn't convolve with
+            // stale ring contents from the prior profile. The next
+            // slot's apply_channel_kernel will reach into a zeroed ring
+            // for any read past the slot's source_iq window; output
+            // samples whose convolution window peeks into the ring are
+            // warmup artefacts (typed exception to the broker's
+            // every-sample-meaningful contract).
+            if (profile_just_activated) {
+              for (int i = 0; i < kDeviceMaxDelayLine; ++i) {
+                h_state->delay_line[i] = IqSample{};
+              }
+              const std::size_t dl_size_samples =
+                  static_cast<std::size_t>(h_state->delay_line_size);
+              const std::size_t count_samples = count;
+              const std::uint64_t warmup_slots = count_samples == 0
+                  ? 1
+                  : ((dl_size_samples + count_samples - 1) / count_samples);
+              lms_for_snap.warmup_until_slot = snap_idx + warmup_slots;
+              std::cout << "event=control_warmup_begin slot=" << snap_idx
+                        << " link_id=" << edge.link_key
+                        << " dl_samples=" << dl_size_samples
+                        << " warmup_slots=" << warmup_slots << '\n';
+            }
           } else {
             // v1 path: tap-0 refresh only.
             refresh_tap0_from_live(*h_state);
@@ -730,6 +759,14 @@ public:
                                 cudaMemcpyHostToDevice, sp.stream),
                 "snap-refresh H2D");
         }
+      }
+
+      // v2.2 W2: emit end-event when this slot closes the warmup window.
+      if (lms_for_snap.warmup_until_slot != 0 &&
+          snap_idx >= lms_for_snap.warmup_until_slot) {
+        std::cout << "event=control_warmup_end slot=" << snap_idx
+                  << " link_id=" << edge.link_key << '\n';
+        lms_for_snap.warmup_until_slot = 0;
       }
       if (sp.use_device_channel) {
         // Device-kernel path: build_steps reads the SHARED source slot for
