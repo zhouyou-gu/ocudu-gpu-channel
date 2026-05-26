@@ -28,6 +28,10 @@
   .wrap { max-width:1060px; margin:0 auto; padding:40px 28px 80px; }
   h1 { font-size:30px; margin:0 0 6px; }
   h2 { font-size:21px; margin:42px 0 10px; border-bottom:1px solid var(--edge); padding-bottom:6px; }
+  h2.part-divider { font-size:14px; text-transform:uppercase; letter-spacing:2px;
+    color:var(--accent); border:none; border-top:1px solid var(--edge);
+    margin:64px 0 4px; padding:18px 0 0; }
+  h2.part-divider + p.sub { margin-bottom:24px; }
   h3 { font-size:16px; margin:26px 0 8px; color:var(--accent); }
   p { color:#cdd6e6; }
   code { font-family:"SF Mono",Menlo,Consolas,monospace; background:#0b101a;
@@ -53,6 +57,31 @@
   ul { color:#cdd6e6; }
   ul.tight { margin:6px 0 6px 22px; }
   ul.tight li { margin:2px 0; }
+
+  /* === Project page hero (top of the doc) === */
+  .hero { padding:4px 0 0; }
+  .hero h1 { font-size:38px; letter-spacing:-0.5px; line-height:1.15;
+    margin:0 0 4px; color:var(--ink); }
+  .hero .hero-byline { font-size:13px; color:var(--muted); margin:0 0 14px;
+    display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; }
+  .hero .hero-byline b { color:var(--ink); }
+  .hero .hero-byline a { color:var(--accent); text-decoration:none; }
+  .hero .hero-byline a:hover { text-decoration:underline; }
+  .hero .hero-byline .sep { color:var(--edge); }
+  .hero .hero-subtitle { font-size:13px; color:var(--accent); font-weight:600;
+    letter-spacing:1.5px; text-transform:uppercase; margin:0 0 18px; }
+  .hero .hero-tagline { font-size:17px; color:var(--ink); line-height:1.55;
+    margin:0 0 18px; max-width:780px; }
+  .hero .hero-meta { font-size:13px; color:var(--muted); margin:0 0 24px;
+    display:flex; flex-wrap:wrap; gap:0 14px; align-items:center; }
+  .hero .hero-meta a { color:var(--accent); text-decoration:none; }
+  .hero .hero-meta a:hover { text-decoration:underline; }
+  .hero .hero-meta b { color:var(--ink); }
+  .hero .hero-meta .sep { color:var(--edge); }
+  .hero-stats { margin:0 0 36px; }
+  .hero-stats .panel { padding:14px 12px; }
+  .hero-stats .num { font-size:20px; color:var(--accent); }
+  .hero-stats .panel div:last-child { font-size:12px; line-height:1.4; }
 
   /* === Diagram F: layered tiers (CSS-based, easy to align) === */
   .tier-stack { display:flex; flex-direction:column; gap:8px; }
@@ -289,15 +318,60 @@
 <body>
 <div class="wrap">
 
-  <h1>ocudu-gpu-channel — Technical Reference</h1>
-  <p class="byline" style="color:#9aa7bd; margin-top:-8px; font-size:13px;">
-    Author: <b>Zhouyou Gu</b>, SUTD
-    &nbsp;·&nbsp;
-    <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel">github.com/zhouyou-gu/ocudu-gpu-channel</a>
-  </p>
-  <p class="sub">The deep technical doc behind <span class="mono">README.md</span>. Covers the
-  whole project: broker architecture, topology and YAML model, per-slot signal alignment,
-  GPU compute, signal memory, multi-stream concurrency, observability, and validation.</p>
+  <div class="hero">
+    <h1>ocudu-gpu-channel</h1>
+    <p class="hero-byline">
+      <span>by <b>Zhouyou Gu</b>, SUTD</span>
+      <span class="sep">&middot;</span>
+      <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel">github.com/zhouyou-gu/ocudu-gpu-channel</a>
+    </p>
+    <p class="hero-subtitle">GPU channel emulator &middot; 5G NR slot cadence</p>
+    <p class="hero-tagline">A real-time, in-the-loop wireless channel emulator
+    that sits between live SDR stacks (srsRAN gNB/UE, OCUDU runtime) over ZMQ
+    and applies CUDA channel models &mdash; TR 38.901 &sect;7.7.2 TDL
+    profiles, Jakes Doppler, Rician LOS &mdash; inside the
+    5G&nbsp;NR slot deadline.</p>
+    <p class="hero-meta">
+      <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel#readme">README &amp; quick-start</a>
+      <span class="sep">&middot;</span>
+      <a href="#perf-phase2">Performance headline</a>
+      <span class="sep">&middot;</span>
+      <a href="#runtime-mutability">Runtime control plane</a>
+      <span class="sep">&middot;</span>
+      <a href="#scope">Scope &amp; planned work</a>
+    </p>
+  </div>
+
+  <div class="numrow hero-stats">
+    <div class="panel">
+      <div class="num">500 &micro;s</div>
+      <div>slot deadline at 30 kHz SCS<br>(1 ms at 15 kHz)</div>
+    </div>
+    <div class="panel">
+      <div class="num">TR 38.901</div>
+      <div>TDL-A..E profiles &middot; Jakes + Rician on the GPU</div>
+    </div>
+    <div class="panel">
+      <div class="num">183&times;</div>
+      <div>device kernel vs host stage_link<br>(<code>tdl-a_E16</code>, RTX 5090)</div>
+    </div>
+    <div class="panel">
+      <div class="num">1e&#8209;3</div>
+      <div>CPU&harr;CUDA bit-exact parity tolerance<br>(ctest gate)</div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-bottom:32px;">This is the deep technical
+  reference behind the <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel#readme">README</a>.
+  Seven parts cover broker architecture, topology + YAML model, per-slot
+  signal alignment, GPU compute, signal memory, multi-stream concurrency,
+  runtime mutability, observability, validation, and the measured
+  performance envelope.</p>
+
+
+  <!-- ============ PART I: Concepts ============ -->
+  <h2 class="part-divider" id="part-i">Part I &mdash; Concepts</h2>
+  <p class="sub">What the system is, the vocabulary, and the three-layer split.</p>
 
   <h2>1. Overview</h2>
   <p>ocudu-gpu-channel is a real-time, in-the-loop channel emulator that sits between live
@@ -312,21 +386,42 @@
   case; the perf section and latency gate use the 30&nbsp;kHz / 500&nbsp;µs target. The
   bench is invoked with <code>--scs-khz N</code> and the green/yellow/red gate scales to
   the chosen N.</p>
-  <p><b>Reading order.</b> §3 + §4 give the system shape and the
-  per-slot data flow at a glance (Diagrams F and MF) — read these first.
-  §5–§9 cover the static design surface: topology, broker loop, alignment,
-  staging, channel step types. §10 is the channel-physics math both
-  backends implement; §11 is the CPU + CUDA backend pair (the parity
-  contract). §12–§16 are the GPU hot path in execution order: kernel + its
-  sub-components (12.0–12.4), per-sample RF chain, superposition, memory
-  map, stream concurrency. §17–§18 are engineering — validation, runtime
-  operation, the latency-gate verdict. §19–§20 are measured: profiling
-  instrumentation, then the performance numbers themselves. §21 is the
-  forward-looking scope and planned work. The diagram set: <b>F, MF</b>
-  high-level; <b>G, V</b> topology; <b>K, H, L, M, J</b> broker; <b>P, Q,
-  R</b> channel physics; <b>S, SG, X, Y, Z</b> device kernel; <b>E, B, D,
-  I</b> GPU memory + compute; <b>TA</b> test architecture; <b>N, O, T, U,
-  W</b> instrumentation + perf.</p>
+  <p><b>Reading order.</b> The doc is grouped into seven parts, in the order
+  a new reader is likely to want them.
+  <b>Part&nbsp;I (§1–§3)</b> is the system shape: overview, vocabulary, and
+  the three-layer split — start here (Diagram F).
+  <b>Part&nbsp;II (§4–§6)</b> is everything the user writes in YAML — the
+  topology graph, the channel chain, and the TR 38.901 §7.7.2 physics that
+  chain encodes (Diagrams G, V, P, Q, R).
+  <b>Part&nbsp;III (§7–§13)</b> walks the per-slot data path in execution
+  order: end-to-end serve flow (Diagram MF) → broker loop (Diagram K) →
+  alignment + time discipline (Diagrams H, L, M) → staged buffer (Diagram J)
+  → per-edge channel kernel with subsections 11.0–11.4 (Diagrams S, SG, X,
+  Y, Z) → superposition → per-sample RF chain (Diagram E).
+  <b>Part&nbsp;IV (§14–§16)</b> is the supporting infrastructure — CPU/CUDA
+  backend pair (the parity contract), signal memory (Diagram D), multi-stream
+  concurrency (Diagram I).
+  <b>Part&nbsp;V (§17)</b> is the runtime control plane that mutates per-link
+  channel parameters at slot boundaries without restarting the broker.
+  <b>Part&nbsp;VI (§18–§21)</b> is engineering: validation (Diagram TA),
+  profiling instrumentation (Diagram N), measured performance (Diagrams O,
+  T, U, W), and the latency-gate verdict.
+  <b>Part&nbsp;VII (§22)</b> is forward-looking scope and planned work.</p>
+  <p><b>Reader paths.</b> Cover-to-cover works, but most readers don't need
+  it. Three shortcuts that hit most use cases:
+  <b>(1)&nbsp;Fast tour</b> &mdash; <a href="#part-i">Part&nbsp;I</a> + the
+  end-to-end serve flow (<a href="#master-flow">§7</a>) + the perf-headline
+  (<a href="#perf-phase2">§20.0</a>) gives the system shape, what one slot
+  does, and how fast it runs in about ten minutes.
+  <b>(2)&nbsp;Writing topology YAML</b> &mdash; skip to
+  <a href="#part-ii">Part&nbsp;II</a> (§4&ndash;§6) for the configuration
+  surface, then jump to <a href="#latency-gate">§21.1</a> for the
+  latency-gate verdict that tells you when your topology is too heavy.
+  <b>(3)&nbsp;Driving the control plane</b> &mdash; <a href="#runtime-mutability">§17</a>
+  is self-contained; if you only need the wire protocol, start at
+  <a href="#rtm-protocol">§17.2</a> and follow its sub-anchors as you go.
+  Part&nbsp;V can be skipped entirely if the broker will run from static
+  YAML; nothing else in the doc forward-references it.</p>
 
   <h2>2. Key terms — quick reference</h2>
   <p>The diagrams below name buffers, indices, and struct fields directly from
@@ -338,7 +433,7 @@
     <tr><th>Term</th><th>Meaning</th></tr>
     <tr><td class="mono">node</td><td>a device in the graph (a gNB or a UE); the broker serves one RX signal per node, per slot</td></tr>
     <tr><td class="mono">link / edge</td><td>a directed channel from one node to another, configured under <code>links:</code> in the YAML topology with a named <code>model</code></td></tr>
-    <tr><td class="mono">incoming edges</td><td>for destination node <span class="mono">d</span>, the subset of links where <span class="mono">link.to == d</span>. Resolved once per server thread at broker startup (<code>src/broker.cpp</code>); this list is the index space for cursors (§7), staged slots (§8), per-edge <code>stage_link()</code> calls (§12), and the kernel's per-thread edge loop (§14)</td></tr>
+    <tr><td class="mono">incoming edges</td><td>for destination node <span class="mono">d</span>, the subset of links where <span class="mono">link.to == d</span>. Resolved once per server thread at broker startup (<code>src/broker.cpp</code>); this list is the index space for cursors (§9), staged slots (§10), per-edge <code>stage_link()</code> calls (§11), and the kernel's per-thread edge loop (§12)</td></tr>
     <tr><td class="mono">model</td><td>a chain of channel steps (tdl, path_loss, phase, CFO, AWGN) applied per-edge under <code>models:</code> in the YAML</td></tr>
     <tr><td class="mono">rx_model</td><td>an optional second model applied <b>once to the summed RX</b> of a node — typically a thermal-noise floor</td></tr>
     <tr><td class="mono">gNB / UE</td><td>5G base station (gNodeB) / user equipment; both are just "nodes" to the emulator</td></tr>
@@ -394,7 +489,7 @@
     <tr><td class="mono">apply_chain()</td><td><code>__device__</code> function that walks one chain on (i, q) in registers; called inside both kernels</td></tr>
     <tr><td class="mono">apply_steps_kernel</td><td>single-link kernel; also runs in-place as the <code>rx_model</code> pass after <code>superpose_kernel</code></td></tr>
     <tr><td class="mono">superpose_kernel</td><td>multi-edge superposition kernel — one thread per output sample, walks every edge, sums into <code>dst[idx]</code></td></tr>
-    <tr><td class="mono">stage_link()</td><td>host-side fallback helper that runs the chain-leading <code>tdl</code> step (multi-tap convolution via <code>apply_tdl_step{_fading}</code> in <code>delay.h</code>) before the H2D copy. The production path is <code>apply_channel_kernel</code> on device (§12 Diagram S); <code>stage_link()</code> runs only when the per-node dispatch gate doesn't fire (mixed-edge or non-tdl-leading topologies), and as the CPU-backend reference</td></tr>
+    <tr><td class="mono">stage_link()</td><td>host-side fallback helper that runs the chain-leading <code>tdl</code> step (multi-tap convolution via <code>apply_tdl_step{_fading}</code> in <code>delay.h</code>) before the H2D copy. The production path is <code>apply_channel_kernel</code> on device (§11 Diagram S); <code>stage_link()</code> runs only when the per-node dispatch gate doesn't fire (mixed-edge or non-tdl-leading topologies), and as the CPU-backend reference</td></tr>
     <tr><td class="mono">apply_channel_kernel</td><td>device-side per-edge channel kernel in <code>src/device_channel.cu</code> — runs the multi-tap convolution + Jakes Doppler + Rician LOS on the GPU, materialising the per-tap coarse grid in block shared memory at slot start. Production path for all-leading-tdl topologies; landed Phase 2 D3</td></tr>
     <tr><td class="mono">process_superposition</td><td>the sole CPU / CUDA processor entry point; called by the broker for N-edge fan-in and by the benchmark / tests for the N=1 single-edge case (an earlier <code>process_into</code> API was unified away — see §20.1)</td></tr>
     <tr><td class="mono">serve</td><td>one broker iteration for a destination node: read inputs from each source's ring, stage them, run the kernel, send the result over ZMQ</td></tr>
@@ -521,80 +616,11 @@
   served to the next ZMQ REP request.</figcaption>
   </figure>
 
-  <!-- ============ §4 End-to-end serve flow ============ -->
-  <h2 id="master-flow">4. End-to-end serve flow — one slot at a glance</h2>
-  <p>Diagram F (§3) showed the three layers; this section is the single
-  most-useful diagram in the doc — one destination node's serve,
-  start-to-finish. Every later section is a deep-dive into one box of
-  this picture.</p>
-  <figure>
-  <svg viewBox="0 0 1000 220" font-family="SF Mono,Menlo,monospace" font-size="11">
-    <text x="500" y="22" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram MF · one destination node's serve, left → right</text>
+  <!-- ============ PART II: Configuration ============ -->
+  <h2 class="part-divider" id="part-ii">Part II &mdash; Configuration</h2>
+  <p class="sub">Everything the user writes in YAML &mdash; the topology graph, the channel chain, and the physics the chain encodes.</p>
 
-    <defs>
-      <marker id="arwmf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
-      </marker>
-    </defs>
-
-    <!-- Lane labels -->
-    <text x="60"  y="76"  fill="#9aa7bd" font-size="9" text-anchor="middle">ZMQ</text>
-    <text x="60"  y="125" fill="#9aa7bd" font-size="9" text-anchor="middle">HOST CPU</text>
-    <text x="60"  y="174" fill="#9aa7bd" font-size="9" text-anchor="middle">GPU</text>
-
-    <line x1="100" y1="62" x2="100" y2="190" stroke="#2c3850"/>
-
-    <!-- 1: REQ -->
-    <rect x="110" y="55"  width="120" height="34" rx="4" fill="#181f2e" stroke="#cdd6e6"/>
-    <text x="170" y="76" fill="#cdd6e6" text-anchor="middle" font-size="11">1 · REQ in</text>
-
-    <!-- 2: align+read+pack -->
-    <line x1="230" y1="72"  x2="240" y2="72"  stroke="#9aa7bd"/>
-    <line x1="240" y1="72"  x2="240" y2="122" stroke="#9aa7bd"/>
-    <line x1="240" y1="122" x2="250" y2="122" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
-    <rect x="250" y="105" width="160" height="34" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="330" y="126" fill="#6fd08c" text-anchor="middle" font-size="11">2 · align + read + pack</text>
-
-    <!-- 3: H2D -->
-    <line x1="410" y1="122" x2="430" y2="122" stroke="#9aa7bd"/>
-    <line x1="430" y1="122" x2="430" y2="160" stroke="#5db1ff"/>
-    <line x1="430" y1="160" x2="450" y2="160" stroke="#5db1ff" marker-end="url(#arwmf)"/>
-    <text x="445" y="146" fill="#5db1ff" font-size="9" text-anchor="middle">H2D</text>
-
-    <!-- 4: GPU pipeline -->
-    <rect x="450" y="155" width="220" height="34" rx="4" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="560" y="176" fill="#5db1ff" text-anchor="middle" font-size="11">3 · channel · superpose · rx</text>
-
-    <!-- 5: D2H -->
-    <line x1="670" y1="170" x2="690" y2="170" stroke="#9aa7bd"/>
-    <line x1="690" y1="170" x2="690" y2="132" stroke="#5db1ff"/>
-    <line x1="690" y1="132" x2="710" y2="132" stroke="#5db1ff" marker-end="url(#arwmf)"/>
-    <text x="705" y="148" fill="#5db1ff" font-size="9" text-anchor="middle">D2H</text>
-
-    <!-- 6: throttle + REP send -->
-    <rect x="710" y="105" width="160" height="34" rx="4" fill="#0b101a" stroke="#6fd08c"/>
-    <text x="790" y="126" fill="#6fd08c" text-anchor="middle" font-size="11">4 · throttle + advance</text>
-
-    <line x1="870" y1="122" x2="890" y2="122" stroke="#9aa7bd"/>
-    <line x1="890" y1="122" x2="890" y2="72" stroke="#9aa7bd"/>
-    <line x1="890" y1="72"  x2="910" y2="72" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
-
-    <rect x="910" y="55" width="80" height="34" rx="4" fill="#181f2e" stroke="#cdd6e6"/>
-    <text x="950" y="76" fill="#cdd6e6" text-anchor="middle" font-size="11">5 · REP out</text>
-  </svg>
-  <figcaption>Diagram MF — the canonical four-step serve. Every destination
-  node loops this independently on its own thread + CUDA stream
-  (<a href="#stream-concurrency">§16 Diagram I</a>). Deep dives:
-  step 2 (align/read/pack) in <a href="#alignment">§7</a> +
-  <a href="#staged">§8</a>; step 3 GPU pipeline in
-  <a href="#kernels">§12</a> (Diagram S) +
-  <a href="#pipeline">§12.0</a> (op order) +
-  <a href="#signal-memory">§15</a> (memory map);
-  step 4 throttle in <a href="#alignment">§7</a>.</figcaption>
-  </figure>
-
-  <!-- ============ DIAGRAM G : topology graph ============ -->
-  <h2 id="topology">5. Topology graph and YAML model</h2>
+  <h2 id="topology">4. Topology graph and YAML model</h2>
   <p>The topology is a directed graph: nodes are devices (gNBs and UEs); links are channel
   edges between them, each with a named <code>model</code>. The broker reads
   <code>examples/topology.*.yaml</code>, builds one server thread per node, and one
@@ -680,10 +706,430 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
             crosstalk:   [ path_loss 40 dB · phase 0.7 rad ]
             noise_floor: [ awgn noise_power 0.01 ]</code></pre>
 
-  <h2 id="broker-loop">6. The broker — per-slot loop</h2>
+  <h2 id="channels">5. Channel models in YAML</h2>
+  <p>Every model is a chain of named steps. The CPU and CUDA backends accept the same step
+  set and produce bit-exact output for any single edge (validated by
+  <code>tests/test_processing.cpp</code>). YAML keys per step type:</p>
+  <table>
+    <tr><th>Step type</th><th>YAML keys</th><th>Effect</th></tr>
+    <tr><td><code>tdl</code></td><td><code>taps:</code> block of <code>{delay_samples, gain_db, phase_rad}</code> (+ optional <code>fading:</code> sub-config and per-tap <code>is_los</code> / <code>los_k_db</code> / <code>los_angle_rad</code>)</td><td>Tapped delay line — the chain-leading propagation step. Each tap shifts the signal by <code>delay_samples</code> (integer or fractional, resolved by the shared 8-tap Hamming-windowed sinc in <code>delay.h</code>) and applies its complex tap weight <code>10<sup>gain_db/20</sup>·exp(j·phase_rad)</code>; with a <code>fading</code> sub-config each tap's weight becomes time-varying with a Jakes-shaped Doppler spectrum (plus optional Rician LOS specular). Applied <b>device-side by default</b> in <code>apply_channel_kernel</code> (<a href="#kernels">§11 Diagram S</a>) for any topology where every incoming edge has a leading <code>tdl</code>; falls back to host-side <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> for mixed-edge or non-tdl-leading nodes. Cross-slot history lives in a per-link <code>delay_line</code> ring (in <code>DeviceLinkState</code> global memory on the device path, in the host <code>LinkModelState</code> on the fallback). A single tap with <code>delay_samples = 0</code> is the static-gain case (subsumes the old <code>gain</code> step); a single tap with non-zero delay subsumes the old <code>integer_delay</code> / <code>fractional_delay</code> steps. The chain-leading constraint is enforced by <code>validate_cuda_support</code>; a non-leading <code>tdl</code> is rejected on the CUDA path (CPU accepts it anywhere).</td></tr>
+    <tr><td><code>path_loss</code></td><td><code>path_loss_db</code></td><td>Scale branch, sign-flipped vs. gain — attenuation. <code>step.a</code> = <code>10<sup>−path_loss_db/20</sup></code>.</td></tr>
+    <tr><td><code>phase</code></td><td><code>phase_rad</code></td><td>static phase rotation — <code>step.a</code> = phase, <code>step.b</code> = 0</td></tr>
+    <tr><td><code>cfo</code></td><td><code>cfo_hz</code></td><td>linear phase drift = carrier frequency offset — <code>step.b</code> = <code>2π·f<sub>cfo</sub>/f<sub>s</sub></code></td></tr>
+    <tr><td><code>awgn</code></td><td><code>noise_power</code> <i>or</i> <code>snr_db</code></td><td>complex Gaussian noise via counter-based Philox. Absolute mode: per-component σ = √(noise_power/2); SNR mode: noise scaled to <code>running_power / 10^(SNR/10)</code></td></tr>
+  </table>
+  <p class="key"><b>Three named knobs for the chain-leading delay.</b> Two
+  physically distinct effects compose into the same chain-leading delay step
+  (<a href="#alignment">§9</a>, Layer 2). The YAML exposes a named knob
+  for each so a topology can express each one cleanly; at config-load time
+  <code>fold_link_leading_delays()</code> sums them and merges the total into the
+  link's effective chain.</p>
+  <table>
+    <tr><th>Knob</th><th>Scope</th><th>YAML key</th><th>Physical meaning</th></tr>
+    <tr>
+      <td><b>Propagation delay</b></td>
+      <td>per-link</td>
+      <td><code>propagation_delay_samples</code> on a <code>LinkConfig</code></td>
+      <td>Geometry-driven physical propagation along this specific edge. One
+          sample at 23.04 MS/s is ~13 m free-space. Different outbound links of
+          the same source can carry different values.</td>
+    </tr>
+    <tr>
+      <td><b>TX timing offset</b></td>
+      <td>per-device</td>
+      <td><code>tx_timing_offset_samples</code> on a <code>DeviceConfig</code></td>
+      <td>Constant TX-start-time lag of this endpoint — applies uniformly to
+          every outgoing link of the device. Models a radio that brought its
+          ZMQ TX socket up later than the others.</td>
+    </tr>
+    <tr>
+      <td><b>Explicit chain step</b></td>
+      <td>per-link (via model)</td>
+      <td>A leading <code>tdl</code> step in the model's chain</td>
+      <td>The raw mechanism. Use directly when neither of the above scopes
+          fits — e.g., a model that explicitly needs a multi-tap delay
+          profile beyond a single propagation offset.</td>
+    </tr>
+  </table>
+  <p class="key"><b>Composition rules.</b> All three are summed per link.
+  If the model's chain already leads with a <code>tdl</code> step,
+  <code>fold_link_leading_delays()</code> shifts every tap's
+  <code>delay_samples</code> by the composed offset (preserving multi-tap
+  multipath structure); otherwise a single-tap <code>tdl</code> with the
+  composed offset is prepended. Fractional totals are carried through directly
+  by the polyphase-sinc resolution in <code>apply_tdl_step</code>. Negative
+  values for either named knob are rejected at load time. The per-link
+  <code>delay_line</code> ring fills on the first serve and the composed offset
+  becomes constant for the run.</p>
+  <p class="key"><b>Worked example.</b> A device with
+  <code>tx_timing_offset_samples: 2</code> and a link from it carrying
+  <code>propagation_delay_samples: 4</code> on top of a base model whose chain
+  starts with <code>tdl{(1.0, 0 dB, 0)}</code> ends up with a synthesized leading
+  <code>tdl{(7.0, 0 dB, 0)}</code> — the tap delay shifts from 1 to
+  1 + (2 + 4) = 7. At idx = 7 the receiver sees the source's sample 0. For a
+  runnable variant of this composition see
+  <code>examples/topology.ocudu-docker.tx-offset.cuda.yaml</code> — the same
+  single-cell OCUDU topology with a 4-sample <code>tx_timing_offset_samples</code>
+  on gNB plus a 3-sample <code>propagation_delay_samples</code> on the uplink
+  edge.</p>
+  <p class="key"><code>running_power</code> in the AWGN SNR mode is the broker's
+  running estimate of the signal power at the point in the chain where the AWGN step
+  appears — built up by the host-side <code>build_steps()</code> walking the chain, so
+  placing AWGN earlier vs later in the chain gives different absolute noise levels for
+  the same <code>snr_db</code>. The <code>rx_model</code> for a node is just another model
+  — typically a single <code>awgn</code> step (the noise floor), but anything is legal.
+  The validator rejects delay steps in <code>rx_model</code> (they would have no defined
+  input signal).</p>
+
+  <!-- ============ §6 Channel physics ============ -->
+  <h2 id="physics">6. Channel physics — Jakes, Rician, TDL profiles</h2>
+  <p>Before the device kernel section that runs the math (§11), this
+  section is the math itself: what a tap is, how the Doppler spectrum
+  shapes a time-varying tap, why Rayleigh and Rician envelopes are not
+  configuration knobs but consequences, and how the TR 38.901 §7.7.2 TDL
+  profiles map onto the YAML schema. All implementation details follow
+  the same wireless-modelling textbook (Bello / Jakes / Zheng &amp; Xiao);
+  the math here is the bit-exact reference both backends compute against.</p>
+  <p class="key"><b>Scope is TDL, not full CDL.</b> The Clustered Delay
+  Line (CDL) models in TR 38.901 §7.7.1 add per-cluster angles,
+  polarisation, sub-ray geometry, and antenna array response on top of
+  the basic tap structure. Those layers need beamforming machinery the
+  broker does not have today; CDL stays out of scope. The 23-tap profile
+  counts and example references below are TDL-A / TDL-B / TDL-C tables
+  (TR 38.901 §7.7.2), not their CDL siblings.</p>
+
+  <h4>Static taps — what <code>tdl</code> does</h4>
+
+  <p>A single chain step on a single edge holds an array of
+  <span class="mono">(delay, complex_gain)</span> taps. The kernel sums
+  <span class="mono">y[idx] = Σ a<sub>k</sub> · x[idx − τ<sub>k</sub>]</span>
+  in registers using one shared staged buffer plus a small
+  <code>delay_line</code> ring for cross-slot history.</p>
+
+  <p><b>Fractional delays from day one.</b> Tap delays are
+  <span class="mono">double</span> samples; sub-sample offsets resolve via
+  the shared <code>compute_windowed_sinc_taps</code> helper in
+  <code>delay.h</code> (8-tap Hamming-windowed sinc, DC-normalised) — the
+  same coefficient generator both backends call out of
+  <code>apply_tdl_step</code>. This avoids snapping CDL delays to the
+  nearest integer sample (which would lose up to ~22 ns of delay-spread
+  fidelity at 23.04 MS/s).</p>
+
+  <p><b>What it buys.</b> Static frequency-selective channels — 3GPP
+  TDL profiles (TR 38.901 §7.7.2 tables 7.7.2-1 through 7.7.2-5),
+  2-ray ground-reflection, indoor multipath. Memory cost is roughly the
+  same as a single-tap edge today and <b>~24× lower</b> than the naive
+  "N parallel edges per link" approach for a 23-tap TDL-A profile,
+  because the cross-slot history is one ring per link rather than one
+  per tap.</p>
+
+  <!-- ============ DIAGRAM P : TDL profile power-delay profiles ============ -->
+  <figure>
+  <img src="figures/diag-P-tdl-pdp.svg"
+       alt="Power-delay profiles for TR 38.901 §7.7.2 TDL-A through TDL-E"
+       style="width:100%;max-width:760px;display:block;margin:0 auto;">
+  <figcaption>Diagram P — power-delay profiles (PDP) for the five
+  TR 38.901 §7.7.2 TDL profiles, plotted on the published normalised-delay
+  axis. <b>NLOS profiles</b> (TDL-A, B, C) carry only Rayleigh-Jakes taps;
+  <b>LOS profiles</b> (TDL-D, E) have an orange-highlighted first tap whose
+  <code>los_k_db</code> sets the Rician K-factor (13.3 dB for TDL-D,
+  22 dB for TDL-E). Scaling to samples at the project's 23.04 MS/s
+  reference rate and 100 ns delay spread multiplies the x-axis by 2.304.
+  Regenerated from the same Sionna JSON the project's example YAMLs use;
+  produced by <code>scripts/figures/regen_fading_figures.py</code>.</figcaption>
+  </figure>
+
+  <h4>Time-varying tap gain — the <code>fading</code> sub-config (Phase 1.4, landed)</h4>
+
+  <p>The <code>fading</code> sub-config shipped in Phase 1.4 (commits
+  <code>61d76bb</code> for the schema / parser / validator and
+  <code>e48e95c</code> for the Jakes kernel + LOS Rician composition). The
+  description below tracks what the running code does today; planned
+  extensions (the Gaussian and Flat spectra reserved in the enum) are
+  flagged where they would slot in.</p>
+
+  <p><b>The model.</b> When the step's <code>fading</code> sub-config is
+  enabled, each tap's complex gain
+  <span class="mono">a<sub>k</sub>(t)</span> becomes a zero-mean complex
+  <b>stationary Gaussian process</b>. The single knob that defines the
+  shape is the tap's <b>Doppler power spectrum</b>
+  <span class="mono">S<sub>k</sub>(f)</span> — equivalently, the temporal
+  autocorrelation <span class="mono">R<sub>k</sub>(Δt)</span>, since one
+  is the Fourier transform of the other (the WSSUS framework, Bello 1963).
+  Everything else about the tap follows from that single choice.</p>
+
+  <p><b>Default spectrum: Jakes' classical (per link, not per tap).</b>
+  Cosine-symmetric around 0 Hz, parameterised by a <b>single per-link</b>
+  max-Doppler frequency
+  <span class="mono">f<sub>d,max</sub> = v · f<sub>c</sub> / c</span> set
+  by the UE velocity — stationary radio mismatch ≈ 0 Hz, pedestrian at
+  3.5 GHz ≈ 11 Hz, car ≈ 350 Hz. <b>All taps share the same
+  <span class="mono">f<sub>d,max</sub></span>; the per-tap variation
+  comes from each tap's own random sub-ray angle draws, not from
+  different velocities per tap.</b> Other spectra (Gaussian, flat) drop
+  in as alternate generators behind the same sub-config; the
+  cluster-specific spectra of full CDL are out of scope here as noted
+  above.</p>
+
+  <p><b>Envelope statistics fall out — they are not a separate knob.</b>
+  A zero-mean complex Gaussian process has a <b>Rayleigh</b> envelope by
+  construction; there is nothing to configure. A <b>Rician</b> envelope
+  is the same Gaussian process <i>plus</i> a deterministic LOS path (its
+  own gain, delay, and Doppler shift), and the K-factor is just the
+  LOS-to-scattered power ratio. So "Rayleigh vs. Rician" is a topology
+  question (is there a deterministic LOS tap alongside the faded ones?),
+  not a fading parameter.</p>
+
+  <p><b>Per-tap variation comes from sub-ray angles, not from different
+  velocities.</b> The per-link
+  <span class="mono">f<sub>d,max</sub></span> is the bound; each tap
+  independently draws <span class="mono">M ≈ 20</span> random sub-ray
+  angles <span class="mono">α<sub>k,m</sub></span> uniform in
+  <span class="mono">[0, 2π)</span>, and the tap's instantaneous
+  contribution at time <span class="mono">t</span> is the sum-of-sinusoids
+  <span class="mono">a<sub>k</sub>(t) ∝
+  Σ<sub>m</sub> exp(j(f<sub>d,max</sub> · cos(α<sub>k,m</sub>) · t +
+  φ<sub>k,m</sub>))</span>. The Jakes spectrum emerges from the cos(α)
+  projection of a common <span class="mono">f<sub>d,max</sub></span> over
+  many sub-rays — exactly what Sionna's TR 38.901 TDL implementation does
+  (<code>tr38901/tdl.py</code>) and what Zheng &amp; Xiao (2003) derive
+  as the WSS-correct improved Jakes generator. The LOS variant
+  (TDL-D / TDL-E) adds a deterministic specular component to the first
+  tap with Doppler shift
+  <span class="mono">f<sub>d,max</sub> · cos(α<sub>LOS</sub>)</span> —
+  also derived from the same per-link
+  <span class="mono">f<sub>d,max</sub></span>, not an independent
+  per-tap value.</p>
+
+  <p><b>Implementation.</b> Per-tap sum-of-sinusoids with
+  <span class="mono">M = 20</span> sinusoids per tap (the Zheng-Xiao /
+  Sionna convention; the Jakes generator's WSS error is bounded once
+  <span class="mono">M ≥ 8</span>, and 20 is the published default).
+  <code>prepare_tdl_fading_state</code> in
+  <code>include/ocudu_gpu_channel/delay.h</code> draws the
+  <span class="mono">M</span> angles <span class="mono">α<sub>k,m</sub></span>,
+  the <span class="mono">M</span> initial phases
+  <span class="mono">φ<sub>k,m</sub></span>, and a per-tap LOS initial phase
+  from <code>std::mt19937_64</code> seeded by
+  <span class="mono">hash("&lt;link_key&gt;:fading:&lt;step_idx&gt;")</span>
+  — both backends compute the same seed, so the CPU and CUDA fading
+  realisations come from the same random sequence. To bound kernel cost,
+  the generator produces <span class="mono">g<sub>k</sub>(t)</span> on a
+  coarse grid (default <code>grid_us = 100</code> — 10 kHz, ~28× oversampling
+  vs. a 350 Hz Jakes spectrum) with <b>phase accumulation</b> (one complex
+  multiply per sub-ray per grid step, not a sin/cos pair), then linearly
+  interpolates up to per-sample resolution. The interpolation error sits
+  well below any AWGN floor for any realistic
+  <span class="mono">f<sub>d,max</sub></span>. LOS taps add a deterministic
+  specular component with its own per-sample phase accumulator (also no
+  per-sample trig), composed via the Rician
+  <span class="mono">[√(K/(K+1)), √(1/(K+1))]</span> factor split.
+  Gaussian and Flat spectra are reserved in the
+  <code>FadingSpectrum</code> enum (so YAMLs can already declare them) but
+  their generator math is not implemented; the kernel throws on
+  encountering them — a later-phase drop-in.</p>
+
+  <!-- ============ DIAGRAM Q : Jakes spectrum + Bessel J_0 ============ -->
+  <figure>
+  <img src="figures/diag-Q-jakes-spectrum.svg"
+       alt="Jakes' classical Doppler spectrum and its Bessel J_0 autocorrelation"
+       style="width:100%;max-width:840px;display:block;margin:0 auto;">
+  <figcaption>Diagram Q — Jakes' classical Doppler spectrum and its
+  temporal autocorrelation. <b>Left:</b> the U-shaped PSD
+  <span class="mono">S(f) = 1 / (π·f<sub>d</sub>·√(1 − (f / f<sub>d</sub>)²))</span>
+  on <span class="mono">|f| &lt; f<sub>d</sub></span>; the energy is
+  concentrated at the band edges — broadside scatterers (the bulk of the
+  ring under uniform-AoA) contribute near-zero Doppler shift, while
+  forward and backward scatterers contribute ±f<sub>d</sub>. <b>Right:</b>
+  the time autocorrelation
+  <span class="mono">R(τ) = J<sub>0</sub>(2π·f<sub>d</sub>·τ)</span>;
+  the marked blue points at τ ∈ {1, 3, 5} ms are exactly the lags the
+  Bessel J<sub>0</sub> statistical test asserts (test (d) in
+  <code>tests/test_processing.cpp</code>). f<sub>d</sub> = 100 Hz
+  matches the project default.</figcaption>
+  </figure>
+
+  <!-- ============ DIAGRAM R : WSSUS scattering function (TDL-A) ============ -->
+  <figure>
+  <img src="figures/diag-R-wssus-scattering.svg"
+       alt="WSSUS scattering function on the delay-Doppler plane for TDL-A"
+       style="width:100%;max-width:840px;display:block;margin:0 auto;">
+  <figcaption>Diagram R — the <b>WSSUS scattering function</b> for TDL-A
+  at f<sub>d_max</sub> = 100 Hz on the (delay τ, Doppler f) plane. Each
+  tap occupies a horizontal slice at its own delay, shaped along the
+  Doppler axis by Jakes' U; the bulk of the energy hugs the green
+  ±f<sub>d</sub> envelope. This is the figure that unifies the two prior
+  diagrams: <b>frequency selectivity</b> shows up as multiple tap rows
+  along the delay axis (Diagram P's vertical stems become rows here), and
+  <b>time variation</b> shows up as the Doppler spread of each row
+  (Diagram Q's U-shape becomes the column profile). A static channel
+  collapses to vertical stripes at f = 0; a time-flat channel collapses
+  to one row at τ = 0; TDL-A sits in the doubly-spread quadrant.
+  Generated from the same TDL-A tap data the example YAML carries.</figcaption>
+  </figure>
+
+  <h4>TDL profile YAMLs (Phase 1.5, landed)</h4>
+
+  <p>The five canonical 3GPP TR 38.901 §7.7.2 profiles
+  (<b>TDL-A</b> through <b>TDL-E</b>) ship as ready-to-run example
+  topologies in
+  <code>examples/topology.tdl-{a,b,c,d,e}.cuda.yaml</code>. Each YAML is a
+  bidirectional gNB↔UE pair with the profile applied to both links.</p>
+
+  <p><b>Translation rule.</b> The published normalised delays are scaled
+  to samples at the project's 23.04 MS/s reference rate and a 100 ns
+  desired delay spread:
+  <span class="mono">delay_samples = normalised · 100 ns · 23.04 MS/s
+  = normalised · 2.304</span>. Tap powers are carried verbatim. The
+  Doppler default is <span class="mono">f<sub>d,max</sub> = 100 Hz</span>
+  (≈30 km/h at 3.5 GHz, vehicular) with the Jakes spectrum.</p>
+
+  <p><b>LOS profiles (TDL-D, TDL-E).</b> TR 38.901 publishes two
+  zero-delay entries on the first cluster — the LOS specular and the
+  co-located Rayleigh component — whose dB ratio is the cluster's
+  Rician K-factor. The kernel composes both inside one tap via
+  <span class="mono">g(t) = √(K/(K+1))·specular + √(1/(K+1))·rayleigh</span>,
+  so the YAML carries a single tap with
+  <code>is_los: true</code>, <code>los_k_db</code> set to the published
+  ratio (13.3 dB for TDL-D, 22 dB for TDL-E), and
+  <code>los_angle_rad: 0</code> (LOS co-axial with motion, maximum
+  positive Doppler). TDL-E additionally combines two co-delay scatterer
+  clusters at normalised 0.5440 — TR 38.901 separates them for spatial
+  modelling, but the TDL form has no per-tap angles, so their linear
+  powers are summed into one tap (−16.86 dB combined).</p>
+
+  <p><b>Perf measurement.</b> <code>scripts/remote/perf-fanin-sweep.sh</code>
+  picks up two CDL-shaped configs at the end of its existing
+  one-to-N / M-to-N grid: a 1-edge TDL-A baseline (the demo YAML above)
+  and an 8-UE fan-in TDL-A
+  (<code>examples/topology.perf-tdl-a-fanin-8.cuda.yaml</code> — 1 gNB +
+  8 UEs, TDL-A on all 16 edges). The pair shows how the multi-tap
+  convolution + Jakes generator scales with fan-in under realistic
+  multipath, instead of only the single-tap <code>cuda_mvp</code> path.</p>
+
+  <p>Source of the published numbers: Sionna
+  (<code>references/code/sionna/src/sionna/phy/channel/tr38901/models/TDL-{A..E}.json</code>,
+  Apache-2.0), which itself transcribes TR 38.901 Tables 7.7.2-1
+  through 7.7.2-5.</p>
+
+  <h4>What this replaced (Phase 1.3, landed)</h4>
+
+  <p><code>tdl</code> shipped in Phase 1.3 (commits
+  <code>9afb2de</code> → <code>aa006a9</code> on <code>main</code>) and
+  subsumed three earlier single-tap chain steps that no longer exist in
+  the schema:</p>
+  <ul class="tight">
+    <li><code>gain</code> → a one-tap <code>tdl</code> with
+        <span class="mono">delay_samples = 0</span> and the chosen complex
+        gain.</li>
+    <li><code>integer_delay</code> → a one-tap <code>tdl</code> with the
+        integer delay and unit gain.</li>
+    <li><code>fractional_delay</code> → a one-tap <code>tdl</code> with the
+        fractional delay and unit gain.</li>
+  </ul>
+  <p>All example YAMLs, all tests, and the perf-sweep scripts were
+  migrated to the <code>tdl</code> shape in the same Phase 1.3 sequence.
+  The per-link delay knobs
+  (<code>device.tx_timing_offset_samples</code>,
+  <code>link.propagation_delay_samples</code>) kept their semantics but
+  now fold into the chain-leading <code>tdl</code> step
+  (<a href="#alignment">§9</a> describes the composition rules). The
+  <code>path_loss</code>, <code>phase</code>, <code>cfo</code>, and
+  <code>awgn</code> steps were unchanged — they remain as separate per-
+  sample steps because they are not multipath operations.</p>
+
+  <p class="key"><b>Doppler in current code.</b> Two complementary
+  paths now ship: a deterministic Doppler shift (no spread) via the
+  existing <code>cfo</code> chain step — set <code>cfo_hz</code> to
+  <span class="mono">f<sub>d</sub> = v · f<sub>c</sub> / c</span> for a
+  link-wide constant offset; and a <i>stochastic</i> Doppler spread via
+  the <code>tdl</code> step's <code>fading:</code> sub-config (Phase 1.4)
+  — the per-tap Jakes-shaped spectrum that emerges from sub-ray angles
+  within each cluster, all bounded by the same per-link
+  <span class="mono">f<sub>d,max</sub></span>, plus optional per-tap
+  Rician LOS specular for TDL-D / TDL-E-style profiles.</p>
+
+
+  <!-- ============ PART III: Runtime &mdash; one slot at a time ============ -->
+  <h2 class="part-divider" id="part-iii">Part III &mdash; Runtime &mdash; one slot at a time</h2>
+  <p class="sub">The per-slot data path, in execution order: align &rarr; pack &rarr; channel &rarr; superpose &rarr; RF impairments.</p>
+
+  <h2 id="master-flow">7. End-to-end serve flow — one slot at a glance</h2>
+  <p>Diagram F (§3) showed the three layers; this section is the single
+  most-useful diagram in the doc — one destination node's serve,
+  start-to-finish. Every later section is a deep-dive into one box of
+  this picture.</p>
+  <figure>
+  <svg viewBox="0 0 1000 220" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="22" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram MF · one destination node's serve, left → right</text>
+
+    <defs>
+      <marker id="arwmf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
+      </marker>
+    </defs>
+
+    <!-- Lane labels -->
+    <text x="60"  y="76"  fill="#9aa7bd" font-size="9" text-anchor="middle">ZMQ</text>
+    <text x="60"  y="125" fill="#9aa7bd" font-size="9" text-anchor="middle">HOST CPU</text>
+    <text x="60"  y="174" fill="#9aa7bd" font-size="9" text-anchor="middle">GPU</text>
+
+    <line x1="100" y1="62" x2="100" y2="190" stroke="#2c3850"/>
+
+    <!-- 1: REQ -->
+    <rect x="110" y="55"  width="120" height="34" rx="4" fill="#181f2e" stroke="#cdd6e6"/>
+    <text x="170" y="76" fill="#cdd6e6" text-anchor="middle" font-size="11">1 · REQ in</text>
+
+    <!-- 2: align+read+pack -->
+    <line x1="230" y1="72"  x2="240" y2="72"  stroke="#9aa7bd"/>
+    <line x1="240" y1="72"  x2="240" y2="122" stroke="#9aa7bd"/>
+    <line x1="240" y1="122" x2="250" y2="122" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
+    <rect x="250" y="105" width="160" height="34" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="330" y="126" fill="#6fd08c" text-anchor="middle" font-size="11">2 · align + read + pack</text>
+
+    <!-- 3: H2D -->
+    <line x1="410" y1="122" x2="430" y2="122" stroke="#9aa7bd"/>
+    <line x1="430" y1="122" x2="430" y2="160" stroke="#5db1ff"/>
+    <line x1="430" y1="160" x2="450" y2="160" stroke="#5db1ff" marker-end="url(#arwmf)"/>
+    <text x="445" y="146" fill="#5db1ff" font-size="9" text-anchor="middle">H2D</text>
+
+    <!-- 4: GPU pipeline -->
+    <rect x="450" y="155" width="220" height="34" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="560" y="176" fill="#5db1ff" text-anchor="middle" font-size="11">3 · channel · superpose · rx</text>
+
+    <!-- 5: D2H -->
+    <line x1="670" y1="170" x2="690" y2="170" stroke="#9aa7bd"/>
+    <line x1="690" y1="170" x2="690" y2="132" stroke="#5db1ff"/>
+    <line x1="690" y1="132" x2="710" y2="132" stroke="#5db1ff" marker-end="url(#arwmf)"/>
+    <text x="705" y="148" fill="#5db1ff" font-size="9" text-anchor="middle">D2H</text>
+
+    <!-- 6: throttle + REP send -->
+    <rect x="710" y="105" width="160" height="34" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="790" y="126" fill="#6fd08c" text-anchor="middle" font-size="11">4 · throttle + advance</text>
+
+    <line x1="870" y1="122" x2="890" y2="122" stroke="#9aa7bd"/>
+    <line x1="890" y1="122" x2="890" y2="72" stroke="#9aa7bd"/>
+    <line x1="890" y1="72"  x2="910" y2="72" stroke="#9aa7bd" marker-end="url(#arwmf)"/>
+
+    <rect x="910" y="55" width="80" height="34" rx="4" fill="#181f2e" stroke="#cdd6e6"/>
+    <text x="950" y="76" fill="#cdd6e6" text-anchor="middle" font-size="11">5 · REP out</text>
+  </svg>
+  <figcaption>Diagram MF — the canonical four-step serve. Every destination
+  node loops this independently on its own thread + CUDA stream
+  (<a href="#stream-concurrency">§16 Diagram I</a>). Deep dives:
+  step 2 (align/read/pack) in <a href="#alignment">§9</a> +
+  <a href="#staged">§10</a>; step 3 GPU pipeline in
+  <a href="#kernels">§11</a> (Diagram S) +
+  <a href="#pipeline">§11.0</a> (op order) +
+  <a href="#signal-memory">§15</a> (memory map);
+  step 4 throttle in <a href="#alignment">§9</a>.</figcaption>
+  </figure>
+
+  <!-- ============ DIAGRAM G : topology graph ============ -->
+  <h2 id="broker-loop">8. The broker — per-slot loop</h2>
   <p class="key"><b>Reader note.</b> This section names machinery covered in
-  detail in §7 (alignment), §8 (staging), §9 (channel models), and §12
-  (kernels and pipeline, with op-order in §12.0). The §2 glossary defines every term used here as a
+  detail in §9 (alignment), §10 (staging), §5 (channel models), and §11
+  (kernels and pipeline, with op-order in §11.0). The §2 glossary defines every term used here as a
   one-liner, so a first read can proceed top-to-bottom; the deeper "why" for
   each named component lives in the cross-referenced section.</p>
   <p>The broker spawns one <b>server thread per destination node</b>. Each thread owns a
@@ -691,7 +1137,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   window of samples available across all of the node's incoming edges, stages them into
   pinned memory, runs the GPU pipeline, and replies with the processed IQ. Two threads
   for the same node never coexist; threads for different nodes run in parallel and use
-  independent CUDA streams (see <a href="#stream-concurrency">section 16</a>).</p>
+  independent CUDA streams (see <a href="#stream-concurrency">§16</a>).</p>
   <p>Receive-side rings are written by a separate set of RX threads — one per source —
   that pull TX packets from each source's PUB socket and append samples (with a monotonic
   sequence number) to a per-source ring buffer. The server thread only reads from these
@@ -710,13 +1156,13 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   each entry holds the edge's <code>link_key</code> (the processor's state
   map key) and a pointer to its <code>model</code>. That vector is then the
   index space for <b>everything the server does per slot</b> — one cursor
-  per <span class="mono">incoming[k]</span> in alignment co-init (§7), one
+  per <span class="mono">incoming[k]</span> in alignment co-init (§9), one
   ring read per <span class="mono">incoming[k]</span> in the common-window
   read, one <code>stage_link()</code> call per <span class="mono">incoming[k]</span>
   to apply that link's <span class="mono">h<sub>(src→dst)</sub>(t, τ)</span>
-  into staged slot <span class="mono">k</span> (§12), and the kernel's
+  into staged slot <span class="mono">k</span> (§11), and the kernel's
   per-thread inner loop walks <span class="mono">k = 0 … incoming.size()−1</span>
-  to sum across edges (§14). The mapping is computed once at broker startup
+  to sum across edges (§12). The mapping is computed once at broker startup
   and is fixed for the run; the per-slot loop never re-resolves it.</p>
 
   <!-- ============ DIAGRAM V : node ↔ edge mapping, host vs device ============ -->
@@ -782,10 +1228,10 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <line x1="30" y1="312" x2="670" y2="312" stroke="#2c3850"/>
     <text x="34" y="330" fill="#cdd6e6" font-size="11">for k in 0 .. N−1:</text>
     <text x="50" y="348" fill="#e7ecf5" font-size="11">co-init cursor[k] to ring[src].earliest_seq</text>
-    <text x="50" y="364" fill="#9aa7bd" font-size="10">— §7 alignment / Diagram H</text>
+    <text x="50" y="364" fill="#9aa7bd" font-size="10">— §9 alignment / Diagram H</text>
     <text x="50" y="384" fill="#e7ecf5" font-size="11">read common window from ring[src] into inputs[k]</text>
     <text x="50" y="404" fill="#e7ecf5" font-size="11">memcpy inputs[src_first[s]] → host_source_iq + s·count   (per unique source, D4)</text>
-    <text x="50" y="420" fill="#9aa7bd" font-size="10">— device-default · channel runs in apply_channel_kernel on GPU (§12 Diagram S)</text>
+    <text x="50" y="420" fill="#9aa7bd" font-size="10">— device-default · channel runs in apply_channel_kernel on GPU (§11 Diagram S)</text>
     <text x="50" y="436" fill="#9aa7bd" font-size="10">— host-fallback · stage_link writes shaped IQ into host_staged if gate is false</text>
     <text x="50" y="450" fill="#cdd6e6" font-size="11">build step_meta[0..2N−1] for the kernel  ·  edges share src_index into device_source_iq</text>
 
@@ -799,7 +1245,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="744" y="402" fill="#e7ecf5" font-size="11">     k·count + idx]</text>
     <text x="730" y="418" fill="#e7ecf5" font-size="11">apply_chain via</text>
     <text x="744" y="434" fill="#e7ecf5" font-size="11">  step_meta[k]</text>
-    <text x="730" y="450" fill="#ffb454" font-size="11">acc += s    (§14)</text>
+    <text x="730" y="450" fill="#ffb454" font-size="11">acc += s    (§12)</text>
 
     <!-- H2D arrow between host work and device consumption -->
     <line x1="684" y1="380" x2="700" y2="380" stroke="#5db1ff" marker-end="url(#arv)"/>
@@ -878,7 +1324,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
       <div class="bk-label">host CPU<small>broker thread</small></div>
       <div class="bk-track">
         <div class="bk-stage bk-stage--cpu" style="left:10%; width:8%;">
-          <b>2. align</b><small>§7 cursors</small>
+          <b>2. align</b><small>§9 cursors</small>
         </div>
         <div class="bk-stage bk-stage--cpu" style="left:18.5%; width:7%;">
           <b>3. read</b><small>rings</small>
@@ -887,7 +1333,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
           <b>4. pack</b><small>raw IQ → pinned</small>
         </div>
         <div class="bk-stage bk-stage--cpu" style="left:34.5%; width:8%;">
-          <b>5. step_meta</b><small>§8 build</small>
+          <b>5. step_meta</b><small>§10 build</small>
         </div>
         <div class="bk-stage bk-stage--cpu" style="left:71%; width:9%;">
           <b>7a. throttle</b><small>sleep_until</small>
@@ -917,10 +1363,10 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
           <b>6a. H2D</b><small>raw → device</small>
         </div>
         <div class="bk-stage bk-stage--gpu" style="left:49.7%; width:7.5%;">
-          <b>6b. channel</b><small>apply_channel_kernel · §12</small>
+          <b>6b. channel</b><small>apply_channel_kernel · §11</small>
         </div>
         <div class="bk-stage bk-stage--gpu" style="left:57.4%; width:6%;">
-          <b>6c. superpose</b><small>§14</small>
+          <b>6c. superpose</b><small>§12</small>
         </div>
         <div class="bk-stage bk-stage--gpu" style="left:63.6%; width:6.5%;">
           <b>6d. D2H</b><small>output → host</small>
@@ -952,7 +1398,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   fallback path</b>: if any incoming edge is non-tdl-leading, the dispatch gate
   goes false and stage 4 reverts to host <code>stage_link</code> writing the
   shaped IQ into <code>host_staged</code>, with 6b collapsed back to just the
-  copy — see <a href="#kernels">§12 Diagram S</a> for the gate.
+  copy — see <a href="#kernels">§11 Diagram S</a> for the gate.
   Section refs (§) link to the dedicated sections.</figcaption>
   </figure>
 
@@ -966,7 +1412,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <code>serve = min(batch, min over k of (next_seq − cursor))</code> — the largest
         slice every edge can supply. If the window is zero the thread polls again, and
         <code>rx_starvations</code> increments if the wait exceeds the starvation
-        deadline. <b>Detail in <a href="#alignment">section 7</a> + Diagram H.</b></li>
+        deadline. <b>Detail in <a href="#alignment">§9</a> + Diagram H.</b></li>
     <li><b>Read</b> the common window from each source ring at its cursor — N separate
         per-edge sample arrays, each <code>serve</code> samples long, all representing
         the same source-time slice.</li>
@@ -980,17 +1426,17 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <code>device_staged</code>. Host fallback via <code>stage_link()</code> runs the
         same math in <code>delay.h</code> when the per-node dispatch gate doesn't fire
         (mixed-edge or non-tdl-leading nodes). Edges without a leading tdl just get a
-        plain copy. <b>Detail in <a href="#staged">section 8</a> top prose,
-        <a href="#channels">section 9</a> tdl row, and <a href="#kernels">section 12
+        plain copy. <b>Detail in <a href="#staged">§10</a> top prose,
+        <a href="#channels">§5</a> tdl row, and <a href="#kernels">§11
         Diagram S</a>.</b></li>
     <li><b>Stage</b> — only used on the host-fallback path: pack the N per-edge arrays
         back-to-back into the pinned <code>host_staged</code> buffer for one H2D copy.
         The device-default path skips this entirely (it uses
         <code>host_source_iq</code> directly). <b>Detail in
-        <a href="#staged">section 8</a> + Diagram J.</b></li>
+        <a href="#staged">§10</a> + Diagram J.</b></li>
     <li><b>Kernel</b> — <code>process_superposition</code> runs the H2D, launches
         <code>superpose_kernel</code> (+ optional in-place <code>rx_model</code> pass),
-        and does the D2H. <b>Detail in <a href="#kernels">sections 12–15</a>.</b></li>
+        and does the D2H. <b>Detail in <a href="#kernels">§§11&ndash;13</a>.</b></li>
     <li><b>Throttle then ZMQ REP send</b> — sleep until
         <code>throttle_anchor + served / rate</code> (so wall-clock matches virtual
         time), then reply with the processed IQ.</li>
@@ -999,7 +1445,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   </ol>
 
   <!-- ============ DIAGRAM H : signal alignment ============ -->
-  <h2 id="alignment">7. Signal alignment and time discipline</h2>
+  <h2 id="alignment">9. Signal alignment and time discipline</h2>
   <p>Three layers of alignment compose to make the emulator behave physically:</p>
   <ol>
     <li><b>Sequence-aligned superposition</b> — every incoming-edge cursor reads from the
@@ -1305,7 +1751,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="20" y="230" fill="#ffb454" font-size="12">Where d_k comes from (summed per link):</text>
     <text x="40" y="252" fill="#cdd6e6" font-size="11">·  <tspan fill="#ffb454">propagation delay</tspan>  —  per-link geometry, YAML: propagation_delay_samples on the link</text>
     <text x="40" y="270" fill="#cdd6e6" font-size="11">·  <tspan fill="#ffb454">tx timing offset</tspan>  —  per-device constant lag, YAML: tx_timing_offset_samples on the device</text>
-    <text x="40" y="288" fill="#cdd6e6" font-size="11">·  <tspan fill="#9aa7bd">explicit chain step</tspan>  —  tdl as the chain's first step (single-tap with delay_samples = d_k; see section 9)</text>
+    <text x="40" y="288" fill="#cdd6e6" font-size="11">·  <tspan fill="#9aa7bd">explicit chain step</tspan>  —  tdl as the chain's first step (single-tap with delay_samples = d_k; see §5)</text>
     <text x="20" y="316" fill="#9aa7bd" font-size="10">Dashed cells = the delay_line tail kept on the host across slot boundaries so even the earliest idx in a slot has a defined delayed lookup.</text>
   </svg>
   <figcaption>Diagram M — the same virtual time index <span class="mono">idx</span> reaches
@@ -1345,28 +1791,28 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <code>delay_samples</code> is shifted by the summed offset (preserving multi-
   tap multipath); otherwise a single-tap <code>tdl</code> is prepended with the
   offset as its tap delay. d<sub>k</sub> for an edge is the sum of all three
-  sources — see <a href="#channels">section 9</a> for the YAML recipes.</p>
+  sources — see <a href="#channels">§5</a> for the YAML recipes.</p>
 
   <p class="key"><b>What is not modeled at this layer:</b> any time-varying offset
   (clock drift, slot misalignment that grows over time, sample-rate mismatch between
   endpoints) is out of scope. d<sub>k</sub> is constant for the life of a serve and
   changes only when the YAML is reloaded — drift would require a runtime-mutable
-  per-link delay, which is on the planned list in <a href="#scope">section 21</a>.</p>
+  per-link delay, which is on the planned list in <a href="#scope">§22</a>.</p>
 
   <p class="key"><b>What this stage guarantees for everything downstream:</b> after this
   step, the broker holds <span class="mono">N</span> per-edge sample arrays that are
   <b>(a)</b> all exactly <span class="mono">serve</span> samples long, and
   <b>(b)</b> whose element at index <span class="mono">idx</span> represents the same
-  source-time instant on every edge. The next stage (<a href="#staged">section 8</a>,
+  source-time instant on every edge. The next stage (<a href="#staged">§10</a>,
   staging) takes these aligned arrays as given and concatenates them; the kernel
-  (<a href="#kernels">sections 12–14</a>) takes the staged buffer as given and sums
+  (<a href="#kernels">§§11&ndash;13</a>) takes the staged buffer as given and sums
   <span class="mono">staged[k·count + idx]</span> across edges to produce the node's
   RX sample at instant <span class="mono">idx</span>.</p>
 
   <!-- ============ DIAGRAM J : staged buffer packing ============ -->
-  <h2 id="staged">8. The staged buffer — packing N edges for one H2D</h2>
+  <h2 id="staged">10. The staged buffer — packing N edges for one H2D</h2>
   <p>"Staged" is the word for what the broker hands to the GPU each serve. By the time
-  the broker reaches this stage, <a href="#alignment">section 7</a> has already
+  the broker reaches this stage, <a href="#alignment">§9</a> has already
   guaranteed that the <span class="mono">N</span> per-edge sample arrays are
   <b>time-aligned</b> — every edge's sample at index <span class="mono">idx</span>
   represents the same source-time instant, and every array has the same length
@@ -1374,7 +1820,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   applies, either <code>apply_channel_kernel</code> on device or
   <code>stage_link()</code> on host has already run that step's multi-tap
   convolution + optional Jakes fading using the per-link <code>delay_line</code>
-  ring for cross-slot history — see <a href="#kernels">§12 Diagram S</a> for
+  ring for cross-slot history — see <a href="#kernels">§11 Diagram S</a> for
   which path runs when.) <b>Staging is purely a packing step</b> — it takes those
   <span class="mono">N</span> aligned, delay-applied arrays and concatenates them
   back-to-back into one pinned buffer (<code>host_staged</code>) so a <b>single</b>
@@ -1384,7 +1830,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   sample <span class="mono">idx</span>.</p>
   <figure>
   <div class="stage-fig">
-    <div class="stage-section-label">After section 7 alignment — N separate per-edge buffers, all <code>count</code> samples long</div>
+    <div class="stage-section-label">After §9 alignment — N separate per-edge buffers, all <code>count</code> samples long</div>
     <div class="stage-inputs">
       <div class="stage-input-row r0">
         <span class="stage-edge">edge 0 · ue0→gnb0</span>
@@ -1438,392 +1884,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   caps at 2.88 MiB — comfortably under any current GPU's L2 (50 MiB on H100, 128 MiB on
   B200). For RTX 5090's wider memory bus, 360 KiB clears L2 in tens of microseconds.</p>
 
-  <h2 id="channels">9. Channel models in YAML</h2>
-  <p>Every model is a chain of named steps. The CPU and CUDA backends accept the same step
-  set and produce bit-exact output for any single edge (validated by
-  <code>tests/test_processing.cpp</code>). YAML keys per step type:</p>
-  <table>
-    <tr><th>Step type</th><th>YAML keys</th><th>Effect</th></tr>
-    <tr><td><code>tdl</code></td><td><code>taps:</code> block of <code>{delay_samples, gain_db, phase_rad}</code> (+ optional <code>fading:</code> sub-config and per-tap <code>is_los</code> / <code>los_k_db</code> / <code>los_angle_rad</code>)</td><td>Tapped delay line — the chain-leading propagation step. Each tap shifts the signal by <code>delay_samples</code> (integer or fractional, resolved by the shared 8-tap Hamming-windowed sinc in <code>delay.h</code>) and applies its complex tap weight <code>10<sup>gain_db/20</sup>·exp(j·phase_rad)</code>; with a <code>fading</code> sub-config each tap's weight becomes time-varying with a Jakes-shaped Doppler spectrum (plus optional Rician LOS specular). Applied <b>device-side by default</b> in <code>apply_channel_kernel</code> (<a href="#kernels">§12 Diagram S</a>) for any topology where every incoming edge has a leading <code>tdl</code>; falls back to host-side <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> for mixed-edge or non-tdl-leading nodes. Cross-slot history lives in a per-link <code>delay_line</code> ring (in <code>DeviceLinkState</code> global memory on the device path, in the host <code>LinkModelState</code> on the fallback). A single tap with <code>delay_samples = 0</code> is the static-gain case (subsumes the old <code>gain</code> step); a single tap with non-zero delay subsumes the old <code>integer_delay</code> / <code>fractional_delay</code> steps. The chain-leading constraint is enforced by <code>validate_cuda_support</code>; a non-leading <code>tdl</code> is rejected on the CUDA path (CPU accepts it anywhere).</td></tr>
-    <tr><td><code>path_loss</code></td><td><code>path_loss_db</code></td><td>Scale branch, sign-flipped vs. gain — attenuation. <code>step.a</code> = <code>10<sup>−path_loss_db/20</sup></code>.</td></tr>
-    <tr><td><code>phase</code></td><td><code>phase_rad</code></td><td>static phase rotation — <code>step.a</code> = phase, <code>step.b</code> = 0</td></tr>
-    <tr><td><code>cfo</code></td><td><code>cfo_hz</code></td><td>linear phase drift = carrier frequency offset — <code>step.b</code> = <code>2π·f<sub>cfo</sub>/f<sub>s</sub></code></td></tr>
-    <tr><td><code>awgn</code></td><td><code>noise_power</code> <i>or</i> <code>snr_db</code></td><td>complex Gaussian noise via counter-based Philox. Absolute mode: per-component σ = √(noise_power/2); SNR mode: noise scaled to <code>running_power / 10^(SNR/10)</code></td></tr>
-  </table>
-  <p class="key"><b>Three named knobs for the chain-leading delay.</b> Two
-  physically distinct effects compose into the same chain-leading delay step
-  (<a href="#alignment">section 7</a>, Layer 2). The YAML exposes a named knob
-  for each so a topology can express each one cleanly; at config-load time
-  <code>fold_link_leading_delays()</code> sums them and merges the total into the
-  link's effective chain.</p>
-  <table>
-    <tr><th>Knob</th><th>Scope</th><th>YAML key</th><th>Physical meaning</th></tr>
-    <tr>
-      <td><b>Propagation delay</b></td>
-      <td>per-link</td>
-      <td><code>propagation_delay_samples</code> on a <code>LinkConfig</code></td>
-      <td>Geometry-driven physical propagation along this specific edge. One
-          sample at 23.04 MS/s is ~13 m free-space. Different outbound links of
-          the same source can carry different values.</td>
-    </tr>
-    <tr>
-      <td><b>TX timing offset</b></td>
-      <td>per-device</td>
-      <td><code>tx_timing_offset_samples</code> on a <code>DeviceConfig</code></td>
-      <td>Constant TX-start-time lag of this endpoint — applies uniformly to
-          every outgoing link of the device. Models a radio that brought its
-          ZMQ TX socket up later than the others.</td>
-    </tr>
-    <tr>
-      <td><b>Explicit chain step</b></td>
-      <td>per-link (via model)</td>
-      <td>A leading <code>tdl</code> step in the model's chain</td>
-      <td>The raw mechanism. Use directly when neither of the above scopes
-          fits — e.g., a model that explicitly needs a multi-tap delay
-          profile beyond a single propagation offset.</td>
-    </tr>
-  </table>
-  <p class="key"><b>Composition rules.</b> All three are summed per link.
-  If the model's chain already leads with a <code>tdl</code> step,
-  <code>fold_link_leading_delays()</code> shifts every tap's
-  <code>delay_samples</code> by the composed offset (preserving multi-tap
-  multipath structure); otherwise a single-tap <code>tdl</code> with the
-  composed offset is prepended. Fractional totals are carried through directly
-  by the polyphase-sinc resolution in <code>apply_tdl_step</code>. Negative
-  values for either named knob are rejected at load time. The per-link
-  <code>delay_line</code> ring fills on the first serve and the composed offset
-  becomes constant for the run.</p>
-  <p class="key"><b>Worked example.</b> A device with
-  <code>tx_timing_offset_samples: 2</code> and a link from it carrying
-  <code>propagation_delay_samples: 4</code> on top of a base model whose chain
-  starts with <code>tdl{(1.0, 0 dB, 0)}</code> ends up with a synthesized leading
-  <code>tdl{(7.0, 0 dB, 0)}</code> — the tap delay shifts from 1 to
-  1 + (2 + 4) = 7. At idx = 7 the receiver sees the source's sample 0. For a
-  runnable variant of this composition see
-  <code>examples/topology.ocudu-docker.tx-offset.cuda.yaml</code> — the same
-  single-cell OCUDU topology with a 4-sample <code>tx_timing_offset_samples</code>
-  on gNB plus a 3-sample <code>propagation_delay_samples</code> on the uplink
-  edge.</p>
-  <p class="key"><code>running_power</code> in the AWGN SNR mode is the broker's
-  running estimate of the signal power at the point in the chain where the AWGN step
-  appears — built up by the host-side <code>build_steps()</code> walking the chain, so
-  placing AWGN earlier vs later in the chain gives different absolute noise levels for
-  the same <code>snr_db</code>. The <code>rx_model</code> for a node is just another model
-  — typically a single <code>awgn</code> step (the noise floor), but anything is legal.
-  The validator rejects delay steps in <code>rx_model</code> (they would have no defined
-  input signal).</p>
-
-  <!-- ============ §10 Channel physics (extracted from old §21) ============ -->
-  <h2 id="physics">10. Channel physics — Jakes, Rician, TDL profiles</h2>
-  <p>Before the device kernel section that runs the math (§12), this
-  section is the math itself: what a tap is, how the Doppler spectrum
-  shapes a time-varying tap, why Rayleigh and Rician envelopes are not
-  configuration knobs but consequences, and how the TR 38.901 §7.7.2 TDL
-  profiles map onto the YAML schema. All implementation details follow
-  the same wireless-modelling textbook (Bello / Jakes / Zheng &amp; Xiao);
-  the math here is the bit-exact reference both backends compute against.</p>
-  <p class="key"><b>Scope is TDL, not full CDL.</b> The Clustered Delay
-  Line (CDL) models in TR 38.901 §7.7.1 add per-cluster angles,
-  polarisation, sub-ray geometry, and antenna array response on top of
-  the basic tap structure. Those layers need beamforming machinery the
-  broker does not have today; CDL stays out of scope. The 23-tap profile
-  counts and example references below are TDL-A / TDL-B / TDL-C tables
-  (TR 38.901 §7.7.2), not their CDL siblings.</p>
-
-  <h4>Static taps — what <code>tdl</code> does</h4>
-
-  <p>A single chain step on a single edge holds an array of
-  <span class="mono">(delay, complex_gain)</span> taps. The kernel sums
-  <span class="mono">y[idx] = Σ a<sub>k</sub> · x[idx − τ<sub>k</sub>]</span>
-  in registers using one shared staged buffer plus a small
-  <code>delay_line</code> ring for cross-slot history.</p>
-
-  <p><b>Fractional delays from day one.</b> Tap delays are
-  <span class="mono">double</span> samples; sub-sample offsets resolve via
-  the shared <code>compute_windowed_sinc_taps</code> helper in
-  <code>delay.h</code> (8-tap Hamming-windowed sinc, DC-normalised) — the
-  same coefficient generator both backends call out of
-  <code>apply_tdl_step</code>. This avoids snapping CDL delays to the
-  nearest integer sample (which would lose up to ~22 ns of delay-spread
-  fidelity at 23.04 MS/s).</p>
-
-  <p><b>What it buys.</b> Static frequency-selective channels — 3GPP
-  TDL profiles (TR 38.901 §7.7.2 tables 7.7.2-1 through 7.7.2-5),
-  2-ray ground-reflection, indoor multipath. Memory cost is roughly the
-  same as a single-tap edge today and <b>~24× lower</b> than the naive
-  "N parallel edges per link" approach for a 23-tap TDL-A profile,
-  because the cross-slot history is one ring per link rather than one
-  per tap.</p>
-
-  <!-- ============ DIAGRAM P : TDL profile power-delay profiles ============ -->
-  <figure>
-  <img src="figures/diag-P-tdl-pdp.svg"
-       alt="Power-delay profiles for TR 38.901 §7.7.2 TDL-A through TDL-E"
-       style="width:100%;max-width:760px;display:block;margin:0 auto;">
-  <figcaption>Diagram P — power-delay profiles (PDP) for the five
-  TR 38.901 §7.7.2 TDL profiles, plotted on the published normalised-delay
-  axis. <b>NLOS profiles</b> (TDL-A, B, C) carry only Rayleigh-Jakes taps;
-  <b>LOS profiles</b> (TDL-D, E) have an orange-highlighted first tap whose
-  <code>los_k_db</code> sets the Rician K-factor (13.3 dB for TDL-D,
-  22 dB for TDL-E). Scaling to samples at the project's 23.04 MS/s
-  reference rate and 100 ns delay spread multiplies the x-axis by 2.304.
-  Regenerated from the same Sionna JSON the project's example YAMLs use;
-  produced by <code>scripts/figures/regen_fading_figures.py</code>.</figcaption>
-  </figure>
-
-  <h4>Time-varying tap gain — the <code>fading</code> sub-config (Phase 1.4, landed)</h4>
-
-  <p>The <code>fading</code> sub-config shipped in Phase 1.4 (commits
-  <code>61d76bb</code> for the schema / parser / validator and
-  <code>e48e95c</code> for the Jakes kernel + LOS Rician composition). The
-  description below tracks what the running code does today; planned
-  extensions (the Gaussian and Flat spectra reserved in the enum) are
-  flagged where they would slot in.</p>
-
-  <p><b>The model.</b> When the step's <code>fading</code> sub-config is
-  enabled, each tap's complex gain
-  <span class="mono">a<sub>k</sub>(t)</span> becomes a zero-mean complex
-  <b>stationary Gaussian process</b>. The single knob that defines the
-  shape is the tap's <b>Doppler power spectrum</b>
-  <span class="mono">S<sub>k</sub>(f)</span> — equivalently, the temporal
-  autocorrelation <span class="mono">R<sub>k</sub>(Δt)</span>, since one
-  is the Fourier transform of the other (the WSSUS framework, Bello 1963).
-  Everything else about the tap follows from that single choice.</p>
-
-  <p><b>Default spectrum: Jakes' classical (per link, not per tap).</b>
-  Cosine-symmetric around 0 Hz, parameterised by a <b>single per-link</b>
-  max-Doppler frequency
-  <span class="mono">f<sub>d,max</sub> = v · f<sub>c</sub> / c</span> set
-  by the UE velocity — stationary radio mismatch ≈ 0 Hz, pedestrian at
-  3.5 GHz ≈ 11 Hz, car ≈ 350 Hz. <b>All taps share the same
-  <span class="mono">f<sub>d,max</sub></span>; the per-tap variation
-  comes from each tap's own random sub-ray angle draws, not from
-  different velocities per tap.</b> Other spectra (Gaussian, flat) drop
-  in as alternate generators behind the same sub-config; the
-  cluster-specific spectra of full CDL are out of scope here as noted
-  above.</p>
-
-  <p><b>Envelope statistics fall out — they are not a separate knob.</b>
-  A zero-mean complex Gaussian process has a <b>Rayleigh</b> envelope by
-  construction; there is nothing to configure. A <b>Rician</b> envelope
-  is the same Gaussian process <i>plus</i> a deterministic LOS path (its
-  own gain, delay, and Doppler shift), and the K-factor is just the
-  LOS-to-scattered power ratio. So "Rayleigh vs. Rician" is a topology
-  question (is there a deterministic LOS tap alongside the faded ones?),
-  not a fading parameter.</p>
-
-  <p><b>Per-tap variation comes from sub-ray angles, not from different
-  velocities.</b> The per-link
-  <span class="mono">f<sub>d,max</sub></span> is the bound; each tap
-  independently draws <span class="mono">M ≈ 20</span> random sub-ray
-  angles <span class="mono">α<sub>k,m</sub></span> uniform in
-  <span class="mono">[0, 2π)</span>, and the tap's instantaneous
-  contribution at time <span class="mono">t</span> is the sum-of-sinusoids
-  <span class="mono">a<sub>k</sub>(t) ∝
-  Σ<sub>m</sub> exp(j(f<sub>d,max</sub> · cos(α<sub>k,m</sub>) · t +
-  φ<sub>k,m</sub>))</span>. The Jakes spectrum emerges from the cos(α)
-  projection of a common <span class="mono">f<sub>d,max</sub></span> over
-  many sub-rays — exactly what Sionna's TR 38.901 TDL implementation does
-  (<code>tr38901/tdl.py</code>) and what Zheng &amp; Xiao (2003) derive
-  as the WSS-correct improved Jakes generator. The LOS variant
-  (TDL-D / TDL-E) adds a deterministic specular component to the first
-  tap with Doppler shift
-  <span class="mono">f<sub>d,max</sub> · cos(α<sub>LOS</sub>)</span> —
-  also derived from the same per-link
-  <span class="mono">f<sub>d,max</sub></span>, not an independent
-  per-tap value.</p>
-
-  <p><b>Implementation.</b> Per-tap sum-of-sinusoids with
-  <span class="mono">M = 20</span> sinusoids per tap (the Zheng-Xiao /
-  Sionna convention; the Jakes generator's WSS error is bounded once
-  <span class="mono">M ≥ 8</span>, and 20 is the published default).
-  <code>prepare_tdl_fading_state</code> in
-  <code>include/ocudu_gpu_channel/delay.h</code> draws the
-  <span class="mono">M</span> angles <span class="mono">α<sub>k,m</sub></span>,
-  the <span class="mono">M</span> initial phases
-  <span class="mono">φ<sub>k,m</sub></span>, and a per-tap LOS initial phase
-  from <code>std::mt19937_64</code> seeded by
-  <span class="mono">hash("&lt;link_key&gt;:fading:&lt;step_idx&gt;")</span>
-  — both backends compute the same seed, so the CPU and CUDA fading
-  realisations come from the same random sequence. To bound kernel cost,
-  the generator produces <span class="mono">g<sub>k</sub>(t)</span> on a
-  coarse grid (default <code>grid_us = 100</code> — 10 kHz, ~28× oversampling
-  vs. a 350 Hz Jakes spectrum) with <b>phase accumulation</b> (one complex
-  multiply per sub-ray per grid step, not a sin/cos pair), then linearly
-  interpolates up to per-sample resolution. The interpolation error sits
-  well below any AWGN floor for any realistic
-  <span class="mono">f<sub>d,max</sub></span>. LOS taps add a deterministic
-  specular component with its own per-sample phase accumulator (also no
-  per-sample trig), composed via the Rician
-  <span class="mono">[√(K/(K+1)), √(1/(K+1))]</span> factor split.
-  Gaussian and Flat spectra are reserved in the
-  <code>FadingSpectrum</code> enum (so YAMLs can already declare them) but
-  their generator math is not implemented; the kernel throws on
-  encountering them — a later-phase drop-in.</p>
-
-  <!-- ============ DIAGRAM Q : Jakes spectrum + Bessel J_0 ============ -->
-  <figure>
-  <img src="figures/diag-Q-jakes-spectrum.svg"
-       alt="Jakes' classical Doppler spectrum and its Bessel J_0 autocorrelation"
-       style="width:100%;max-width:840px;display:block;margin:0 auto;">
-  <figcaption>Diagram Q — Jakes' classical Doppler spectrum and its
-  temporal autocorrelation. <b>Left:</b> the U-shaped PSD
-  <span class="mono">S(f) = 1 / (π·f<sub>d</sub>·√(1 − (f / f<sub>d</sub>)²))</span>
-  on <span class="mono">|f| &lt; f<sub>d</sub></span>; the energy is
-  concentrated at the band edges — broadside scatterers (the bulk of the
-  ring under uniform-AoA) contribute near-zero Doppler shift, while
-  forward and backward scatterers contribute ±f<sub>d</sub>. <b>Right:</b>
-  the time autocorrelation
-  <span class="mono">R(τ) = J<sub>0</sub>(2π·f<sub>d</sub>·τ)</span>;
-  the marked blue points at τ ∈ {1, 3, 5} ms are exactly the lags the
-  Bessel J<sub>0</sub> statistical test asserts (test (d) in
-  <code>tests/test_processing.cpp</code>). f<sub>d</sub> = 100 Hz
-  matches the project default.</figcaption>
-  </figure>
-
-  <!-- ============ DIAGRAM R : WSSUS scattering function (TDL-A) ============ -->
-  <figure>
-  <img src="figures/diag-R-wssus-scattering.svg"
-       alt="WSSUS scattering function on the delay-Doppler plane for TDL-A"
-       style="width:100%;max-width:840px;display:block;margin:0 auto;">
-  <figcaption>Diagram R — the <b>WSSUS scattering function</b> for TDL-A
-  at f<sub>d_max</sub> = 100 Hz on the (delay τ, Doppler f) plane. Each
-  tap occupies a horizontal slice at its own delay, shaped along the
-  Doppler axis by Jakes' U; the bulk of the energy hugs the green
-  ±f<sub>d</sub> envelope. This is the figure that unifies the two prior
-  diagrams: <b>frequency selectivity</b> shows up as multiple tap rows
-  along the delay axis (Diagram P's vertical stems become rows here), and
-  <b>time variation</b> shows up as the Doppler spread of each row
-  (Diagram Q's U-shape becomes the column profile). A static channel
-  collapses to vertical stripes at f = 0; a time-flat channel collapses
-  to one row at τ = 0; TDL-A sits in the doubly-spread quadrant.
-  Generated from the same TDL-A tap data the example YAML carries.</figcaption>
-  </figure>
-
-  <h4>TDL profile YAMLs (Phase 1.5, landed)</h4>
-
-  <p>The five canonical 3GPP TR 38.901 §7.7.2 profiles
-  (<b>TDL-A</b> through <b>TDL-E</b>) ship as ready-to-run example
-  topologies in
-  <code>examples/topology.tdl-{a,b,c,d,e}.cuda.yaml</code>. Each YAML is a
-  bidirectional gNB↔UE pair with the profile applied to both links.</p>
-
-  <p><b>Translation rule.</b> The published normalised delays are scaled
-  to samples at the project's 23.04 MS/s reference rate and a 100 ns
-  desired delay spread:
-  <span class="mono">delay_samples = normalised · 100 ns · 23.04 MS/s
-  = normalised · 2.304</span>. Tap powers are carried verbatim. The
-  Doppler default is <span class="mono">f<sub>d,max</sub> = 100 Hz</span>
-  (≈30 km/h at 3.5 GHz, vehicular) with the Jakes spectrum.</p>
-
-  <p><b>LOS profiles (TDL-D, TDL-E).</b> TR 38.901 publishes two
-  zero-delay entries on the first cluster — the LOS specular and the
-  co-located Rayleigh component — whose dB ratio is the cluster's
-  Rician K-factor. The kernel composes both inside one tap via
-  <span class="mono">g(t) = √(K/(K+1))·specular + √(1/(K+1))·rayleigh</span>,
-  so the YAML carries a single tap with
-  <code>is_los: true</code>, <code>los_k_db</code> set to the published
-  ratio (13.3 dB for TDL-D, 22 dB for TDL-E), and
-  <code>los_angle_rad: 0</code> (LOS co-axial with motion, maximum
-  positive Doppler). TDL-E additionally combines two co-delay scatterer
-  clusters at normalised 0.5440 — TR 38.901 separates them for spatial
-  modelling, but the TDL form has no per-tap angles, so their linear
-  powers are summed into one tap (−16.86 dB combined).</p>
-
-  <p><b>Perf measurement.</b> <code>scripts/remote/perf-fanin-sweep.sh</code>
-  picks up two CDL-shaped configs at the end of its existing
-  one-to-N / M-to-N grid: a 1-edge TDL-A baseline (the demo YAML above)
-  and an 8-UE fan-in TDL-A
-  (<code>examples/topology.perf-tdl-a-fanin-8.cuda.yaml</code> — 1 gNB +
-  8 UEs, TDL-A on all 16 edges). The pair shows how the multi-tap
-  convolution + Jakes generator scales with fan-in under realistic
-  multipath, instead of only the single-tap <code>cuda_mvp</code> path.</p>
-
-  <p>Source of the published numbers: Sionna
-  (<code>references/code/sionna/src/sionna/phy/channel/tr38901/models/TDL-{A..E}.json</code>,
-  Apache-2.0), which itself transcribes TR 38.901 Tables 7.7.2-1
-  through 7.7.2-5.</p>
-
-  <h4>What this replaced (Phase 1.3, landed)</h4>
-
-  <p><code>tdl</code> shipped in Phase 1.3 (commits
-  <code>9afb2de</code> → <code>aa006a9</code> on <code>main</code>) and
-  subsumed three earlier single-tap chain steps that no longer exist in
-  the schema:</p>
-  <ul class="tight">
-    <li><code>gain</code> → a one-tap <code>tdl</code> with
-        <span class="mono">delay_samples = 0</span> and the chosen complex
-        gain.</li>
-    <li><code>integer_delay</code> → a one-tap <code>tdl</code> with the
-        integer delay and unit gain.</li>
-    <li><code>fractional_delay</code> → a one-tap <code>tdl</code> with the
-        fractional delay and unit gain.</li>
-  </ul>
-  <p>All example YAMLs, all tests, and the perf-sweep scripts were
-  migrated to the <code>tdl</code> shape in the same Phase 1.3 sequence.
-  The per-link delay knobs
-  (<code>device.tx_timing_offset_samples</code>,
-  <code>link.propagation_delay_samples</code>) kept their semantics but
-  now fold into the chain-leading <code>tdl</code> step
-  (<a href="#alignment">§7</a> describes the composition rules). The
-  <code>path_loss</code>, <code>phase</code>, <code>cfo</code>, and
-  <code>awgn</code> steps were unchanged — they remain as separate per-
-  sample steps because they are not multipath operations.</p>
-
-  <p class="key"><b>Doppler in current code.</b> Two complementary
-  paths now ship: a deterministic Doppler shift (no spread) via the
-  existing <code>cfo</code> chain step — set <code>cfo_hz</code> to
-  <span class="mono">f<sub>d</sub> = v · f<sub>c</sub> / c</span> for a
-  link-wide constant offset; and a <i>stochastic</i> Doppler spread via
-  the <code>tdl</code> step's <code>fading:</code> sub-config (Phase 1.4)
-  — the per-tap Jakes-shaped spectrum that emerges from sub-ray angles
-  within each cluster, all bounded by the same per-link
-  <span class="mono">f<sub>d,max</sub></span>, plus optional per-tap
-  Rician LOS specular for TDL-D / TDL-E-style profiles.</p>
-
-  <h2 id="backends">11. Processor backends — CPU and CUDA</h2>
-  <p>There are two backends behind a common <code>ChannelProcessor</code> interface
-  (<code>include/ocudu_gpu_channel/processing.h</code>): <b>CPU</b> for correctness
-  reference and local development, <b>CUDA</b> for production scale. Both expose a
-  single entry point:</p>
-  <ul class="tight">
-    <li><code>process_superposition(dst_node, edges, rx_model, rate, out)</code> —
-        shapes every incoming edge of <code>dst_node</code> through that edge's
-        own channel model, sums them, and applies the node's optional
-        <code>rx_model</code> once to the sum. The broker uses this for N-edge
-        fan-in; the benchmark and unit tests use the same call with a
-        one-element <code>edges</code> list (the N = 1 single-edge case) instead
-        of a separate per-link API.</li>
-  </ul>
-  <p>Bit-exactness contract: for any single edge,
-  <code>process_superposition</code> on CPU and CUDA produces identical
-  <code>cf32</code> output within 1e-3 per sample. This is enforced by
-  tests and matters because it lets us debug regressions on the CPU path
-  before reproducing on the GPU. The shared inline implementation of
-  <code>apply_tdl_step</code> + <code>apply_tdl_step_fading</code> in
-  <code>include/ocudu_gpu_channel/delay.h</code> and the counter-based
-  Philox RNG are what make this practical.</p>
-  <p class="key"><b>Both backends implement the same step surface.</b> The
-  CPU backend's <code>process_superposition</code> calls the same
-  <code>apply_tdl_step_fading</code> helper as the device-channel kernel,
-  so multi-tap convolution + Jakes Doppler + Rician LOS all work on CPU
-  too — just slower. The 1e-3 parity tolerance accommodates one cycle of
-  trig precision difference (<code>std::cos(float)</code> on CPU vs
-  <code>__sincosf</code> on GPU); pre-trig angles are computed in
-  <code>double</code> and reduced mod 2π on both sides so long-running
-  parity holds. The CPU backend is therefore the trust anchor: every
-  feature CUDA ships, CPU runs first and the test suite asserts they
-  match.</p>
-
-  <!-- ============ DIAGRAM S — per-edge channel: device kernel default, host fallback ============ -->
-  <h2 id="kernels">12. The channel — applied per edge (device kernel by default, host fallback)</h2>
+  <h2 id="kernels">11. The channel — applied per edge (device kernel by default, host fallback)</h2>
   <p>The wireless channel <span class="mono">h<sub>(src→dst)</sub>(t, τ)</span> is a <b>per-link</b> object: each incoming edge of an RX node carries its own delay spread, Doppler shift, and LOS K-factor, parameterised by the YAML <code>tdl</code> step plus its optional <code>fading</code> sub-config. The broker applies that channel <b>per edge</b>, before the staged buffer reaches <code>superpose_kernel</code>. The kernel that follows never sees raw, un-channelised IQ from any source.</p>
 
   <p class="key"><b>Per-edge invariant.</b> Multipath and Doppler are applied independently per link, with each link's own delay-line ring and Jakes sub-ray state, before aggregation. The channel <span class="mono">h<sub>(src→dst)</sub>(t, τ)</span> is a property of the link, not the receiver — summing raw IQ before applying the channel would collapse the per-link statistics and is mathematically wrong.</p>
 
-  <p>The default path is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3 + D4, landed): per-link state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_source_iq[s->src_index · count + read_idx]</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>src_index indirection (D4)</b> means edges sharing a source share a single input slot — the host packs each unique source once. H2D bandwidth therefore scales with source count rather than edge count <i>when multiple edges share a source</i>; for current production topologies (one link per (from, to) pair) the byte count is unchanged. See <a href="#perf-pcie">§20.5</a> for the empirical confirmation. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a>; the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in §10 (Diagrams P / Q / R).</p>
+  <p>The default path is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3 + D4, landed): per-link state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_source_iq[s->src_index · count + read_idx]</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>src_index indirection (D4)</b> means edges sharing a source share a single input slot — the host packs each unique source once. H2D bandwidth therefore scales with source count rather than edge count <i>when multiple edges share a source</i>; for current production topologies (one link per (from, to) pair) the byte count is unchanged. See <a href="#perf-pcie">§20.5</a> for the empirical confirmation. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a>; the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in §6 (Diagrams P / Q / R).</p>
 
-  <h3 id="pipeline">12.0 Pipeline op order — what each stream actually launches</h3>
+  <h3 id="pipeline">11.0 Pipeline op order — what each stream actually launches</h3>
   <p>Before the per-component deep dives (Diagram S below, then dispatch
   gate / lifecycle / polyphase / ring continuity), here is the strict
   per-serve op order on one destination's stream. Memory buffers below are
@@ -1833,7 +1901,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <p><b>Device-channel path</b> — default when every incoming edge of the
   destination has a leading <code>tdl</code> step (gate
-  <code>sp.use_device_channel == true</code>, see §12.1):</p>
+  <code>sp.use_device_channel == true</code>, see §11.1):</p>
   <ol class="tight">
     <li><b>Per-source pack (D4)</b>: <code>memcpy</code> each <i>unique
         source</i>'s raw IQ window into
@@ -1860,7 +1928,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <span class="mono">delay_line</span> ring forward by
         <span class="mono">count</span> samples; advance
         <span class="mono">slot_start_samples</span> (cross-slot continuity,
-        §12.4). Reads source IQ via the same
+        §11.4). Reads source IQ via the same
         <span class="mono">src_index</span> indirection.</li>
     <li><b><code>superpose_kernel</code></b> — sum every edge's per-sample
         chain output into <span class="mono">device_output</span>.</li>
@@ -1901,7 +1969,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <!-- Dispatch gate at top -->
     <polygon points="500,42 700,72 500,102 300,72" fill="#0b101a" stroke="#ffb454" stroke-width="1.6"/>
     <text x="500" y="68" fill="#ffb454" text-anchor="middle" font-size="11">sp.use_device_channel</text>
-    <text x="500" y="84" fill="#9aa7bd" text-anchor="middle" font-size="9">(every incoming edge has leading tdl? — §12.1 Diagram SG)</text>
+    <text x="500" y="84" fill="#9aa7bd" text-anchor="middle" font-size="9">(every incoming edge has leading tdl? — §11.1 Diagram SG)</text>
 
     <!-- Branch labels -->
     <text x="180" y="98" fill="#6fd08c" font-size="10" text-anchor="middle">true · DEFAULT</text>
@@ -1929,14 +1997,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
     <rect x="60" y="222" width="380" height="56" rx="4" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
     <text x="250" y="238" fill="#5db1ff" text-anchor="middle" font-size="11">apply_channel_kernel</text>
-    <text x="250" y="254" fill="#cdd6e6" text-anchor="middle" font-size="9">multi-tap polyphase (§12.3 Y) · Jakes + Rician (§10)</text>
-    <text x="250" y="268" fill="#cdd6e6" text-anchor="middle" font-size="9">src_index read (§12.2 X)</text>
+    <text x="250" y="254" fill="#cdd6e6" text-anchor="middle" font-size="9">multi-tap polyphase (§11.3 Y) · Jakes + Rician (§6)</text>
+    <text x="250" y="268" fill="#cdd6e6" text-anchor="middle" font-size="9">src_index read (§11.2 X)</text>
 
     <line x1="250" y1="278" x2="250" y2="284" stroke="#9aa7bd" marker-end="url(#ars)"/>
 
     <rect x="60" y="286" width="380" height="40" rx="4" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
     <text x="250" y="304" fill="#5db1ff" text-anchor="middle" font-size="10">update_delay_line_kernel</text>
-    <text x="250" y="318" fill="#9aa7bd" text-anchor="middle" font-size="9">roll delay_line ring · advance slot_start_samples (§12.4 Z)</text>
+    <text x="250" y="318" fill="#9aa7bd" text-anchor="middle" font-size="9">roll delay_line ring · advance slot_start_samples (§11.4 Z)</text>
 
     <!-- ===== RIGHT COLUMN: host-fallback path ===== -->
     <rect x="540" y="120" width="420" height="220" rx="8" fill="#181f2e" stroke="#9aa7bd" stroke-width="1.6" stroke-dasharray="4 3"/>
@@ -1953,7 +2021,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="750" y="254" fill="#5db1ff" text-anchor="middle" font-size="10">H2D (already-shaped IQ)</text>
     <text x="750" y="268" fill="#9aa7bd" text-anchor="middle" font-size="9">host_staged → device_staged</text>
 
-    <text x="750" y="312" fill="#9aa7bd" text-anchor="middle" font-size="9">CPU backend uses the same delay.h helpers → bit-exact at 1e-3 (§11)</text>
+    <text x="750" y="312" fill="#9aa7bd" text-anchor="middle" font-size="9">CPU backend uses the same delay.h helpers → bit-exact at 1e-3 (§14)</text>
 
     <!-- Converge -->
     <line x1="250" y1="328" x2="500" y2="370" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#ars)"/>
@@ -1966,11 +2034,11 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <line x1="500" y1="412" x2="500" y2="430" stroke="#9aa7bd" marker-end="url(#ars)"/>
 
     <rect x="120" y="432" width="760" height="40" rx="4" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
-    <text x="500" y="450" fill="#5db1ff" text-anchor="middle" font-size="11">superpose_kernel (§14) — per-sample chain (§13) · Σ over edges → device_output</text>
+    <text x="500" y="450" fill="#5db1ff" text-anchor="middle" font-size="11">superpose_kernel (§12) — per-sample chain (§13) · Σ over edges → device_output</text>
     <text x="500" y="464" fill="#9aa7bd" text-anchor="middle" font-size="9">tdl step is a no-op here on the device path (already applied above)</text>
   </svg>
   <figcaption>Diagram S — high-level shape of the per-edge channel. The
-  per-node dispatch gate (<a href="#dispatch-gate">§12.1, Diagram SG</a>)
+  per-node dispatch gate (<a href="#dispatch-gate">§11.1, Diagram SG</a>)
   routes the destination to one of two paths: <b>DEVICE</b> when every
   incoming edge has a leading <code>tdl</code> step
   (<code>apply_channel_kernel</code> runs the convolution + Jakes + LOS
@@ -1979,21 +2047,21 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   (<code>stage_link</code> calls <code>apply_tdl_step{_fading}</code>
   from <code>delay.h</code> on the host, ships already-shaped IQ via
   H2D). Both paths converge at <code>device_staged</code> with the same
-  layout; <code>superpose_kernel</code> (§14) downstream is path-agnostic.
+  layout; <code>superpose_kernel</code> (§12) downstream is path-agnostic.
   Math + state internals are in the sub-diagrams:
   <a href="#dispatch-gate">SG (gate)</a>,
   <a href="#link-lifecycle">X (per-link state lifecycle)</a>,
   <a href="#polyphase">Y (8-tap polyphase read)</a>,
   <a href="#ring-continuity">Z (cross-slot ring)</a>,
-  <a href="#physics">§10 (channel physics)</a>. CPU↔CUDA agreement at
+  <a href="#physics">§6 (channel physics)</a>. CPU↔CUDA agreement at
   1e-3 tolerance is asserted by the parity tests in
   <code>tests/test_processing.cpp</code>.</figcaption>
   </figure>
 
-  <p>Once the per-edge channel has been applied — by <code>apply_channel_kernel</code> on the GPU (default), or by host <code>stage_link()</code> on the mixed-node fallback — the staged buffer contains N slots in which the channel has been fully applied. From this point on, the kernel only needs to apply the memoryless RF impairments per sample (§13) and sum across edges (§14).</p>
+  <p>Once the per-edge channel has been applied — by <code>apply_channel_kernel</code> on the GPU (default), or by host <code>stage_link()</code> on the mixed-node fallback — the staged buffer contains N slots in which the channel has been fully applied. From this point on, the kernel only needs to apply the memoryless RF impairments per sample (§13) and sum across edges (§12).</p>
 
   <!-- ============ DIAGRAM SG: dispatch gate decision (compact) ============ -->
-  <h3 id="dispatch-gate">12.1 Dispatch gate — when the device path engages</h3>
+  <h3 id="dispatch-gate">11.1 Dispatch gate — when the device path engages</h3>
   <figure>
   <svg viewBox="0 0 1000 240" font-family="SF Mono,Menlo,monospace" font-size="11">
     <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram SG · sp.use_device_channel decision · evaluated once per destination at prepare()</text>
@@ -2037,7 +2105,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   </figure>
 
   <!-- ============ DIAGRAM X: per-link state lifecycle (compact) ============ -->
-  <h3 id="link-lifecycle">12.2 Per-link state lifecycle — prepare once, serve many</h3>
+  <h3 id="link-lifecycle">11.2 Per-link state lifecycle — prepare once, serve many</h3>
   <figure>
   <svg viewBox="0 0 1000 200" font-family="SF Mono,Menlo,monospace" font-size="11">
     <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram X · DeviceLinkState · built once, mostly read-only, two fields mutate per slot</text>
@@ -2097,7 +2165,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   </figure>
 
   <!-- ============ DIAGRAM Y: polyphase 8-tap fractional delay ============ -->
-  <h3 id="polyphase">12.3 Polyphase 8-tap fractional-delay filter</h3>
+  <h3 id="polyphase">11.3 Polyphase 8-tap fractional-delay filter</h3>
   <p>The <code>tdl</code> step's per-tap convolution is an 8-tap
   Hamming-windowed sinc filter centered around the fractional-delay phase.
   Both <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> and the
@@ -2189,7 +2257,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   </figure>
 
   <!-- ============ DIAGRAM Z: cross-slot delay-line ring continuity ============ -->
-  <h3 id="ring-continuity">12.4 Cross-slot delay-line ring continuity</h3>
+  <h3 id="ring-continuity">11.4 Cross-slot delay-line ring continuity</h3>
   <p>Multi-tap channels have echoes longer than one slot's worth of input.
   The per-link <code>delay_line</code> ring keeps the most recent
   <code>dl_size</code> raw input samples around so that the next slot's
@@ -2268,106 +2336,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   (Diagram Q) picks up exactly where it left off.</figcaption>
   </figure>
 
-  <!-- ============ DIAGRAM E : per-sample channel application ============ -->
-  <h2 id="rf-chain">13. RF impairments — the device-side per-sample chain</h2>
-  <p>After the channel has been applied per edge (§12), the kernel applies the remaining chain steps per sample. These steps are <b>memoryless</b> — every one either reads only the current (i, q) state or generates its noise from a counter-based RNG with no cross-thread dependency. That memorylessness is what makes them ideal for the SIMT model: every thread can run the chain independently.</p>
-
-  <p>Inside the per-thread loop of <code>superpose_kernel</code> (and in the body of <code>apply_steps_kernel</code> for an <code>rx_model</code>), each thread loads one (i, q) pair into registers and walks the link's chain via <code>apply_chain()</code>. The chain is a flat array of <code>GpuStep</code> structs built host-side from the YAML model; every iteration switches on <code>step.type</code> to apply one of three operations, each mutating the same (i, q) state in place. The same machinery serves every model in the topology — "desired" is tdl + phase + CFO (the leading tdl ran already in <code>apply_channel_kernel</code> on device — or <code>stage_link()</code> on host fallback — so on the device per-sample chain it is a no-op pass-through, leaving phase and CFO as the actual per-sample work); "crosstalk" is path-loss + phase; the receiver <code>noise_floor</code> is a single AWGN step.</p>
-
-  <p class="note"><b>Runtime mutability (Phase 3 v1).</b> All seven v1
-  params — <code>path_loss_db</code>, <code>awgn_snr_db</code>,
-  <code>cfo_hz</code>, <code>tap0_delay_samples</code>,
-  <code>tap0_gain_db</code>, <code>tap0_phase_rad</code>,
-  <code>los_k_db</code> — flow through a per-link
-  <code>MutableParams</code> field (<code>live</code>) populated from
-  YAML at <code>prepare()</code> and snapped from a control-thread-
-  written <code>shadow</code> at the start of every serve. Chain-step
-  params are read from <code>live</code> in the per-sample loop;
-  tap-0 / LOS params are refreshed into the derived
-  <code>DeviceLinkState</code> fields (CUDA) or rebuilt as effective
-  taps + polyphase (CPU) when the snap detects a change. Updates
-  arrive over a ZMQ REP socket (opt-in via <code>--control-endpoint</code>);
-  the snap on a steady-state slot is a single acquire-load + early-
-  return. See <a href="#scope">§21</a> for scope and the design plan at
-  <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</p>
-
-  <p class="note"><b>Runtime mutability (Phase 3 v2.0).</b> Beyond the
-  v1 scalar params, the control plane accepts a
-  <code>type: "profile_swap"</code> message that replaces the entire
-  per-edge tap layout at runtime (full <code>taps[]</code> with optional
-  fading sub-config; up to <code>kDeviceMaxTaps = 32</code> taps).
-  Eligibility: by default the swap is rejected on edges whose chain
-  doesn't start with a <code>tdl</code> step; <code>force: true</code>
-  in the REQ overrides this (the snapped profile is stored but kernel
-  output is unchanged on non-tdl-leading chains until a YAML reload).
-  Both backends rebuild derived per-tap fields on the snap;
-  <code>compute_windowed_sinc_taps</code> is shared so post-warmup
-  CPU↔CUDA parity holds. Deterministic <code>take_effect_at_slot</code>
-  timing and an explicit delay-line warmup contract are v2.1 / v2.2.
-  See
-  <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel-v2.md"><code>docs/plans/runtime-mutable-channel-v2.md</code></a>.</p>
-
-  <figure>
-  <svg viewBox="0 0 1000 410" font-family="SF Mono,Menlo,monospace" font-size="12">
-    <defs>
-      <marker id="are" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
-        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
-      </marker>
-    </defs>
-    <rect x="20" y="20" width="960" height="40" rx="4" fill="#1a2233" stroke="#2c3850"/>
-    <text x="500" y="44" fill="#e7ecf5" text-anchor="middle">load into per-thread registers:  i = staged[k·count + idx].i  ·  q = staged[k·count + idx].q</text>
-    <line x1="500" y1="64" x2="500" y2="82" stroke="#5db1ff" marker-end="url(#are)"/>
-    <rect x="20" y="90" width="960" height="240" rx="8" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="500" y="112" fill="#5db1ff" text-anchor="middle">apply_chain():  for step_idx in 0 … step_count − 1:  switch (steps[step_idx].type)</text>
-    <rect x="30" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="182" y="150" fill="#5db1ff" text-anchor="middle">Scale</text>
-    <text x="182" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">path-loss · tdl no-op</text>
-    <line x1="50" y1="180" x2="315" y2="180" stroke="#2c3850"/>
-    <text x="50" y="206" fill="#e7ecf5">i ← step.a · i</text>
-    <text x="50" y="226" fill="#e7ecf5">q ← step.a · q</text>
-    <text x="50" y="266" fill="#9aa7bd" font-size="11">step.a built host-side from</text>
-    <text x="50" y="282" fill="#9aa7bd" font-size="11">gain_db or path_loss_db.</text>
-    <rect x="345" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="497" y="150" fill="#5db1ff" text-anchor="middle">Phase  /  CFO</text>
-    <text x="497" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">sincos + complex multiply</text>
-    <line x1="365" y1="180" x2="630" y2="180" stroke="#2c3850"/>
-    <text x="365" y="200" fill="#e7ecf5">φ = step.a + step.b · idx</text>
-    <text x="365" y="220" fill="#e7ecf5">(c, s) = sincosf(φ)</text>
-    <text x="365" y="244" fill="#e7ecf5">(i, q) ← (i·c − q·s,  i·s + q·c)</text>
-    <text x="365" y="262" fill="#9aa7bd" font-size="11">simultaneous: both use the original (i, q)</text>
-    <text x="365" y="288" fill="#9aa7bd" font-size="11">b = 0  →  static phase rotate.</text>
-    <text x="365" y="304" fill="#9aa7bd" font-size="11">b = 2π·f_cfo / f_s  →  CFO drift.</text>
-    <rect x="660" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="812" y="150" fill="#5db1ff" text-anchor="middle">AddNoise  (AWGN)</text>
-    <text x="812" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">counter-based Philox</text>
-    <line x1="680" y1="180" x2="945" y2="180" stroke="#2c3850"/>
-    <text x="680" y="200" fill="#e7ecf5">rng = Philox4_32_10(</text>
-    <text x="680" y="216" fill="#e7ecf5">  step.seed, step.counter + idx)</text>
-    <text x="680" y="236" fill="#e7ecf5">n = curand_normal2(rng)</text>
-    <text x="680" y="256" fill="#e7ecf5">i ← i + step.a · n.x</text>
-    <text x="680" y="272" fill="#e7ecf5">q ← q + step.a · n.y</text>
-    <text x="680" y="296" fill="#9aa7bd" font-size="11">stateless: same (seed, ctr + idx)</text>
-    <text x="680" y="312" fill="#9aa7bd" font-size="11">→ same noise, every run.</text>
-    <line x1="500" y1="334" x2="500" y2="352" stroke="#5db1ff" marker-end="url(#are)"/>
-    <rect x="20" y="360" width="960" height="40" rx="4" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="500" y="384" fill="#e7ecf5" text-anchor="middle">acc_i += i  ·  acc_q += q       (dst[idx] = (acc_i, acc_q) once all N edges are summed)</text>
-  </svg>
-  <figcaption>Diagram E — <span class="mono">apply_chain()</span> on one (i, q) sample.
-  Each loop iteration picks ONE branch by <code>step.type</code>; (i, q) live in
-  registers throughout, no shared memory needed. The chain's order and length come from
-  the YAML config. <b>What's not shown here:</b> the leading <code>tdl</code> step —
-  multi-tap convolution, per-tap Jakes fading, and Rician LOS specular — was already
-  applied <i>before</i> this kernel ran, by <code>apply_channel_kernel</code> on the
-  device (default path) or by <code>stage_link()</code> on the host (fallback for
-  mixed-edge nodes). Either way, the per-sample chain here reads already-shaped IQ
-  out of <code>device_staged</code> and the <code>tdl</code> step is a no-op
-  pass-through Scale(1.0). See <a href="#staged">§8</a> for the staging layout and
-  <a href="#physics">§10 Diagrams P / Q / R</a> for the channel-physics picture.</figcaption>
-  </figure>
-
-  <!-- ============ SECTION 13 : superposition / aggregation ============ -->
-  <h2 id="superposition">14. Superposition — N edges summed per GPU thread</h2>
-  <p>The kernel pulls together the per-edge channel work (§12) and the per-sample RF impairments (§13) along two parallel axes. <b>23 040 threads wide</b> — one per output sample — × <b>N edges deep</b> — each thread loops over the staged edges and accumulates their post-impairment IQ. The accumulation itself <b>is</b> the superposition: the linear sum of every TX signal arriving at the RX after each has been through its own channel.</p>
+  <h2 id="superposition">12. Superposition — N edges summed per GPU thread</h2>
+  <p>The kernel pulls together the per-edge channel work (§11) and the per-sample RF impairments (§13) along two parallel axes. <b>23 040 threads wide</b> — one per output sample — × <b>N edges deep</b> — each thread loops over the staged edges and accumulates their post-impairment IQ. The accumulation itself <b>is</b> the superposition: the linear sum of every TX signal arriving at the RX after each has been through its own channel.</p>
 
   <h3>Axis 1 — one thread per output sample</h3>
   <p>A 1 ms slot at 23.04 MS/s is exactly 23 040 IQ samples; the kernel launches with that many threads (90 blocks × 256 threads) and each thread <span class="mono">idx</span> owns one output sample <span class="mono">out[idx]</span>. There is no cross-thread communication on this axis — every output sample is independent — so the SIMT mapping is direct. Diagram A shows the launch geometry.</p>
@@ -2556,9 +2526,126 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   </figure>
   <p class="key"><b>Two parallel axes multiply:</b> 23 040 samples wide (one thread each) × N edges deep (the per-thread loop). The 3-node graph's 2-edge nodes are ≈ 46 000 complex channel evaluations per launch. The static <code>superpose_kernel</code> in isolation measures at <b>5–9 µs</b> on the RTX 5090; the Phase 2 device channel kernel (multi-tap + Jakes + LOS) adds the per-edge channel work and runs <b>~97 µs at <code>tdl-a_E16</code></b> — still well inside the slot deadline. See §20 for the full perf record.</p>
 
-  <!-- ============ DIAGRAM D : signal memory layout ============ -->
+  <h2 id="rf-chain">13. RF impairments — the device-side per-sample chain</h2>
+  <p>After the channel has been applied per edge (§11), the kernel applies the remaining chain steps per sample. These steps are <b>memoryless</b> — every one either reads only the current (i, q) state or generates its noise from a counter-based RNG with no cross-thread dependency. That memorylessness is what makes them ideal for the SIMT model: every thread can run the chain independently.</p>
+
+  <p>Inside the per-thread loop of <code>superpose_kernel</code> (and in the body of <code>apply_steps_kernel</code> for an <code>rx_model</code>), each thread loads one (i, q) pair into registers and walks the link's chain via <code>apply_chain()</code>. The chain is a flat array of <code>GpuStep</code> structs built host-side from the YAML model; every iteration switches on <code>step.type</code> to apply one of three operations, each mutating the same (i, q) state in place. The same machinery serves every model in the topology — "desired" is tdl + phase + CFO (the leading tdl ran already in <code>apply_channel_kernel</code> on device — or <code>stage_link()</code> on host fallback — so on the device per-sample chain it is a no-op pass-through, leaving phase and CFO as the actual per-sample work); "crosstalk" is path-loss + phase; the receiver <code>noise_floor</code> is a single AWGN step.</p>
+
+  <p class="note"><b>Runtime mutability.</b> The chain-step params read by
+  this per-sample loop (and the tap layout that <a href="#kernels">§11</a>
+  feeds it) are live-mutable at slot boundaries via the ZMQ control plane
+  described in <a href="#runtime-mutability">§17</a>. The per-sample chain
+  itself doesn't know &mdash; it always reads from <code>live</code>; the
+  shadow&nbsp;&rarr;&nbsp;snap publish happens at the top of the slot before
+  the per-thread loop launches.</p>
+
+  <figure>
+  <svg viewBox="0 0 1000 410" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="are" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+    <rect x="20" y="20" width="960" height="40" rx="4" fill="#1a2233" stroke="#2c3850"/>
+    <text x="500" y="44" fill="#e7ecf5" text-anchor="middle">load into per-thread registers:  i = staged[k·count + idx].i  ·  q = staged[k·count + idx].q</text>
+    <line x1="500" y1="64" x2="500" y2="82" stroke="#5db1ff" marker-end="url(#are)"/>
+    <rect x="20" y="90" width="960" height="240" rx="8" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="500" y="112" fill="#5db1ff" text-anchor="middle">apply_chain():  for step_idx in 0 … step_count − 1:  switch (steps[step_idx].type)</text>
+    <rect x="30" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="182" y="150" fill="#5db1ff" text-anchor="middle">Scale</text>
+    <text x="182" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">path-loss · tdl no-op</text>
+    <line x1="50" y1="180" x2="315" y2="180" stroke="#2c3850"/>
+    <text x="50" y="206" fill="#e7ecf5">i ← step.a · i</text>
+    <text x="50" y="226" fill="#e7ecf5">q ← step.a · q</text>
+    <text x="50" y="266" fill="#9aa7bd" font-size="11">step.a built host-side from</text>
+    <text x="50" y="282" fill="#9aa7bd" font-size="11">gain_db or path_loss_db.</text>
+    <rect x="345" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="497" y="150" fill="#5db1ff" text-anchor="middle">Phase  /  CFO</text>
+    <text x="497" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">sincos + complex multiply</text>
+    <line x1="365" y1="180" x2="630" y2="180" stroke="#2c3850"/>
+    <text x="365" y="200" fill="#e7ecf5">φ = step.a + step.b · idx</text>
+    <text x="365" y="220" fill="#e7ecf5">(c, s) = sincosf(φ)</text>
+    <text x="365" y="244" fill="#e7ecf5">(i, q) ← (i·c − q·s,  i·s + q·c)</text>
+    <text x="365" y="262" fill="#9aa7bd" font-size="11">simultaneous: both use the original (i, q)</text>
+    <text x="365" y="288" fill="#9aa7bd" font-size="11">b = 0  →  static phase rotate.</text>
+    <text x="365" y="304" fill="#9aa7bd" font-size="11">b = 2π·f_cfo / f_s  →  CFO drift.</text>
+    <rect x="660" y="130" width="305" height="190" rx="6" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="812" y="150" fill="#5db1ff" text-anchor="middle">AddNoise  (AWGN)</text>
+    <text x="812" y="166" fill="#9aa7bd" text-anchor="middle" font-size="11">counter-based Philox</text>
+    <line x1="680" y1="180" x2="945" y2="180" stroke="#2c3850"/>
+    <text x="680" y="200" fill="#e7ecf5">rng = Philox4_32_10(</text>
+    <text x="680" y="216" fill="#e7ecf5">  step.seed, step.counter + idx)</text>
+    <text x="680" y="236" fill="#e7ecf5">n = curand_normal2(rng)</text>
+    <text x="680" y="256" fill="#e7ecf5">i ← i + step.a · n.x</text>
+    <text x="680" y="272" fill="#e7ecf5">q ← q + step.a · n.y</text>
+    <text x="680" y="296" fill="#9aa7bd" font-size="11">stateless: same (seed, ctr + idx)</text>
+    <text x="680" y="312" fill="#9aa7bd" font-size="11">→ same noise, every run.</text>
+    <line x1="500" y1="334" x2="500" y2="352" stroke="#5db1ff" marker-end="url(#are)"/>
+    <rect x="20" y="360" width="960" height="40" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="500" y="384" fill="#e7ecf5" text-anchor="middle">acc_i += i  ·  acc_q += q       (dst[idx] = (acc_i, acc_q) once all N edges are summed)</text>
+  </svg>
+  <figcaption>Diagram E — <span class="mono">apply_chain()</span> on one (i, q) sample.
+  Each loop iteration picks ONE branch by <code>step.type</code>; (i, q) live in
+  registers throughout, no shared memory needed. The chain's order and length come from
+  the YAML config. <b>What's not shown here:</b> the leading <code>tdl</code> step —
+  multi-tap convolution, per-tap Jakes fading, and Rician LOS specular — was already
+  applied <i>before</i> this kernel ran, by <code>apply_channel_kernel</code> on the
+  device (default path) or by <code>stage_link()</code> on the host (fallback for
+  mixed-edge nodes). Either way, the per-sample chain here reads already-shaped IQ
+  out of <code>device_staged</code> and the <code>tdl</code> step is a no-op
+  pass-through Scale(1.0). See <a href="#staged">§10</a> for the staging layout and
+  <a href="#physics">§6 Diagrams P / Q / R</a> for the channel-physics picture.</figcaption>
+  </figure>
+
+  <p class="key">That completes the per-slot data path: align (§9) &rarr;
+  pack (§10) &rarr; per-edge channel (§11) &rarr; superpose (§12) &rarr;
+  per-sample chain (§13). Everything from here on is supporting
+  infrastructure &mdash; the CPU&nbsp;/&nbsp;CUDA backend pair that runs
+  the chain, the signal memory map both halves of the pipeline share, and
+  the multi-stream concurrency that lets the GPU serve N destinations in
+  parallel.</p>
+
+  <!-- ============ PART IV: System integration ============ -->
+  <h2 class="part-divider" id="part-iv">Part IV &mdash; System integration</h2>
+  <p class="sub">Cross-cutting infrastructure that supports the data path &mdash; the CPU/CUDA backend pair, signal memory, and stream concurrency.</p>
+
+  <h2 id="backends">14. Processor backends — CPU and CUDA</h2>
+  <p>There are two backends behind a common <code>ChannelProcessor</code> interface
+  (<code>include/ocudu_gpu_channel/processing.h</code>): <b>CPU</b> for correctness
+  reference and local development, <b>CUDA</b> for production scale. Both expose a
+  single entry point:</p>
+  <ul class="tight">
+    <li><code>process_superposition(dst_node, edges, rx_model, rate, out)</code> —
+        shapes every incoming edge of <code>dst_node</code> through that edge's
+        own channel model, sums them, and applies the node's optional
+        <code>rx_model</code> once to the sum. The broker uses this for N-edge
+        fan-in; the benchmark and unit tests use the same call with a
+        one-element <code>edges</code> list (the N = 1 single-edge case) instead
+        of a separate per-link API.</li>
+  </ul>
+  <p>Bit-exactness contract: for any single edge,
+  <code>process_superposition</code> on CPU and CUDA produces identical
+  <code>cf32</code> output within 1e-3 per sample. This is enforced by
+  tests and matters because it lets us debug regressions on the CPU path
+  before reproducing on the GPU. The shared inline implementation of
+  <code>apply_tdl_step</code> + <code>apply_tdl_step_fading</code> in
+  <code>include/ocudu_gpu_channel/delay.h</code> and the counter-based
+  Philox RNG are what make this practical.</p>
+  <p class="key"><b>Both backends implement the same step surface.</b> The
+  CPU backend's <code>process_superposition</code> calls the same
+  <code>apply_tdl_step_fading</code> helper as the device-channel kernel,
+  so multi-tap convolution + Jakes Doppler + Rician LOS all work on CPU
+  too — just slower. The 1e-3 parity tolerance accommodates one cycle of
+  trig precision difference (<code>std::cos(float)</code> on CPU vs
+  <code>__sincosf</code> on GPU); pre-trig angles are computed in
+  <code>double</code> and reduced mod 2π on both sides so long-running
+  parity holds. The CPU backend is therefore the trust anchor: every
+  feature CUDA ships, CPU runs first and the test suite asserts they
+  match.</p>
+
   <h2 id="signal-memory">15. Signal memory — pinned host buffers paired with device buffers</h2>
-  <p>The pipeline in the next section moves data between two halves of a memory map: a
+  <p>The per-slot pipeline that <a href="#pipeline">§11.0</a> describes moves
+  data between two halves of a memory map: a
   <b>pinned host side</b> (allocated with <code>cudaHostAlloc</code> so cudaMemcpyAsync is
   truly asynchronous over PCIe DMA) and a matching <b>device side</b>
   (<code>cudaMalloc</code> in GPU global memory). Each state owns its own
@@ -2717,12 +2804,246 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   with three nodes serving in parallel.</figcaption>
   </figure>
 
-  <h2>17. Validation</h2>
+
+  <!-- ============ PART V: Runtime mutability ============ -->
+  <h2 class="part-divider" id="part-v">Part V &mdash; Runtime mutability</h2>
+  <p class="sub">The control plane: how channel parameters mutate at slot boundaries without restarting the broker.</p>
+
+
+  <!-- ============ §17 Runtime mutability ============ -->
+  <h2 id="runtime-mutability">17. Runtime mutability &mdash; the control plane</h2>
+  <p>Parts I&ndash;IV describe a broker that reads its YAML once at startup
+  and applies the same chain to every slot. This section is about the second
+  way channel parameters can change: a live ZMQ control plane that mutates
+  per-link state at slot boundaries without restarting the broker. The data
+  plane stays exactly as Part III describes it &mdash; the control plane
+  meets it once per serve, through a lock-free snap at the top of the slot.</p>
+
+  <p>Three reasons this exists rather than relying on a YAML reload.
+  <b>(1)&nbsp;Latency.</b> Reload requires tearing down sockets and reallocating
+  device buffers; that's tens of milliseconds and a brief data outage, which is
+  unacceptable during a live UE attach.
+  <b>(2)&nbsp;Atomicity.</b> A reload changes every link at once on whatever
+  slot the broker happens to be serving when the operator restarts; the control
+  plane lets the caller name a <code>take_effect_at_slot</code> so a mutation
+  lands at a known point in the UE's experience.
+  <b>(3)&nbsp;Closed loop.</b> A controller (RL agent, scripted scenario
+  driver) needs to observe what it just did before its next step; the
+  telemetry PUB feed publishes the post-snap state at a configurable rate so
+  the loop closes without polling REP.</p>
+
+  <h3 id="rtm-architecture">17.1 Architecture &mdash; two planes that meet at the snap</h3>
+  <p>Every link gets a <code>BrokerLinkControl</code> on the broker side: a
+  <code>shadow</code> POD that the control thread writes, a <code>live</code>
+  POD that the data plane reads, and a per-link atomic <code>seqno</code>
+  that publishes one to the other. The invariant is
+  <b>single&#8209;writer&#8209;per&#8209;link</b>: only the
+  <code>ControlServer</code> thread (one per broker process) writes
+  <code>shadow</code>; only the per-destination server thread reads it via
+  <code>snap_mutable_params()</code> at the very top of every serve.
+  <code>seqno</code> is bumped by the writer with release semantics and
+  acquire-loaded by the reader; the snap on a steady-state slot is one
+  acquire-load + early-return.</p>
+
+  <p>When the snap detects a change, the data plane refreshes whatever
+  derived state the chain step needs. Scalar params (<code>path_loss_db</code>,
+  <code>awgn_snr_db</code>, <code>cfo_hz</code>) are read directly from
+  <code>live</code> in the per-sample chain &mdash; no refresh needed. Tap-0
+  and LOS params trigger <code>refresh_tap0_from_live()</code>; a profile
+  swap triggers <code>refresh_all_taps_from_live()</code>. On the CUDA path
+  both refreshes do a conditional D2H+rebuild+H2D round-trip on the dirty
+  edge, which is what preserves the device-owned cross-slot
+  <code>delay_line</code> (see <a href="#ring-continuity">§11.4</a>). On the
+  CPU path the refresh rebuilds effective taps + polyphase from
+  <code>live_profile</code> in host memory. The shared
+  <code>compute_windowed_sinc_taps</code> is what keeps post-warmup CPU↔CUDA
+  parity bit-exact.</p>
+
+  <h3 id="rtm-protocol">17.2 Wire protocol &mdash; one REP socket, five message types + telemetry PUB</h3>
+  <p>The control plane is a single ZMQ REP socket bound at
+  <code>tcp://*:5559</code> when the broker is launched with
+  <code>--control-endpoint</code> (omitted by default; the broker runs with
+  no control plane unless asked). All messages are JSON; the broker replies
+  to every REQ with <code>{"ok":true,&nbsp;…}</code> or
+  <code>{"ok":false,"error":"…"}</code>. Five message types cover the surface
+  (telemetry is a PUB frame, not a REQ &mdash; see the telemetry paragraph
+  below):</p>
+
+  <table>
+    <tr><th>Message type</th><th>Purpose</th><th>Key REQ fields</th><th>Key REP fields</th></tr>
+    <tr><td><code>scalar</code></td>
+        <td>Mutate one of seven runtime params on one link (v1).</td>
+        <td><code>link_id, param, value, take_effect_at_slot?, batch_id?</code></td>
+        <td><code>applied_at_slot</code></td></tr>
+    <tr><td><code>profile_swap</code></td>
+        <td>Replace the entire per-edge tap layout at runtime &mdash; up to
+        <code>kDeviceMaxTaps = 32</code> taps plus an optional fading
+        sub-config (v2.0).</td>
+        <td><code>link_id, taps[], fading?, take_effect_at_slot?, batch_id?, force?</code></td>
+        <td><code>applied_at_slot, warmup_until_slot</code></td></tr>
+    <tr><td><code>batch_begin</code></td>
+        <td>Open a caller-keyed staging slot; subsequent
+        <code>scalar</code> / <code>profile_swap</code> REQs carrying the
+        matching <code>batch_id</code> stage instead of apply (v2.3).</td>
+        <td><code>batch_id</code></td>
+        <td>&mdash;</td></tr>
+    <tr><td><code>batch_commit</code></td>
+        <td>Flush every staged op with a single
+        <code>take_effect_at_slot</code> shared across every link touched
+        (per-link slot-index atomicity).</td>
+        <td><code>batch_id, take_effect_at_slot?</code></td>
+        <td><code>apply_at_slot, link_count</code></td></tr>
+    <tr><td><code>batch_abort</code></td>
+        <td>Discard the staged batch; no shadows touched, data plane unaffected.</td>
+        <td><code>batch_id</code></td>
+        <td><code>dropped_ops</code></td></tr>
+  </table>
+
+  <p>Seven runtime-mutable scalar params (v1):
+  <code>path_loss_db</code>, <code>awgn_snr_db</code>, <code>cfo_hz</code>,
+  <code>tap0_delay_samples</code> (float &mdash; fractional supported),
+  <code>tap0_gain_db</code>, <code>tap0_phase_rad</code>, and
+  <code>los_k_db</code>. Validation failures (unknown link, unknown param,
+  out-of-range value, malformed JSON) reply with the typed error and emit
+  <code>event=control_error</code>; the data plane is unaffected.</p>
+
+  <p><b>Telemetry PUB feed (v3.0).</b> A second optional socket bound at
+  <code>tcp://*:5560</code> via <code>--telemetry-endpoint</code> publishes
+  one frame per link per <code>--telemetry-rate-hz</code> tick (default
+  20&nbsp;Hz). Each frame is a JSON <code>event=telemetry</code> body with
+  <code>link_id, slot, seqno, live{…}, profile_active, warmup_until_slot</code>;
+  the ZMQ topic prefix is <code>link_id</code> so a subscriber can filter
+  via <code>setsockopt(ZMQ_SUBSCRIBE, "ue0-gnb0", …)</code>. Empty
+  subscription receives every link. Backpressure is handled by ZMQ HWM;
+  slow subscribers cause <code>telemetry_drops</code> to accumulate rather
+  than blocking the broker.</p>
+
+  <p id="rtm-events"><b>Events the protocol emits.</b> The complete event
+  vocabulary is documented in <a href="#profiling-events">§19.1</a>; the
+  control-plane subset, in the order it can appear:
+  <code>control_start</code>, <code>control_update</code>,
+  <code>control_error</code>, <code>control_warmup_begin</code>,
+  <code>control_warmup_end</code>, <code>control_batch_begin</code>,
+  <code>control_batch_commit</code>, <code>control_batch_aborted</code>,
+  <code>telemetry</code>, <code>control_force_warning</code>,
+  <code>hardware_probe</code>, <code>hardware_footprint</code>,
+  <code>hardware_warning</code>. The new counters this part introduces
+  (<code>force_inert_warnings</code>, <code>batches_committed</code>,
+  <code>batches_aborted</code>, <code>telemetry_frames</code>,
+  <code>telemetry_drops</code>) are summarised in
+  <a href="#counter-taxonomy">§19.2</a>.</p>
+
+  <h3 id="rtm-warmup">17.3 The warmup contract &mdash; the only non-meaningful samples</h3>
+  <p>A <code>profile_swap</code> replaces the whole tap layout, which means
+  the cross-slot delay_line ring (see <a href="#ring-continuity">§11.4</a>)
+  contains samples convolved against the <i>previous</i> profile. Continuing
+  to read from it would produce a transient that depends on history neither
+  the new profile nor the caller has any model of. The snap path resolves
+  this by <b>zero-filling</b> the ring on activation and emitting
+  <code>event=control_warmup_begin slot=N link_id=L dl_samples=K
+  warmup_slots=W</code>. Output samples produced during the next
+  <code>warmup_slots</code> are explicitly typed as <b>warmup artefacts</b>
+  &mdash; the first formal exception to the broker's "every emitted sample
+  is meaningful" contract. <code>event=control_warmup_end</code> fires when
+  the per-link <code>current_slot</code> crosses the target; from that slot
+  onward CPU↔CUDA parity is restored bit-exact.</p>
+
+  <p>The <code>profile_swap</code> REP body carries
+  <code>warmup_until_slot</code> so the caller can plan around it. For any
+  production topology the default warmup is one slot
+  (<code>count = 23 040 &gg; dl_size &asymp; 128</code>). Scalar updates
+  and tap-0 changes that don't alter layout skip warmup entirely.</p>
+
+  <p><b><code>--control-warmup-cap-slots</code> REQ-time guard.</b>
+  Profile swaps whose prospective warmup span exceeds the cap (default 3
+  slots) are rejected at REQ time with a typed error including the computed
+  span, <code>dl_size</code>, and slot <code>count</code>. The broker
+  publishes per-link <code>dl_size_samples_hint</code> +
+  <code>slot_count_hint</code> at prepare time so the check happens without
+  round-tripping through the snap path. <code>--control-warmup-cap-slots 0</code>
+  disables the check; warmup span is still emitted via
+  <code>event=control_warmup_begin</code>.</p>
+
+  <h3 id="rtm-force">17.4 The force flag &mdash; visibility on inert chains</h3>
+  <p>A <code>profile_swap</code> is rejected by default on edges whose chain
+  doesn't start with <code>tdl</code> &mdash; the new profile would have
+  nowhere to land. <code>force: true</code> in the REQ overrides this: the
+  snap stores and activates the profile, but the per-sample chain has no
+  Tdl branch to read it, so kernel output is unchanged. The broker emits
+  <code>event=control_force_warning link_id=L reason="chain has no leading
+  tdl; profile stored but inert"</code> and bumps a per-link
+  <code>force_inert_warnings</code> counter visible in
+  <code>event=stop</code>.</p>
+
+  <p>This is <b>Option&nbsp;C</b> from the v3 plan: explicit visibility
+  without attempting either a silent dispatch-flip (Option&nbsp;B, rejected
+  &mdash; surprising to the caller) or runtime chain synthesis
+  (Option&nbsp;A, deferred until a real use case materialises). The data
+  plane stays predictable; the warning is the broker's way of saying "this
+  REQ succeeded but nobody is reading the result."</p>
+
+  <h3 id="rtm-hardware">17.5 Hardware probe &mdash; the one part that runs without a control endpoint</h3>
+  <p>At broker startup the CUDA backend runs
+  <code>probe_cuda_hardware(device_id)</code> and emits
+  <code>event=hardware_probe ok=true device=N name="…" sm=Mm.M mem_bytes=B
+  driver_version=V runtime_version=V</code> &mdash; a typed report of what
+  CUDA actually sees, separate from compile-time assumptions. CPU-only
+  builds skip the probe; CUDA builds without a visible device emit
+  <code>ok=false</code> + a typed error.</p>
+
+  <p>Two follow-on checks key off the probe.
+  <b>Footprint:</b> <code>event=hardware_footprint estimated_bytes=B
+  total_mem_bytes=T</code> reports the device-side memory the topology will
+  allocate; startup rejects with <code>event=fatal</code> when the estimate
+  exceeds 80% of <code>totalGlobalMem</code> &mdash; better to fail at
+  prepare than to OOM mid-serve.
+  <b>SM capability:</b> if runtime SM is below the kernel's compile-time
+  target (<code>OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES</code>, surfaced via
+  <code>kernel_target_sm()</code>), the broker emits
+  <code>event=hardware_warning</code> and continues so the operator can
+  diagnose; <code>--hardware-strict</code> promotes the same condition to
+  <code>event=fatal</code>.</p>
+
+  <h3 id="rtm-validation">17.6 Validation status</h3>
+  <p>The control plane has its own ctest suite,
+  <code>ctest -R runtime_update_parity</code>, currently 8/8 passing.
+  Coverage: per-param scalar mutability with CPU↔CUDA bit-exact parity at
+  1e&#8209;3 tolerance on every deterministic param (AWGN is statistical at
+  the same Jakes tolerance); <code>take_effect_at_slot</code> deferred
+  apply; warmup begin/end emission; multi-link batch atomicity; force-flag
+  warning with counter bump; and link-key canonicalisation across the
+  CPU&nbsp;/&nbsp;CUDA prepare contracts.</p>
+
+  <p>On real hardware (RTX 5090, SM 12.0, CUDA 12.8.93) the locked
+  <code>scripts/remote/gpu-test-sequence.sh</code> 7/7 has passed end to
+  end with the Part&nbsp;V code paths exercised: the
+  <code>refresh_all_taps_from_live</code> D2H+H2D round-trip preserves the
+  device-owned <code>delay_line</code>; warmup zero-fill on the device path
+  matches the host reference; <code>probe_cuda_hardware</code> returns real
+  device values; the 80% footprint gate stays untriggered on the validation
+  topologies. The telemetry PUB feed compiles and dispatches under the
+  build gate but has not yet been exercised against a live subscriber.</p>
+
+  <p>Design plans for the three increments live alongside the source:
+  <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>
+  (v1 scalars),
+  <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel-v2.md"><code>runtime-mutable-channel-v2.md</code></a>
+  (v2 profile swap + timing + warmup + batches),
+  <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel-v3.md"><code>runtime-mutable-channel-v3.md</code></a>
+  (v3 telemetry + force-flag + hardware probe). Each plan has a
+  locked-decisions section recording the user-approved design choices.</p>
+
+
+  <!-- ============ PART VI: Operations ============ -->
+  <h2 class="part-divider" id="part-vi">Part VI &mdash; Operations</h2>
+  <p class="sub">What we test, what we measure, and how we read the numbers.</p>
+
+  <h2>18. Validation</h2>
   <p>Three layers, each progressively closer to a live radio integration. The
-  detailed test surface is mapped in <a href="#test-architecture">§17.4
+  detailed test surface is mapped in <a href="#test-architecture">§18.4
   Diagram TA</a> below.</p>
 
-  <h3 id="test-layer-unit">17.1 Unit tests (ctest, 4/4)</h3>
+  <h3 id="test-layer-unit">18.1 Unit tests (ctest, 4/4)</h3>
   <p>Run with <code>ctest --test-dir build --output-on-failure</code> after
   <code>cmake --build</code>. Four targets:</p>
   <ul class="tight">
@@ -2769,12 +3090,12 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         regression for the variable-size relay (documented dead-lock case).</li>
   </ul>
 
-  <h3 id="test-layer-remote">17.2 Remote GPU test sequence (gpu-test-sequence.sh, 7/7)</h3>
+  <h3 id="test-layer-remote">18.2 Remote GPU test sequence (gpu-test-sequence.sh, 7/7)</h3>
   <p>The locked-in remote validation. <b>Must pass before any change to the
   broker or CUDA backend ships.</b> Each step adds a layer:</p>
   <ol class="tight">
     <li>CUDA release build (rsync local tree → build → check exit).</li>
-    <li>ctest 4/4 on the remote box (same suite as §17.1 above, GPU
+    <li>ctest 4/4 on the remote box (same suite as §21.1 above, GPU
         path enabled so all <code>OCUDU_GPU_CHANNEL_HAS_CUDA</code> blocks
         actually run).</li>
     <li>Synthetic CUDA relay loop — clean 0 dB channel, sink measures
@@ -2794,7 +3115,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         fading variance).</li>
   </ol>
 
-  <h3 id="test-layer-live">17.3 Live OCUDU + srsRAN smoke</h3>
+  <h3 id="test-layer-live">18.3 Live OCUDU + srsRAN smoke</h3>
   <p>Docker gNB + Open5GS core + srsUE through the CUDA broker, attach +
   IP ping verification. Three variants exist on the remote box:
   <code>ocudu-attach-smoke.sh</code> (1 gNB + 1 UE, Milestone A),
@@ -2803,7 +3124,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   Milestone C). Detailed runbook at
   <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/ocudu-interop.md"><code>docs/ocudu-interop.md</code></a>.</p>
 
-  <h3 id="test-architecture">17.4 Test architecture — what each layer guards</h3>
+  <h3 id="test-architecture">18.4 Test architecture — what each layer guards</h3>
   <figure>
   <svg viewBox="0 0 1000 180" font-family="SF Mono,Menlo,monospace" font-size="11">
     <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram TA · three test layers, fast → slow, narrow → broad</text>
@@ -2832,42 +3153,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   mismatches between CPU and CUDA) and runs pre-ship; Layer 3 catches
   protocol-stack wedges that only manifest with a real radio stack and
   runs at milestone boundaries. The specific guards in each layer are
-  named in §17.1 – §17.3 above.</figcaption>
+  named in §21.1 – §18.3 above.</figcaption>
   </figure>
-
-  <h2>18. Operational guidance</h2>
-  <ul class="tight">
-    <li><b>Use <code>--strict-realtime</code></b> for CI and any merge gate — it turns
-        starvation, overflow, and continuity events into hard exit-non-zero failures.</li>
-    <li><b>Reading the latency gate</b>: green = p99 added latency ≤ 25 % of the NR slot;
-        yellow = stable, ≤ one slot; red = &gt; one slot or unstable. Yellow on the
-        benchmark + zero <code>rx_starvations</code> in a relay loop is normally enough
-        for development; ship green.</li>
-    <li><b>Sample rates other than 23.04 MS/s</b> work as long as the topology declares
-        them consistently. The slot batch defaults to <code>auto</code>
-        (= 1 ms worth of samples).</li>
-    <li><b>If <code>rx_starvations</code> climbs</b> in production: usually the host CPU
-        is slower than the sample-rate cadence on whichever node started missing
-        deadlines. Check the kernel timings first (<code>event=gpu_timings</code>);
-        the GPU is rarely the bottleneck.</li>
-    <li><b>Distributed IQ across machines</b> over Wi-Fi or VPN is not viable — see
-        <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/distributed.md"><code>docs/distributed.md</code></a>. Co-locate the
-        broker and radios on a wired LAN, ideally the same host.</li>
-  </ul>
-
-  <h3 id="latency-gate">18.1 Latency-gate verdict</h3>
-  <p>The bench CLI publishes a green / yellow / red verdict alongside the
-  <code>p99</code> latency, defined formally as:</p>
-  <table>
-    <tr><th>Band</th><th>Condition</th><th>Meaning</th></tr>
-    <tr><td style="color:#6fd08c"><b>green</b></td><td>p99 added latency ≤ 25 % of the slot</td><td>Plenty of margin — the slot deadline is met even with reasonable jitter.</td></tr>
-    <tr><td style="color:#ffb454"><b>yellow</b></td><td>p99 added latency ≤ one slot</td><td>Stable but tight — a brief OS scheduling hiccup can blow the deadline.</td></tr>
-    <tr><td style="color:#ff8aa3"><b>red</b></td><td>p99 added latency &gt; one slot</td><td>Cannot keep up with realtime — bench reports red, broker would report sustained <code>rx_starvations</code>.</td></tr>
-  </table>
-  <p class="key">The bench's latency is in-memory model mixing only; ZMQ I/O,
-  broker scheduling, and host↔device contention are not in it. The broker
-  itself measures the full pipeline. Both rows are reported in the
-  <a href="#perf">performance section</a> so the gap is visible.</p>
 
   <h2 id="profiling">19. Profiling — instrumentation system design</h2>
   <p>The broker is instrumented end-to-end so a real-time relay can be diagnosed
@@ -2883,7 +3170,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <li><b>Host-side <code>chrono::steady_clock</code> brackets in the broker
         server loop</b> — measure each per-serve stage (wait_req · align ·
         read · process · throttle · send) and publish as
-        <code>event=cpu_stage_timings</code>. See Diagram K (§6) for the
+        <code>event=cpu_stage_timings</code>. See Diagram K (§8) for the
         stage definitions.</li>
     <li><b>CUDA event brackets around the processor's GPU work</b> —
         <code>cudaEventRecord</code> wraps H2D, kernel, D2H; the host reads
@@ -3124,14 +3411,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   live broker uses — one fused call per RX node per slot under CUDA, with
   the CPU backend looping per edge internally and summing on the host. All
   µs values are <code>p99</code> over a 5–10 s run; verdict band per
-  <a href="#latency-gate">§18.1</a> (slot deadline = 500 µs at 30 kHz SCS,
+  <a href="#latency-gate">§21.1</a> (slot deadline = 500 µs at 30 kHz SCS,
   1 ms at 15 kHz SCS).</p>
 
   <h3 id="perf-phase2">20.0 Phase 2 headline — TDL profiles realtime-fit</h3>
   <p>The Phase 2 device-channel pipeline moved the per-edge channel
   (multi-tap convolution + Jakes Doppler + Rician LOS) from a host-side
   loop into <code>apply_channel_kernel</code> on the GPU
-  (<a href="#kernels">§12 Diagram S</a>). For the first time, the
+  (<a href="#kernels">§11 Diagram S</a>). For the first time, the
   3GPP TR 38.901 TDL profiles fit inside the slot deadline by an
   order of magnitude — and the CPU↔CUDA speedup grew from "10× on a
   single-tap toy" to "30–46× on a realistic 23-tap fading channel".
@@ -3210,7 +3497,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <p class="key"><b>API-unification note</b>: the bench's earlier
   <code>--mode per-link</code> flag drove a now-removed
-  <code>process_into()</code> entry point — see §2 and §11 for the full
+  <code>process_into()</code> entry point — see §2 and §14 for the full
   context. Only <code>process_superposition()</code> exists today; a
   single-edge call is just
   <code>process_superposition(dst, {edge}, nullptr, …)</code>.</p>
@@ -3806,16 +4093,55 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         N ≈ 64 (the GPU has the compute for it, the link is the only
         thing in the way). <b>(b) H2D pipelining</b> (split staged buffer
         + ping-pong copy) — overlaps copy with the previous slot's
-        kernel; listed in <a href="#scope">§21</a> planned work for
+        kernel; listed in <a href="#scope">§22</a> planned work for
         single-mega-node topologies if such a workload becomes interesting.
         <b>(c) Heavier per-edge chains</b> — adds compute work that the
         GPU has lots of headroom for, doesn't grow PCIe traffic.</li>
   </ul>
 
-  <h2 id="scope">21. Scope and planned work</h2>
-  <p class="key">Closing section. §1–§20 covered what the project does today,
-  end-to-end; this section names what it deliberately does not yet do, and
-  what is queued. Items are grouped by category and prioritised — operational
+  <h2>21. Operational guidance</h2>
+  <ul class="tight">
+    <li><b>Use <code>--strict-realtime</code></b> for CI and any merge gate — it turns
+        starvation, overflow, and continuity events into hard exit-non-zero failures.</li>
+    <li><b>Reading the latency gate</b>: green = p99 added latency ≤ 25 % of the NR slot;
+        yellow = stable, ≤ one slot; red = &gt; one slot or unstable. Yellow on the
+        benchmark + zero <code>rx_starvations</code> in a relay loop is normally enough
+        for development; ship green.</li>
+    <li><b>Sample rates other than 23.04 MS/s</b> work as long as the topology declares
+        them consistently. The slot batch defaults to <code>auto</code>
+        (= 1 ms worth of samples).</li>
+    <li><b>If <code>rx_starvations</code> climbs</b> in production: usually the host CPU
+        is slower than the sample-rate cadence on whichever node started missing
+        deadlines. Check the kernel timings first (<code>event=gpu_timings</code>);
+        the GPU is rarely the bottleneck.</li>
+    <li><b>Distributed IQ across machines</b> over Wi-Fi or VPN is not viable — see
+        <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/distributed.md"><code>docs/distributed.md</code></a>. Co-locate the
+        broker and radios on a wired LAN, ideally the same host.</li>
+  </ul>
+
+  <h3 id="latency-gate">21.1 Latency-gate verdict</h3>
+  <p>The bench CLI publishes a green / yellow / red verdict alongside the
+  <code>p99</code> latency, defined formally as:</p>
+  <table>
+    <tr><th>Band</th><th>Condition</th><th>Meaning</th></tr>
+    <tr><td style="color:#6fd08c"><b>green</b></td><td>p99 added latency ≤ 25 % of the slot</td><td>Plenty of margin — the slot deadline is met even with reasonable jitter.</td></tr>
+    <tr><td style="color:#ffb454"><b>yellow</b></td><td>p99 added latency ≤ one slot</td><td>Stable but tight — a brief OS scheduling hiccup can blow the deadline.</td></tr>
+    <tr><td style="color:#ff8aa3"><b>red</b></td><td>p99 added latency &gt; one slot</td><td>Cannot keep up with realtime — bench reports red, broker would report sustained <code>rx_starvations</code>.</td></tr>
+  </table>
+  <p class="key">The bench's latency is in-memory model mixing only; ZMQ I/O,
+  broker scheduling, and host↔device contention are not in it. The broker
+  itself measures the full pipeline. Both rows are reported in the
+  <a href="#perf">performance section</a> so the gap is visible.</p>
+
+
+  <!-- ============ PART VII: Scope ============ -->
+  <h2 class="part-divider" id="part-vii">Part VII &mdash; Scope</h2>
+  <p class="sub">What's in today, what's planned, and the conditions that gate planned work.</p>
+
+  <h2 id="scope">22. Scope and planned work</h2>
+  <p class="key">Closing section. Parts&nbsp;I&ndash;VI (§1&ndash;§21)
+  covered what the project does today, end-to-end; this section names what
+  it deliberately does not yet do, and what is queued. Items are grouped by category and prioritised — operational
   flexibility first (planned but not blocked on workload demand), performance
   frontier next (only relevant if a future topology saturates the current
   envelope), topology shapes last (lower priority — out of scope unless the
@@ -3842,7 +4168,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         (per edge). The composed offset shifts every existing tap's
         <code>delay_samples</code> if the chain already leads with a
         <code>tdl</code>; otherwise a single-tap <code>tdl</code> with the
-        offset is prepended. See <a href="#alignment">§7</a>.</li>
+        offset is prepended. See <a href="#alignment">§9</a>.</li>
     <li>Single processor entry point:
         <code>ChannelProcessor::process_superposition()</code> handles
         single-edge and N-edge fan-in uniformly. The previous
@@ -3865,148 +4191,22 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <h3>Done — operational flexibility</h3>
   <ul class="tight">
-    <li><b>Runtime-mutable channel parameters — v1 (Phase 3 C1–C6 + v1-fin-A/B/C, landed).</b>
-        All seven v1 params are live-mutable over a ZMQ REP control plane
-        (opt-in via <code>--control-endpoint tcp://*:5559</code>):
-        <code>path_loss_db</code>, <code>awgn_snr_db</code>,
-        <code>cfo_hz</code>, <code>tap0_delay_samples</code> (float —
-        fractional supported), <code>tap0_gain_db</code>,
-        <code>tap0_phase_rad</code>, <code>los_k_db</code>. JSON REQ
-        <code>{"link_id","param","value"}</code> writes a per-link shadow;
-        the server thread snaps shadow → <code>live</code> at the next
-        slot boundary; both CPU and CUDA backends read from
-        <code>live</code>. CUDA tap-0 mutability uses a conditional
-        D2H+refresh+H2D round-trip on dirty edges (preserves the device-
-        owned cross-slot <code>delay_line</code>). Bit-exact CPU↔CUDA
-        parity preserved on all deterministic params; AWGN parity is
-        statistical at the same Jakes tolerance. Test:
-        <code>ctest -R runtime_update_parity</code>. v2 will add multi-
-        tap profile swaps with a delay_line warmup contract and
-        deterministic <code>take_effect_at_slot</code> timing. Design
-        plan + landed-scope details:
-        <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
-
-    <li><b>v3.2 hardware probe + footprint check (landed).</b>
-        Broker startup runs <code>probe_cuda_hardware(device_id)</code>
-        and emits <code>event=hardware_probe ok=true device=N
-        name="…" sm=Mm.M mem_bytes=B driver_version=V runtime_version=V</code>.
-        Topology footprint is estimated against
-        <code>totalGlobalMem</code>; the broker rejects startup with
-        <code>event=fatal</code> if the estimate exceeds 80% of GPU
-        memory, otherwise logs <code>event=hardware_footprint</code>.
-        <code>--hardware-strict</code> flag (opt-in) rejects startup
-        when the runtime SM is below the kernel's compile-time target
-        (<code>OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES</code> from CMake,
-        surfaced via <code>kernel_target_sm()</code>); without the
-        flag the SM mismatch is a warning. CPU-only builds skip the
-        probe; the function returns a typed "cuda not compiled" error.</li>
-
-    <li><b>Runtime-mutable channel parameters — v3.1 force-flag inertness warning (landed).</b>
-        When a <code>profile_swap</code> arrives with <code>force: true</code>
-        on a chain whose first step is not <code>tdl</code>, the snap
-        still stores + activates the profile (force overrides
-        eligibility) but emits <code>event=control_force_warning
-        link_id=L reason="chain has no leading tdl; profile stored but
-        inert"</code> and bumps a per-link
-        <code>force_inert_warnings</code> counter. The kernel output is
-        unchanged because the per-sample chain never enters a Tdl
-        branch — the warning is the broker's way of saying "this REQ
-        succeeded but the data plane sees nothing." Option C from the
-        v3 plan: explicit visibility without attempting the silent
-        dispatch-flip (Option B, rejected) or runtime chain synthesis
-        (Option A, deferred until use case materialises).</li>
-
-    <li><b>Runtime-mutable channel parameters — v3.0 telemetry PUB feed (landed).</b>
-        New optional ZMQ PUB socket
-        (<code>--telemetry-endpoint tcp://*:5560 --telemetry-rate-hz 20</code>);
-        per-link snapshots (live params, slot, seqno, profile_active,
-        warmup_until_slot) are written by the backend snap path via a
-        seqlock-protected POD on each <code>BrokerLinkControl</code> and
-        published by a dedicated telemetry thread at the configured
-        rate. ZMQ topic prefix = <code>link_id</code> so subscribers
-        filter via <code>setsockopt(ZMQ_SUBSCRIBE, "ue0-gnb0", …)</code>;
-        empty subscription receives every link. New stats counters
-        <code>telemetry_frames</code> and <code>telemetry_drops</code>;
-        drops accumulate when the PUB HWM is hit (slow subscriber).
-        Lets a controller close the loop without polling REP.</li>
-
-    <li><b>Runtime-mutable channel parameters — v2.3 multi-link atomic batches (landed).</b>
-        Three new message types: <code>batch_begin</code> opens a
-        caller-keyed staging slot; subsequent <code>scalar</code> /
-        <code>profile_swap</code> REQs that carry the matching
-        <code>batch_id</code> are staged instead of applied;
-        <code>batch_commit</code> flushes the staged ops with a single
-        <code>take_effect_at_slot</code> shared across every link
-        touched (per-link slot-index atomicity — different links may
-        tick at slightly different wall-clock times because the broker
-        has one server thread per destination); <code>batch_abort</code>
-        discards. Staged scalar / profile_swap REQs ack
-        <code>{"ok":true,"staged":true}</code> without bumping seqno.
-        New log events <code>event=control_batch_begin / commit /
-        aborted</code>; new stats counters
-        <code>batches_committed</code> and <code>batches_aborted</code>.
-        Validation: stray <code>scalar</code> / <code>profile_swap</code>
-        with a <code>batch_id</code> referencing an unopened batch is
-        rejected; duplicate <code>batch_begin</code> rejected.</li>
-
-    <li><b>v2.2 follow-on: <code>--control-warmup-cap-slots</code> REQ-time guard (landed).</b>
-        Locked decision #3 from the v2 plan: profile_swap REQs whose
-        prospective warmup span exceeds the configured cap (default 3
-        slots) are rejected with a typed error including the computed
-        span, <code>dl_size</code>, and slot <code>count</code>. The
-        broker publishes per-link <code>dl_size_samples_hint</code> +
-        <code>slot_count_hint</code> on each <code>BrokerLinkControl</code>
-        at prepare time so the control plane can do the check without
-        round-tripping through the snap path. <code>--control-warmup-cap-slots
-        0</code> disables the check entirely; the broker emits the
-        actual span via <code>event=control_warmup_begin</code>
-        regardless.</li>
-
-    <li><b>Runtime-mutable channel parameters — v2.2 delay-line warmup contract (landed).</b>
-        On a <code>profile_swap</code> activation the snap path zero-fills
-        the link's cross-slot <code>delay_line</code> ring and emits
-        <code>event=control_warmup_begin slot=N link_id=L dl_samples=K
-        warmup_slots=W</code>; <code>event=control_warmup_end</code>
-        fires when the per-link <code>current_slot</code> crosses the
-        target. Output samples produced during the warmup window are
-        explicitly typed as artefacts — first formal exception to the
-        broker's "every emitted sample is meaningful" contract. The
-        <code>profile_swap</code> REP gains
-        <code>warmup_until_slot</code>; default warmup is one slot for
-        any production topology (<code>count = 23 040 ≫
-        dl_size ≈ 128</code>). Tap-0 / scalar updates that don't change
-        layout skip warmup entirely.</li>
-
-    <li><b>Runtime-mutable channel parameters — v2.1 take_effect_at_slot (landed).</b>
-        Optional <code>take_effect_at_slot</code> field on any
-        <code>scalar</code> / <code>profile_swap</code> REQ defers the
-        apply: the snap path gates on
-        <code>current_slot &gt;= take_effect_at_slot</code>; until the
-        gate opens, the shadow stays pending and successive snaps re-check.
-        Per-link <code>current_slot</code> atomic is written by the snap
-        path each call. REP body carries
-        <code>applied_at_slot</code> for caller correlation. Omitting the
-        field is the v1 ASAP semantics (gate trivially open at slot 0).</li>
-
-    <li><b>Runtime-mutable channel parameters — v2.0 profile_swap (Phase 3 v2.0-F1…F3b, landed).</b>
-        New JSON message type <code>"profile_swap"</code> replaces the
-        whole per-edge tap layout at runtime (up to
-        <code>kDeviceMaxTaps = 32</code> taps + optional fading
-        sub-config). Eligibility: rejected by default on edges whose
-        chain doesn't start with a <code>tdl</code> step; opt-in via
-        <code>"force": true</code>. v1 scalar wire format unchanged
-        (<code>"type":"scalar"</code> defaulted when omitted). Both
-        backends ship a one-shot snap-and-refresh: CPU rebuilds
-        effective taps + polyphase from <code>live_profile</code>; CUDA
-        runs <code>refresh_all_taps_from_live</code> + a conditional
-        D2H+H2D round-trip on dirty edges, preserving the device-owned
-        cross-slot <code>delay_line</code>. CPU side has an end-to-end
-        impulse-+-echo parity test in
-        <code>ctest -R runtime_update_parity</code>. Deterministic
-        <code>take_effect_at_slot</code> timing (v2.1), delay-line
-        warmup contract (v2.2), and multi-link atomic batches (v2.3)
-        are separate increments. Design plan:
-        <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel-v2.md"><code>docs/plans/runtime-mutable-channel-v2.md</code></a>.</li>
+    <li><b>Runtime-mutable channel parameters — v1 scalars, v2 profile swap +
+        timing + warmup + batches, v3 telemetry + force-flag + hardware probe
+        (Phase 3, all landed).</b> The full control plane is documented as a
+        coherent feature in <a href="#runtime-mutability">§17</a>: the
+        shadow&nbsp;&rarr;&nbsp;snap pattern (<a href="#rtm-architecture">§17.1</a>),
+        the six-message wire protocol with telemetry PUB
+        (<a href="#rtm-protocol">§17.2</a>), the
+        <code>profile_swap</code> warmup contract
+        (<a href="#rtm-warmup">§17.3</a>), the force-flag inertness warning
+        (<a href="#rtm-force">§17.4</a>), and the CUDA hardware probe + 80%
+        footprint gate + <code>--hardware-strict</code>
+        (<a href="#rtm-hardware">§17.5</a>). Validation status &mdash; ctest
+        <code>runtime_update_parity</code> 8/8 plus the GPU-workstation
+        confirmation that <code>refresh_all_taps_from_live</code> and the
+        warmup zero-fill work on real silicon &mdash; is recorded in
+        <a href="#rtm-validation">§17.6</a>.</li>
   </ul>
 
   <h3>Planned — operational flexibility</h3>
