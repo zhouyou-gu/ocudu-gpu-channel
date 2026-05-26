@@ -1,19 +1,23 @@
-// C3a test: exercise ControlServer::handle_message() directly.
-//
-// The ZMQ REP socket loop is not exercised here — that lands in the C3b
-// integration test. This test covers the JSON parse, whitelist validation,
-// range checks, and the shadow→seqno write-back path with a synthetic
-// link_map of BrokerLinkControl objects.
+// ControlServer test — two halves:
+//   C3a: handle_message() exercised directly (no ZMQ). Covers JSON parse,
+//        whitelist validation, range checks, shadow → seqno write-back.
+//   C3b: full loop exercised through a real ZMQ REQ client over inproc://
+//        or tcp://127.0.0.1 — verifies the REP socket binding, the
+//        background thread lifecycle, and the wire-format round-trip.
 
 #include "ocudu_gpu_channel/control_server.h"
 #include "ocudu_gpu_channel/runtime_control.h"
 
+#include <zmq.h>
+
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -154,6 +158,58 @@ int main()
     require(s.msgs_received == 11, "msgs_received should equal total handled messages");
     require(s.updates_applied == 4, "4 successful updates: cases 1, 2, 3, 5");
     require(s.updates_rejected == 7, "7 rejections: cases 4, 6, 7, 8, 9, 10, 11");
+  }
+
+  // ── C3b: full end-to-end over real ZMQ REQ ↔ REP on a localhost TCP port
+  // Uses a port the OS picks via tcp://127.0.0.1:0 isn't supported on bind
+  // for the binding side in older zmq builds, so pick a high port unlikely
+  // to clash. If this test ever flakes from port collisions, switch to
+  // ipc://${TMPDIR}/<unique>.
+  {
+    auto ctl_z = std::make_unique<ocg::BrokerLinkControl>();
+    ocg::ControlServer::LinkMap zmq_map = {{"ue9-gnb9", ctl_z.get()}};
+    ocg::ControlServerConfig zmq_cfg;
+    zmq_cfg.endpoint = "tcp://127.0.0.1:5570";
+    zmq_cfg.recv_timeout_ms = 50;
+    ocg::ControlServer zmq_server(std::move(zmq_cfg), std::move(zmq_map));
+    zmq_server.start();
+
+    // Construct a REQ client and send one update. Tiny retry/sleep because
+    // the server binds asynchronously after start() returns.
+    void* ctx = zmq_ctx_new();
+    require(ctx != nullptr, "zmq_ctx_new for client");
+    void* sock = zmq_socket(ctx, ZMQ_REQ);
+    require(sock != nullptr, "zmq_socket REQ");
+    const int snd_timeout = 1000;
+    const int rcv_timeout = 1000;
+    zmq_setsockopt(sock, ZMQ_SNDTIMEO, &snd_timeout, sizeof(snd_timeout));
+    zmq_setsockopt(sock, ZMQ_RCVTIMEO, &rcv_timeout, sizeof(rcv_timeout));
+
+    // Retry connect for up to ~500ms while the REP socket binds.
+    bool connected = false;
+    for (int attempt = 0; attempt < 10; ++attempt) {
+      if (zmq_connect(sock, "tcp://127.0.0.1:5570") == 0) { connected = true; break; }
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    require(connected, "REQ client should connect to server");
+
+    const std::string req = R"({"link_id":"ue9-gnb9","param":"path_loss_db","value":-15.0})";
+    require(zmq_send(sock, req.data(), req.size(), 0) > 0, "REQ send should succeed");
+
+    char buf[1024];
+    const int rcvd = zmq_recv(sock, buf, sizeof(buf), 0);
+    require(rcvd > 0, "REP recv should succeed");
+    const std::string reply(buf, static_cast<std::size_t>(rcvd));
+    require(contains(reply, "\"ok\":true"), "ZMQ round-trip should return ok:true");
+
+    // Verify the shadow actually updated.
+    require(nearly(ctl_z->shadow.path_loss_db, -15.0F),
+            "shadow should reflect ZMQ-delivered update");
+    require(ctl_z->seqno.load() == 1, "seqno bumped via the wire path");
+
+    zmq_close(sock);
+    zmq_ctx_term(ctx);
+    // ControlServer dtor stops the loop + joins the thread.
   }
 
   std::cout << "test_control_server OK\n";

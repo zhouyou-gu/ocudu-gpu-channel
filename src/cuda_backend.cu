@@ -776,6 +776,20 @@ public:
   }
   const char* backend_name() const override { return "cuda"; }
 
+  std::unordered_map<std::string, BrokerLinkControl*> collect_control_links() override
+  {
+    // Walk every per-link CudaLinkSlot and expose its host-side
+    // BrokerLinkControl by link key. Pointers stay stable for the
+    // lifetime of `link_slots_`; the broker calls this once after
+    // prepare() and hands the map to ControlServer.
+    std::unordered_map<std::string, BrokerLinkControl*> out;
+    out.reserve(link_slots_.size());
+    for (auto& [key, slot] : link_slots_) {
+      out.emplace(key, &slot.model.ctl);
+    }
+    return out;
+  }
+
 private:
   void record_timings(cudaEvent_t h2d_start,
                       cudaEvent_t h2d_done,

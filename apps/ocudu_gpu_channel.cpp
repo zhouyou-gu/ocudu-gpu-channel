@@ -2,8 +2,10 @@
 #include "ocudu_gpu_channel/backend.h"
 #include "ocudu_gpu_channel/broker.h"
 #include "ocudu_gpu_channel/config.h"
+#include "ocudu_gpu_channel/control_server.h"
 #include <chrono>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -11,7 +13,8 @@ namespace {
 
 void usage()
 {
-  std::cout << "usage: ocudu-gpu-channel --config topology.yaml [--duration 60s] [--strict-realtime]\n";
+  std::cout << "usage: ocudu-gpu-channel --config topology.yaml [--duration 60s] [--strict-realtime] "
+               "[--control-endpoint tcp://*:5559]\n";
 }
 
 } // namespace
@@ -21,6 +24,7 @@ int main(int argc, char** argv)
   std::string config_path;
   std::chrono::milliseconds duration{0};
   bool strict_realtime = false;
+  std::string control_endpoint;  // empty = control plane disabled
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -34,6 +38,8 @@ int main(int argc, char** argv)
       duration = ocg::app::parse_duration(argv[++i]);
     } else if (arg == "--strict-realtime") {
       strict_realtime = true;
+    } else if (arg == "--control-endpoint" && i + 1 < argc) {
+      control_endpoint = argv[++i];
     } else {
       std::cerr << "unknown or incomplete argument: " << arg << "\n";
       usage();
@@ -51,6 +57,20 @@ int main(int argc, char** argv)
     std::cout << "event=start backend=" << ocg::to_string(config.runtime.backend)
               << " cuda_status=" << ocg::backend_status() << "\n";
     ocg::Broker broker(std::move(config));
+
+    // Phase 3 C3b: optional ZMQ REP control plane. Disabled unless the user
+    // passes --control-endpoint. Lifetime spans the broker run; the
+    // background thread is joined at scope exit (~ControlServer).
+    std::unique_ptr<ocg::ControlServer> control_server;
+    if (!control_endpoint.empty()) {
+      ocg::ControlServerConfig ccfg;
+      ccfg.endpoint = control_endpoint;
+      control_server = std::make_unique<ocg::ControlServer>(
+          std::move(ccfg), broker.collect_control_links());
+      control_server->start();
+      std::cout << "event=control_start endpoint=\"" << control_endpoint << "\"\n";
+    }
+
     auto stats = broker.run(duration);
     std::cout << "event=stop tx_pulls=" << stats.tx_pulls << " rx_requests=" << stats.rx_requests
               << " rx_starvations=" << stats.rx_starvations << " tx_queue_overflows=" << stats.tx_queue_overflows

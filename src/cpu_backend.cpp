@@ -245,4 +245,19 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   }
 }
 
+std::unordered_map<std::string, BrokerLinkControl*>
+CpuChannelProcessor::collect_control_links()
+{
+  // Walk every per-link state struct created at prepare() and expose its
+  // BrokerLinkControl by link key. Pointers stay stable for the lifetime
+  // of `states_` (no rehashing on read; the broker calls collect_control_
+  // links() once after prepare() and hands the map to ControlServer).
+  std::unordered_map<std::string, BrokerLinkControl*> out;
+  out.reserve(states_.size());
+  for (auto& [key, state] : states_) {
+    out.emplace(key, &state.ctl);
+  }
+  return out;
+}
+
 } // namespace ocg

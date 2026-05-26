@@ -246,6 +246,12 @@ Broker::Broker(TopologyConfig config) : config_(std::move(config))
   processor_ = create_channel_processor(config_);
 }
 
+std::unordered_map<std::string, BrokerLinkControl*>
+Broker::collect_control_links()
+{
+  return processor_ ? processor_->collect_control_links() : std::unordered_map<std::string, BrokerLinkControl*>{};
+}
+
 BrokerStats Broker::run(std::chrono::milliseconds duration)
 {
   stop_requested.store(false);

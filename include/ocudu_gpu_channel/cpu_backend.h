@@ -34,6 +34,8 @@ public:
   ProcessorTimings last_timings() const override { return {}; }
   const char* backend_name() const override { return "cpu"; }
 
+  std::unordered_map<std::string, BrokerLinkControl*> collect_control_links() override;
+
 private:
   // Per-model-step running state (CFO phase, delay history, AWGN RNG).
   // Fat-struct pattern: one struct serves every step type; the field set used

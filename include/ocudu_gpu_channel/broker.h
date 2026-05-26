@@ -5,6 +5,8 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <unordered_map>
 
 namespace ocg {
 
@@ -22,6 +24,12 @@ public:
   explicit Broker(TopologyConfig config);
 
   BrokerStats run(std::chrono::milliseconds duration);
+
+  // Phase 3 C3: expose per-link BrokerLinkControl pointers so the ControlServer
+  // can resolve link_ids in incoming REQs. Forwarded from the underlying
+  // ChannelProcessor. Map ownership is transferred to the caller; pointers
+  // remain valid for the life of this Broker.
+  std::unordered_map<std::string, BrokerLinkControl*> collect_control_links();
 
 private:
   TopologyConfig config_;

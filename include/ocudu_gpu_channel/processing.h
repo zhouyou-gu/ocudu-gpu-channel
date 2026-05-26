@@ -5,7 +5,10 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
+
+namespace ocg { struct BrokerLinkControl; }
 
 // Channel-processing backend interface and selection.
 //
@@ -68,6 +71,15 @@ public:
 
   virtual ProcessorTimings last_timings() const = 0;
   virtual const char* backend_name() const = 0;
+
+  // Phase 3 C3: return a non-owning map from link_id (e.g. "ue0-gnb0") to
+  // the BrokerLinkControl the backend allocated for that link. The broker
+  // hands this to the ControlServer so REQs can find the right shadow.
+  // Pointers stay valid for the life of the processor; map is built by
+  // walking the backend's per-link state after prepare(). Default impl
+  // returns an empty map for backends that have not yet wired it.
+  virtual std::unordered_map<std::string, BrokerLinkControl*>
+  collect_control_links() { return {}; }
 };
 
 // Returns the model steps in `config` the CUDA backend cannot run; empty when
