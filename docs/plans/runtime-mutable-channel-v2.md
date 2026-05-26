@@ -105,7 +105,9 @@ control client (ZMQ REQ)            broker
 
 `take_effect_at_slot` precedence: explicit on `BATCH_COMMIT` overrides any per-message value inside the batch. A batch is the atomic unit; partial-batch failure aborts the whole commit and emits `event=control_batch_aborted`.
 
-### Storage layout — opt-in profile, scalars stay POD-fast
+### Storage layout — sibling fields on BrokerLinkControl, scalars stay POD-fast
+
+The v2 fields are added as **siblings** on `BrokerLinkControl` rather than wrapping `MutableParams` in a new struct. Two reasons: (a) v1's ~30 call sites accessing `ctl.shadow.X` continue to work unchanged; (b) `ProfileShadow` carries its own change-tracking via `profile_pending` so the snap path can branch cleanly.
 
 ```cpp
 // include/ocudu_gpu_channel/mutable_params.h (unchanged 32-byte POD)
@@ -121,20 +123,30 @@ struct ProfileShadow {
   float     fading_grid_us = 100.0F;
 };
 
-struct MutableShadow {
-  MutableParams                  scalars;
-  std::optional<ProfileShadow>   profile;
-  std::uint64_t                  take_effect_at_slot = 0;  // 0 = ASAP (v1 semantics)
-};
-
 struct BrokerLinkControl {
-  MutableShadow                  shadow;
-  std::atomic<std::uint32_t>     seqno{0};
-  std::atomic<std::uint64_t>     current_slot{0};   // written by snap; read by control
+  // v1 scalar shadow (unchanged accessor surface for back-compat).
+  MutableParams              shadow;
+
+  // v2 profile-swap shadow. profile_pending is set by the control thread
+  // when shadow_profile holds a new profile to apply; cleared by the snap
+  // after the refresh runs. Both writes paired with seqno's release-store.
+  ProfileShadow              shadow_profile;
+  bool                       profile_pending = false;
+
+  // v2 deterministic-timing knob. 0 = "apply at next slot boundary"
+  // (v1 semantics, preserved when omitted from the REQ).
+  std::uint64_t              take_effect_at_slot = 0;
+
+  // Synchronisation primitives — unchanged from v1.
+  std::atomic<std::uint32_t> seqno{0};
+
+  // v2: per-link slot index, written by snap before each gate check; read
+  // by control thread to know whether scheduled-in-past updates apply now.
+  std::atomic<std::uint64_t> current_slot{0};
 };
 ```
 
-`std::optional<ProfileShadow>` is non-trivial; that's fine — single-writer access means we can use a member-function copy on the snap side. ProfileShadow's max-size layout (TapSpec[kDeviceMaxTaps], 32 × 32 B = 1 KB) keeps the snap O(1) memcpy.
+Snap reads scalars + profile in one logical step (single seqno load); since the control thread is the only writer, the data behind a given seqno bump is consistent. ProfileShadow's max-size layout (`TapSpec[kDeviceMaxTaps]`, 32 × 32 B = 1 KB) keeps the snap O(1) memcpy of a fixed-size struct rather than a heap-allocated vector.
 
 ### Slot counter — per-link, written by snap path
 

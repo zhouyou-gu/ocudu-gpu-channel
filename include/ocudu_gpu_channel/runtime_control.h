@@ -1,23 +1,32 @@
 #pragma once
 // Runtime-mutable channel parameters — host-side shadow buffer and
-// snap-at-slot-boundary helper (Phase 3 v1).
+// snap-at-slot-boundary helper.
 //
-// Concurrency model:
-//   - The ZMQ control plane runs on a dedicated thread (Phase 3 C3+).
-//     It is the *only* writer to each link's BrokerLinkControl::shadow.
+// v1 (landed): per-link scalar shadow + atomic seqno + snap helper. See
+//   docs/plans/runtime-mutable-channel.md.
+// v2 (in-progress): adds ProfileShadow (multi-tap), take_effect_at_slot
+//   deterministic timing, and per-link current_slot counter. See
+//   docs/plans/runtime-mutable-channel-v2.md.
+//
+// Concurrency model (unchanged across v1 → v2):
+//   - The ZMQ control plane runs on a dedicated thread.
+//     It is the *only* writer to each link's BrokerLinkControl shadow
+//     fields (scalars, profile, take_effect_at_slot).
 //   - Each per-link server thread is the only reader; it observes a snap
 //     point at the start of every serve, copies shadow → live if seqno
-//     advanced, and treats `live` as the canonical params for that slot.
+//     advanced (and the take_effect_at_slot gate has elapsed), and treats
+//     `live` as the canonical params for that slot.
 //   - Pairing: the control thread writes shadow then bumps seqno with
 //     memory_order_release; the server thread loads seqno with
 //     memory_order_acquire and only then reads shadow. This ordering
 //     guarantees the server observes a fully-written shadow whenever it
 //     observes the seqno bump.
 //
-// In v1 the control plane is absent and seqno is never bumped, so every
-// snap call is a single relaxed load + branch-not-taken. Cost is negligible.
-// See docs/plans/runtime-mutable-channel.md for the full design.
+// When no control plane is wired, snap is a single relaxed load +
+// branch-not-taken. Cost is negligible.
 
+#include "ocudu_gpu_channel/config.h"
+#include "ocudu_gpu_channel/device_channel.h"
 #include "ocudu_gpu_channel/mutable_params.h"
 
 #include <atomic>
@@ -25,12 +34,43 @@
 
 namespace ocg {
 
+// v2 ProfileShadow — the multi-tap payload a `profile_swap` REQ writes.
+// Stored max-sized (kDeviceMaxTaps) so the shadow → live copy is a single
+// POD memcpy, no heap allocation in the hot path. Only the first
+// `n_taps` entries of `taps[]` are meaningful; the rest are zero-padded.
+struct ProfileShadow {
+  int        n_taps = 0;
+  TapSpec    taps[kDeviceMaxTaps]{};
+  bool       fading_enabled = false;
+  float      fading_f_d_max_hz = 0.0F;
+  int        fading_spectrum = 0;            // 0=Jakes (only one implemented)
+  float      fading_grid_us = 100.0F;
+};
+
 // One BrokerLinkControl per emulator link. The shadow buffer is initialised
 // in prepare() to mirror the per-link YAML state; the seqno starts at 0 so
 // the first server-thread snap on the first slot is a no-op (live already
 // matches shadow, both already match YAML).
 struct BrokerLinkControl {
-  MutableParams              shadow;          // written by control thread only
+  // v1 scalar shadow (unchanged accessor surface for back-compat).
+  MutableParams              shadow;
+
+  // v2 profile-swap shadow. `profile_pending` is set by the control
+  // thread when shadow_profile holds a new profile to apply; cleared by
+  // the snap path after the refresh runs. Both writes are paired with
+  // seqno's release-store.
+  ProfileShadow              shadow_profile;
+  bool                       profile_pending = false;
+
+  // v2 deterministic-timing knob. 0 = "apply at next slot boundary"
+  // (v1 semantics, preserved when omitted from the REQ).
+  std::uint64_t              take_effect_at_slot = 0;
+
+  // v2 per-link slot counter, written by the snap path before each gate
+  // check; read by the control thread to know whether scheduled-in-past
+  // updates apply now.
+  std::atomic<std::uint64_t> current_slot{0};
+
   std::atomic<std::uint32_t> seqno{0};        // bumped after every shadow write
 
   BrokerLinkControl() = default;
@@ -69,10 +109,19 @@ inline bool snap_mutable_params(MutableParams& live,
 // Initialise BrokerLinkControl::shadow from the YAML-derived MutableParams.
 // Called once per link in each backend's prepare(). After this call, the
 // first slot's snap is a no-op (seqno still 0, live already == shadow).
+//
+// v2: also zeros the profile-swap fields. `shadow_profile` is left default-
+// constructed; `profile_pending` and `take_effect_at_slot` are explicitly 0
+// so the snap path's gate checks default to "no profile pending, apply
+// scalar updates ASAP" (= v1 behaviour).
 inline void init_broker_link_control(BrokerLinkControl& ctl,
                                      const MutableParams& yaml_initial)
 {
   ctl.shadow = yaml_initial;
+  ctl.shadow_profile = ProfileShadow{};
+  ctl.profile_pending = false;
+  ctl.take_effect_at_slot = 0;
+  ctl.current_slot.store(0, std::memory_order_relaxed);
   ctl.seqno.store(0, std::memory_order_relaxed);
 }
 
