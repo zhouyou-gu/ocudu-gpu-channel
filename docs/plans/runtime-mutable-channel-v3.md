@@ -1,6 +1,6 @@
 # Plan — Phase 3 v3: telemetry feed, force-flag effects, hardware checks
 
-Status: **v3.0 + v3.1 landed** · Builds on: [v1 plan](runtime-mutable-channel.md) (landed) + [v2 plan](runtime-mutable-channel-v2.md) (landed) · Phase target: **Phase 3.x** · Effort actual: **~2 focused commits across the two sub-phases**. v3.2 (hardware checks) remains.
+Status: **v3 fully landed (v3.0 + v3.1 + v3.2)** · Builds on: [v1 plan](runtime-mutable-channel.md) (landed) + [v2 plan](runtime-mutable-channel-v2.md) (landed) · Phase target: **Phase 3.x** · Effort actual: **~3 focused commits across three sub-phases**.
 
 ## Goal in one sentence
 

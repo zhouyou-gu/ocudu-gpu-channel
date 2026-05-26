@@ -1048,6 +1048,66 @@ bool cuda_runtime_probe()
   return cudaGetDeviceCount(&count) == cudaSuccess && count > 0;
 }
 
+// v3.2 HW1: real CUDA hardware probe. Mirrors the
+// cudaGetDeviceProperties surface fields the broker needs to log + the
+// footprint / strict-mode checks need at startup.
+HardwareProbe probe_cuda_hardware(int device_id)
+{
+  HardwareProbe p;
+  p.device_id = device_id;
+
+  int count = 0;
+  if (cudaGetDeviceCount(&count) != cudaSuccess || count <= 0) {
+    p.ok = false;
+    p.error = "no CUDA devices visible (cudaGetDeviceCount)";
+    return p;
+  }
+  if (device_id < 0 || device_id >= count) {
+    p.ok = false;
+    p.error = "configured gpu_device=" + std::to_string(device_id)
+              + " is out of range (0.." + std::to_string(count - 1) + ")";
+    return p;
+  }
+
+  cudaDeviceProp props{};
+  if (cudaGetDeviceProperties(&props, device_id) != cudaSuccess) {
+    p.ok = false;
+    p.error = "cudaGetDeviceProperties failed for device " + std::to_string(device_id);
+    return p;
+  }
+
+  p.ok               = true;
+  p.name             = props.name;
+  p.sm_major         = props.major;
+  p.sm_minor         = props.minor;
+  p.total_mem_bytes  = static_cast<std::uint64_t>(props.totalGlobalMem);
+  p.pcie_link_gen    = props.pciDeviceID == 0 ? 0 : 0;   // see note below
+  p.pcie_link_width  = 0;
+  // PCIe gen / width come from cudaDeviceGetAttribute, not cudaDeviceProp.
+  int v = 0;
+  if (cudaDeviceGetAttribute(&v, cudaDevAttrPciDeviceId, device_id) == cudaSuccess) {
+    // pciDeviceID isn't the link gen — read the gen attribute directly.
+  }
+  // Driver-reported link gen + width — these names changed across CUDA
+  // versions, so we read the attribute symbols defensively.
+  int link_gen = 0;
+  int link_width = 0;
+  cudaDeviceGetAttribute(&link_gen, cudaDevAttrMemoryBusWidth, device_id);
+  // cudaDevAttrMemoryBusWidth is the wrong attr; CUDA 12 exposes
+  // cudaDevAttrGPUDirectRDMASupported but not a stable link-gen
+  // attribute on all platforms. Leave 0 if unavailable; the field is
+  // informational only in the event=hardware_probe log line.
+  p.pcie_link_gen   = 0;
+  p.pcie_link_width = 0;
+  (void)link_gen;
+  (void)link_width;
+
+  cudaDriverGetVersion(&p.driver_version);
+  cudaRuntimeGetVersion(&p.runtime_version);
+
+  return p;
+}
+
 std::unique_ptr<ChannelProcessor> make_cuda_processor(const TopologyConfig& config)
 {
   return std::make_unique<CudaChannelProcessor>(config.runtime.gpu_device);

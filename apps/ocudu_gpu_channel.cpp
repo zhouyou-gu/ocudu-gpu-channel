@@ -15,7 +15,8 @@ void usage()
 {
   std::cout << "usage: ocudu-gpu-channel --config topology.yaml [--duration 60s] [--strict-realtime] "
                "[--control-endpoint tcp://*:5559] "
-               "[--telemetry-endpoint tcp://*:5560 --telemetry-rate-hz 20]\n";
+               "[--telemetry-endpoint tcp://*:5560 --telemetry-rate-hz 20] "
+               "[--hardware-strict]\n";
 }
 
 } // namespace
@@ -28,6 +29,7 @@ int main(int argc, char** argv)
   std::string control_endpoint;     // empty = control plane disabled
   std::string telemetry_endpoint;   // empty = telemetry feed disabled (v3.0)
   double      telemetry_rate_hz = 20.0;
+  bool        hardware_strict = false;  // v3.2 opt-in
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -47,6 +49,8 @@ int main(int argc, char** argv)
       telemetry_endpoint = argv[++i];
     } else if (arg == "--telemetry-rate-hz" && i + 1 < argc) {
       telemetry_rate_hz = std::atof(argv[++i]);
+    } else if (arg == "--hardware-strict") {
+      hardware_strict = true;
     } else {
       std::cerr << "unknown or incomplete argument: " << arg << "\n";
       usage();
@@ -63,6 +67,58 @@ int main(int argc, char** argv)
     auto config = ocg::load_config_file(config_path);
     std::cout << "event=start backend=" << ocg::to_string(config.runtime.backend)
               << " cuda_status=" << ocg::backend_status() << "\n";
+
+    // v3.2: hardware probe + footprint check. Skipped for CPU backend
+    // (no GPU to probe; the CPU path is well-behaved on memory).
+    if (config.runtime.backend == ocg::Backend::Cuda) {
+      const auto hw = ocg::probe_cuda_hardware(config.runtime.gpu_device);
+      if (!hw.ok) {
+        std::cout << "event=hardware_probe ok=false device=" << config.runtime.gpu_device
+                  << " error=\"" << hw.error << "\"\n";
+        // Don't return here — create_channel_processor will give a clearer
+        // error if cuda was requested but isn't available. The v3.2 promise
+        // is "surface the typed reason"; we've done that.
+      } else {
+        std::cout << "event=hardware_probe ok=true device=" << hw.device_id
+                  << " name=\"" << hw.name << "\""
+                  << " sm=" << hw.sm_major << "." << hw.sm_minor
+                  << " mem_bytes=" << hw.total_mem_bytes
+                  << " driver_version=" << hw.driver_version
+                  << " runtime_version=" << hw.runtime_version << "\n";
+
+        const auto target = ocg::kernel_target_sm();
+        if (target.major > 0) {
+          const int runtime_sm  = hw.sm_major * 10 + hw.sm_minor;
+          const int kernel_sm   = target.major * 10 + target.minor;
+          if (runtime_sm < kernel_sm) {
+            if (hardware_strict) {
+              std::cerr << "event=fatal reason=\"hardware-strict: runtime SM "
+                        << hw.sm_major << "." << hw.sm_minor
+                        << " below kernel target SM "
+                        << target.major << "." << target.minor << "\"\n";
+              return 1;
+            }
+            std::cout << "event=hardware_warning reason=\"runtime SM "
+                      << hw.sm_major << "." << hw.sm_minor
+                      << " below kernel target SM "
+                      << target.major << "." << target.minor
+                      << "; kernel launches may fail\"\n";
+          }
+        }
+
+        // Footprint check: reject if topology would exceed 80% of memory.
+        const std::uint64_t footprint = ocg::estimate_cuda_device_footprint_bytes(config);
+        if (hw.total_mem_bytes > 0 && footprint > (hw.total_mem_bytes * 4ULL) / 5ULL) {
+          std::cerr << "event=fatal reason=\"hardware: topology footprint "
+                    << footprint << " B exceeds 80% of GPU memory "
+                    << hw.total_mem_bytes << " B\"\n";
+          return 1;
+        }
+        std::cout << "event=hardware_footprint estimated_bytes=" << footprint
+                  << " total_mem_bytes=" << hw.total_mem_bytes << "\n";
+      }
+    }
+
     ocg::Broker broker(std::move(config));
 
     // Phase 3 C3b: optional ZMQ REP control plane. Disabled unless the user

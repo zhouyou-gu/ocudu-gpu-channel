@@ -56,6 +56,16 @@ target_link_libraries(ocudu_gpu_channel_lib PUBLIC PkgConfig::ZMQ Threads::Threa
 target_compile_definitions(ocudu_gpu_channel_lib PUBLIC
   OCUDU_GPU_CHANNEL_HAS_CUDA=${OCUDU_GPU_CHANNEL_HAS_CUDA}
 )
+# v3.2: surface the CUDA arch target to C++ so kernel_target_sm() can
+# report it without re-parsing the cache. CMake's
+# CUDA_ARCHITECTURES is a list ("120;90;..."); take the first entry as
+# the canonical target for the strict-mode SM check.
+if(OCUDU_GPU_CHANNEL_HAS_CUDA)
+  list(GET OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES 0 _ocg_first_sm)
+  target_compile_definitions(ocudu_gpu_channel_lib PUBLIC
+    OCUDU_GPU_CHANNEL_KERNEL_SM=${_ocg_first_sm}
+  )
+endif()
 
 if(MSVC)
   target_compile_options(ocudu_gpu_channel_lib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
@@ -93,6 +103,10 @@ if(OCUDU_GPU_CHANNEL_BUILD_TESTS)
   add_executable(test_runtime_update_parity tests/test_runtime_update_parity.cpp)
   target_link_libraries(test_runtime_update_parity PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME runtime_update_parity COMMAND test_runtime_update_parity)
+
+  add_executable(test_hardware_probe tests/test_hardware_probe.cpp)
+  target_link_libraries(test_hardware_probe PRIVATE ocudu_gpu_channel_lib)
+  add_test(NAME hardware_probe COMMAND test_hardware_probe)
 
   add_executable(test_processing tests/test_processing.cpp)
   target_link_libraries(test_processing PRIVATE ocudu_gpu_channel_lib)

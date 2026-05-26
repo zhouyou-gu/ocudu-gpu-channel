@@ -3071,6 +3071,18 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <td><code>link_id, reason</code></td>
         <td>per snap of a profile_swap with <code>force=true</code> on a non-tdl-leading chain</td>
         <td>Phase 3 v3.1: the profile was stored + activated but the per-sample chain has no Tdl branch to read it. Data-plane output unchanged. Per-link counter <code>force_inert_warnings</code> aggregates these into <code>event=stop</code>.</td></tr>
+    <tr><td><code>event=hardware_probe</code></td>
+        <td><code>ok, device, name, sm, mem_bytes, driver_version, runtime_version</code> (or <code>ok=false error="…"</code>)</td>
+        <td>once at broker startup, when the CUDA backend is requested</td>
+        <td>Phase 3 v3.2: typed CUDA hardware report (<code>probe_cuda_hardware</code> → <code>cudaGetDeviceProperties</code>). On CPU-only builds the event is suppressed; on CUDA builds without a visible device the event reports <code>ok=false</code> + a typed error.</td></tr>
+    <tr><td><code>event=hardware_footprint</code></td>
+        <td><code>estimated_bytes, total_mem_bytes</code></td>
+        <td>once at broker startup, after <code>event=hardware_probe</code> succeeds</td>
+        <td>Phase 3 v3.2: best-effort estimate of the device-side memory the topology will allocate. Startup rejects with <code>event=fatal</code> when the estimate exceeds 80% of <code>total_mem_bytes</code>.</td></tr>
+    <tr><td><code>event=hardware_warning</code></td>
+        <td><code>reason="…"</code></td>
+        <td>at startup if runtime SM &lt; kernel target (without <code>--hardware-strict</code>)</td>
+        <td>Phase 3 v3.2: kernel launches may fail; the broker keeps running so the operator can diagnose. With <code>--hardware-strict</code> the same condition becomes <code>event=fatal</code>.</td></tr>
   </table>
   <p class="key">Both per-serve event types
   (<code>cpu_stage_timings</code>, <code>gpu_timings</code>) publish the
@@ -3873,6 +3885,21 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         deterministic <code>take_effect_at_slot</code> timing. Design
         plan + landed-scope details:
         <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
+
+    <li><b>v3.2 hardware probe + footprint check (landed).</b>
+        Broker startup runs <code>probe_cuda_hardware(device_id)</code>
+        and emits <code>event=hardware_probe ok=true device=N
+        name="…" sm=Mm.M mem_bytes=B driver_version=V runtime_version=V</code>.
+        Topology footprint is estimated against
+        <code>totalGlobalMem</code>; the broker rejects startup with
+        <code>event=fatal</code> if the estimate exceeds 80% of GPU
+        memory, otherwise logs <code>event=hardware_footprint</code>.
+        <code>--hardware-strict</code> flag (opt-in) rejects startup
+        when the runtime SM is below the kernel's compile-time target
+        (<code>OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES</code> from CMake,
+        surfaced via <code>kernel_target_sm()</code>); without the
+        flag the SM mismatch is a warning. CPU-only builds skip the
+        probe; the function returns a typed "cuda not compiled" error.</li>
 
     <li><b>Runtime-mutable channel parameters — v3.1 force-flag inertness warning (landed).</b>
         When a <code>profile_swap</code> arrives with <code>force: true</code>
