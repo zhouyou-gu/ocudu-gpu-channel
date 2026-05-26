@@ -102,6 +102,16 @@ struct BrokerLinkControl {
   TelemetrySnapshot          telemetry;
   std::atomic<std::uint64_t> telemetry_write_seq{0};
 
+  // v3.1: per-link count of force-inert warnings. Bumped by the
+  // backend snap path whenever a profile_swap with force=true is
+  // observed on a chain that does NOT start with a tdl step. The
+  // profile is still stored in shadow_profile + snapped to live, but
+  // the kernel never reads the new taps because the per-edge tdl
+  // routing isn't there — force=true is the "I know what I'm doing"
+  // escape hatch and v3.1's job is to make the inertness visible.
+  // ControlServer::stats() aggregates by summing across link_map.
+  std::atomic<std::uint64_t> force_inert_warnings{0};
+
   BrokerLinkControl() = default;
 
   // Non-copyable / non-movable: BrokerLinkControl is pinned by reference

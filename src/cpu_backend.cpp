@@ -157,18 +157,22 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
   if (snap_changed && state.ctl.profile_pending) {
     if (state.chain_has_leading_tdl || state.ctl.shadow_profile.force) {
       snap_profile_from_shadow(state.live_profile, state.ctl);
-      if (!state.live_profile_active) {
-        // First-time activation. Future commits could also re-arm
-        // profile_just_activated when the profile's tap layout changes
-        // (current heuristic: any seqno bump with a pending profile
-        // counts, so successive profile_swap REQs trigger fresh warmup).
-        // Simplest correct: always arm warmup on any new profile snap.
-      }
       state.live_profile_active = true;
       profile_just_activated = true;
+      // v3.1: warn when force was needed AND the chain has no leading
+      // tdl. The profile is stored + snapped but the per-sample chain
+      // never reaches a Tdl branch, so kernel output is unchanged.
+      // Option C from the v3 plan — explicit visibility without
+      // attempting to flip the dispatch gate.
+      if (!state.chain_has_leading_tdl) {
+        std::cout << "event=control_force_warning link_id=" << link_key_value
+                  << " reason=\"chain has no leading tdl; profile stored but inert\"\n";
+        state.ctl.force_inert_warnings.fetch_add(1, std::memory_order_relaxed);
+      }
     }
-    // else: eligibility failed, profile sits unused — `force=true` is the
-    // documented escape hatch for non-tdl-leading chains.
+    // else: eligibility failed (no force on a non-tdl-leading chain),
+    // profile sits silently in shadow until a YAML reload — or until
+    // a re-send with force=true.
   }
 
   // v2.2 W1: when a profile snap arms, zero the cross-slot delay_line so

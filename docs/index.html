@@ -3067,6 +3067,10 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <td><code>link_id, slot, seqno, live{…}, profile_active, warmup_until_slot</code></td>
         <td>per-link, at <code>--telemetry-rate-hz</code></td>
         <td>Phase 3 v3.0: published on the ZMQ PUB socket (<code>--telemetry-endpoint</code>). Topic prefix = <code>link_id</code>. Not written to stdout; subscribers filter via <code>ZMQ_SUBSCRIBE</code>.</td></tr>
+    <tr><td><code>event=control_force_warning</code></td>
+        <td><code>link_id, reason</code></td>
+        <td>per snap of a profile_swap with <code>force=true</code> on a non-tdl-leading chain</td>
+        <td>Phase 3 v3.1: the profile was stored + activated but the per-sample chain has no Tdl branch to read it. Data-plane output unchanged. Per-link counter <code>force_inert_warnings</code> aggregates these into <code>event=stop</code>.</td></tr>
   </table>
   <p class="key">Both per-serve event types
   (<code>cpu_stage_timings</code>, <code>gpu_timings</code>) publish the
@@ -3869,6 +3873,21 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         deterministic <code>take_effect_at_slot</code> timing. Design
         plan + landed-scope details:
         <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
+
+    <li><b>Runtime-mutable channel parameters — v3.1 force-flag inertness warning (landed).</b>
+        When a <code>profile_swap</code> arrives with <code>force: true</code>
+        on a chain whose first step is not <code>tdl</code>, the snap
+        still stores + activates the profile (force overrides
+        eligibility) but emits <code>event=control_force_warning
+        link_id=L reason="chain has no leading tdl; profile stored but
+        inert"</code> and bumps a per-link
+        <code>force_inert_warnings</code> counter. The kernel output is
+        unchanged because the per-sample chain never enters a Tdl
+        branch — the warning is the broker's way of saying "this REQ
+        succeeded but the data plane sees nothing." Option C from the
+        v3 plan: explicit visibility without attempting the silent
+        dispatch-flip (Option B, rejected) or runtime chain synthesis
+        (Option A, deferred until use case materialises).</li>
 
     <li><b>Runtime-mutable channel parameters — v3.0 telemetry PUB feed (landed).</b>
         New optional ZMQ PUB socket

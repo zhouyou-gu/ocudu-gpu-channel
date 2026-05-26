@@ -86,13 +86,14 @@ public:
 
   // Counters surfaced by event=stats logs (Phase 3 C4 wires the log line).
   struct Stats {
-    std::uint64_t msgs_received       = 0;
-    std::uint64_t updates_applied     = 0;
-    std::uint64_t updates_rejected    = 0;
-    std::uint64_t batches_committed   = 0;   // v2.3
-    std::uint64_t batches_aborted     = 0;   // v2.3
-    std::uint64_t telemetry_frames    = 0;   // v3.0
-    std::uint64_t telemetry_drops     = 0;   // v3.0 (PUB HWM hit)
+    std::uint64_t msgs_received        = 0;
+    std::uint64_t updates_applied      = 0;
+    std::uint64_t updates_rejected     = 0;
+    std::uint64_t batches_committed    = 0;   // v2.3
+    std::uint64_t batches_aborted      = 0;   // v2.3
+    std::uint64_t telemetry_frames     = 0;   // v3.0
+    std::uint64_t telemetry_drops      = 0;   // v3.0 (PUB HWM hit)
+    std::uint64_t force_inert_warnings = 0;   // v3.1 (aggregated across link_map)
   };
   Stats stats() const;
 

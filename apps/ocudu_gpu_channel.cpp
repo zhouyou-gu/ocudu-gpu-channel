@@ -97,7 +97,8 @@ int main(int argc, char** argv)
                 << " control_batches_committed=" << cs.batches_committed
                 << " control_batches_aborted="   << cs.batches_aborted
                 << " telemetry_frames="          << cs.telemetry_frames
-                << " telemetry_drops="           << cs.telemetry_drops;
+                << " telemetry_drops="           << cs.telemetry_drops
+                << " force_inert_warnings="      << cs.force_inert_warnings;
     }
     std::cout << "\n" << std::flush;
     if (strict_realtime &&

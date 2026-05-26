@@ -371,6 +371,16 @@ ControlServer::Stats ControlServer::stats() const
   s.batches_aborted   = batches_aborted_.load(std::memory_order_relaxed);
   s.telemetry_frames  = telemetry_frames_.load(std::memory_order_relaxed);
   s.telemetry_drops   = telemetry_drops_.load(std::memory_order_relaxed);
+  // v3.1: aggregate the per-link force_inert_warnings counter across
+  // the whole link_map. Link-map structure is immutable after
+  // construction so this iteration is safe without locking.
+  std::uint64_t inert = 0;
+  for (const auto& [_, ctl] : link_map_) {
+    if (ctl != nullptr) {
+      inert += ctl->force_inert_warnings.load(std::memory_order_relaxed);
+    }
+  }
+  s.force_inert_warnings = inert;
   return s;
 }
 

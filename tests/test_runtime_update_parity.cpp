@@ -516,6 +516,82 @@ int main()
             "v2.2: REP adds warmup_until_slot");
   }
 
+  // ── v3.1: force=true on non-tdl-leading chain emits inert warning ─────
+  // Build a chain whose chain.front() is path_loss (NOT tdl), then send
+  // a profile_swap with force=true. Snap path should: store + activate
+  // the profile (force overrides eligibility) AND emit
+  // event=control_force_warning AND bump ctl.force_inert_warnings.
+  {
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = 8;
+    cfg.runtime.queue_samples = 64;
+    cfg.devices = {
+        {.id = "gnb0", .role = "gnb", .sample_rate_hz = 23040000,
+         .tx_endpoint = "tx0", .rx_endpoint = "rx0"},
+        {.id = "ue0",  .role = "ue",  .sample_rate_hz = 23040000,
+         .tx_endpoint = "tx1", .rx_endpoint = "rx1"}};
+    cfg.links = {{.from = "gnb0", .to = "ue0", .model = "no-tdl"}};
+    ocg::ModelConfig m;
+    m.id = "no-tdl";
+    ocg::ModelStep pl;
+    pl.type = ocg::ModelStepType::PathLoss;
+    pl.params["path_loss_db"] = 0.0;
+    m.chain.push_back(pl);   // chain.front() is PathLoss → not eligible
+    cfg.models.emplace(m.id, m);
+
+    ocg::CpuChannelProcessor proc;
+    proc.prepare(cfg);
+    const ocg::ModelConfig& model = cfg.models["no-tdl"];
+
+    const std::vector<ocg::IqSample> input(8, {1.0F, 0.0F});
+
+    // Warm-up so the lazy-created "gnb0>ue0" state exists.
+    (void)run_slot(proc, model, input);
+
+    // Capture stdout to grep for the warning.
+    std::ostringstream captured;
+    std::streambuf* const old_buf = std::cout.rdbuf(captured.rdbuf());
+
+    // Manually stage a profile_swap shadow with force=true (mirrors what
+    // ControlServer::handle_profile_swap does under the hood).
+    {
+      auto map = proc.collect_control_links();
+      auto it = map.find("gnb0>ue0");
+      require(it != map.end() && it->second != nullptr, "v3.1: link in control map");
+      ocg::ProfileShadow& sp = it->second->shadow_profile;
+      sp.n_taps = 1;
+      sp.taps[0].delay_samples = 0.0;
+      sp.taps[0].gain_db       = 0.0;
+      sp.taps[0].phase_rad     = 0.0;
+      sp.taps[0].is_los        = false;
+      sp.force = true;
+      it->second->profile_pending = true;
+      it->second->seqno.fetch_add(1, std::memory_order_release);
+    }
+
+    // One more slot → snap fires.
+    (void)run_slot(proc, model, input);
+
+    std::cout.rdbuf(old_buf);
+    const std::string log = captured.str();
+
+    require(log.find("event=control_force_warning") != std::string::npos,
+            "v3.1: should emit event=control_force_warning");
+    require(log.find("link_id=gnb0>ue0") != std::string::npos,
+            "v3.1: warning should name the link");
+    require(log.find("chain has no leading tdl") != std::string::npos,
+            "v3.1: warning should explain the inertness");
+
+    // Counter bumped to 1.
+    auto map = proc.collect_control_links();
+    auto it = map.find("gnb0>ue0");
+    require(it != map.end() && it->second != nullptr, "v3.1: ctl exists");
+    require(it->second->force_inert_warnings.load() == 1,
+            "v3.1: force_inert_warnings should increment to 1");
+  }
+
   std::cout << "test_runtime_update_parity OK\n";
   return 0;
 }

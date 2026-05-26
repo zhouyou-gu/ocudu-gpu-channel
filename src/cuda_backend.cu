@@ -690,6 +690,15 @@ public:
                                        lms_for_snap.ctl)) {
             lms_for_snap.live_profile_active = true;
             profile_just_activated = true;
+            // v3.1: force on a non-tdl-leading chain → profile stored
+            // but inert. Emit warning + bump per-link counter; same
+            // semantics as the CPU branch.
+            if (!lms_for_snap.chain_has_leading_tdl) {
+              std::cout << "event=control_force_warning link_id=" << edge.link_key
+                        << " reason=\"chain has no leading tdl; profile stored but inert\"\n";
+              lms_for_snap.ctl.force_inert_warnings.fetch_add(
+                  1, std::memory_order_relaxed);
+            }
           }
         }
       }
