@@ -381,6 +381,82 @@
     <tr><td class="mono">Philox4_32_10</td><td>NVIDIA's <b>counter-based</b> stateless RNG; same <code>(seed, counter)</code> always produces the same draw, so AWGN is bit-reproducible across runs and across thread schedules</td></tr>
   </table>
 
+  <!-- ============ §2.1 Diagram conventions ============ -->
+  <h3 id="diagram-rules">2.1 Diagram conventions</h3>
+  <p>Every SVG diagram in this document follows the same visual taxonomy.
+  Five semantic classes plus two modifiers; colour and shape encode the
+  semantic class, not the topic. Skim this legend once; later sections
+  use the conventions without re-introducing them.</p>
+  <figure>
+  <svg viewBox="0 0 1000 220" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram conventions legend · 5 classes + 2 modifiers</text>
+
+    <!-- HOST -->
+    <rect x="30" y="50" width="150" height="50" rx="6" fill="#13391f" stroke="#6fd08c" stroke-width="1.6"/>
+    <text x="105" y="72" fill="#6fd08c" text-anchor="middle" font-size="11">HOST</text>
+    <text x="105" y="90" fill="#cdd6e6" text-anchor="middle" font-size="9">CPU work or host-RAM buffer</text>
+
+    <!-- DEVICE -->
+    <rect x="200" y="50" width="150" height="50" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="275" y="72" fill="#5db1ff" text-anchor="middle" font-size="11">DEVICE</text>
+    <text x="275" y="90" fill="#cdd6e6" text-anchor="middle" font-size="9">GPU kernel / device buffer / H2D · D2H</text>
+
+    <!-- DECISION (diamond) -->
+    <polygon points="445,50 520,75 445,100 370,75" fill="#0b101a" stroke="#ffb454" stroke-width="1.6"/>
+    <text x="445" y="73" fill="#ffb454" text-anchor="middle" font-size="11">DECISION</text>
+    <text x="445" y="87" fill="#cdd6e6" text-anchor="middle" font-size="9">gate · branch</text>
+
+    <!-- STREAM -->
+    <rect x="540" y="50" width="150" height="50" rx="6" fill="#0b101a" stroke="#ffb454" stroke-width="1.6"/>
+    <text x="615" y="72" fill="#ffb454" text-anchor="middle" font-size="11">STREAM</text>
+    <text x="615" y="90" fill="#cdd6e6" text-anchor="middle" font-size="9">shared sink (many→one)</text>
+
+    <!-- EXTERNAL -->
+    <rect x="710" y="50" width="150" height="50" rx="6" fill="#181f2e" stroke="#cdd6e6" stroke-width="1.6"/>
+    <text x="785" y="72" fill="#cdd6e6" text-anchor="middle" font-size="11">EXTERNAL</text>
+    <text x="785" y="90" fill="#cdd6e6" text-anchor="middle" font-size="9">SDR · ZMQ peer · 3rd-party</text>
+
+    <text x="60" y="130" fill="#9aa7bd" font-size="10">Modifiers (apply on top of any class)</text>
+
+    <!-- HIGHLIGHT modifier -->
+    <rect x="30" y="140" width="150" height="50" rx="6" fill="rgba(255,180,84,0.45)" stroke="#ffb454" stroke-width="1.6"/>
+    <text x="105" y="162" fill="#ffb454" text-anchor="middle" font-size="11">HIGHLIGHT</text>
+    <text x="105" y="180" fill="#cdd6e6" text-anchor="middle" font-size="9">call-out slice (translucent fill)</text>
+
+    <!-- FALLBACK modifier -->
+    <rect x="200" y="140" width="150" height="50" rx="6" fill="#0b101a" stroke="#6fd08c" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <text x="275" y="162" fill="#6fd08c" text-anchor="middle" font-size="11">FALLBACK</text>
+    <text x="275" y="180" fill="#cdd6e6" text-anchor="middle" font-size="9">dashed border · on-demand / optional</text>
+
+    <text x="370" y="155" fill="#9aa7bd" font-size="10">Arrows</text>
+    <line x1="370" y1="170" x2="430" y2="170" stroke="#5db1ff" stroke-width="1.6" marker-end="url(#leg_b)"/>
+    <text x="438" y="173" fill="#cdd6e6" font-size="9">device transport (H2D / D2H)</text>
+    <defs>
+      <marker id="leg_b" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/></marker>
+      <marker id="leg_g" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#6fd08c"/></marker>
+      <marker id="leg_a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#ffb454"/></marker>
+      <marker id="leg_n" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#9aa7bd"/></marker>
+    </defs>
+    <line x1="660" y1="170" x2="720" y2="170" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#leg_g)"/>
+    <text x="728" y="173" fill="#cdd6e6" font-size="9">host transport</text>
+    <line x1="860" y1="170" x2="920" y2="170" stroke="#ffb454" stroke-width="1.6" marker-end="url(#leg_a)"/>
+    <text x="928" y="173" fill="#cdd6e6" font-size="9">annotation</text>
+  </svg>
+  <figcaption>Diagram legend. <b>HOST</b> green = anything host-side (broker
+  thread, host pinned buffer, CPU compute). <b>DEVICE</b> blue = anything
+  device-side (kernel, device global buffer, H2D / D2H copy).
+  <b>DECISION</b> = amber diamond at a branch point. <b>STREAM</b> = amber
+  rectangle for a shared sink (e.g. stdout, results bucket). <b>EXTERNAL</b>
+  = light grey for boundary nodes outside this codebase. The two modifiers
+  layer on top: <b>HIGHLIGHT</b> uses a translucent amber fill to call out
+  a slice of a larger box; <b>FALLBACK / ON-DEMAND</b> uses a dashed
+  border (in the parent class colour) for secondary or optional paths.
+  Arrow colour matches what's flowing: blue for device transport, green
+  for host transport, amber for annotations or highlights, grey for
+  generic data flow. Title text inside a box matches its border colour;
+  body text is light grey; annotations are mid-grey.</figcaption>
+  </figure>
+
   <!-- ============ DIAGRAM F : system architecture ============ -->
   <h2>3. System architecture — three layers</h2>
   <p>Zooming out before zooming in: every IQ sample makes a round-trip through three layers
@@ -1806,8 +1882,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <line x1="700" y1="72" x2="820" y2="116" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#ars)"/>
 
     <!-- ===== LEFT COLUMN: device-default path (Phase 2 D3 + D4) ===== -->
-    <rect x="40" y="120" width="420" height="220" rx="8" fill="#13391f" stroke="#6fd08c" stroke-width="1.6"/>
-    <text x="250" y="142" fill="#6fd08c" text-anchor="middle" font-size="12">DEVICE PATH (Phase 2 D3 + D4)</text>
+    <!-- Lane border uses neutral grey since it groups boxes of multiple classes (HOST pack + DEVICE kernel). -->
+    <rect x="40" y="120" width="420" height="220" rx="8" fill="#0b101a" stroke="#9aa7bd" stroke-width="1.6"/>
+    <text x="250" y="142" fill="#cdd6e6" text-anchor="middle" font-size="12">DEVICE PATH (Phase 2 D3 + D4)</text>
 
     <rect x="60" y="156" width="200" height="40" rx="4" fill="#0b101a" stroke="#6fd08c"/>
     <text x="160" y="171" fill="#cdd6e6" text-anchor="middle" font-size="10">host: pack per-SOURCE</text>
@@ -1820,14 +1897,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
     <line x1="250" y1="200" x2="250" y2="220" stroke="#9aa7bd" marker-end="url(#ars)"/>
 
-    <rect x="60" y="222" width="380" height="44" rx="4" fill="#0b101a" stroke="#ffb454" stroke-width="1.6"/>
-    <text x="250" y="240" fill="#ffb454" text-anchor="middle" font-size="11">apply_channel_kernel</text>
+    <rect x="60" y="222" width="380" height="44" rx="4" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="250" y="240" fill="#5db1ff" text-anchor="middle" font-size="11">apply_channel_kernel</text>
     <text x="250" y="256" fill="#cdd6e6" text-anchor="middle" font-size="9">multi-tap polyphase (§12.3 Y) · Jakes + Rician (§10) · src_index read (§12.2 X)</text>
 
     <line x1="250" y1="266" x2="250" y2="284" stroke="#9aa7bd" marker-end="url(#ars)"/>
 
-    <rect x="60" y="286" width="380" height="40" rx="4" fill="#0b101a" stroke="#ff8aa3"/>
-    <text x="250" y="304" fill="#ff8aa3" text-anchor="middle" font-size="10">update_delay_line_kernel</text>
+    <rect x="60" y="286" width="380" height="40" rx="4" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="250" y="304" fill="#5db1ff" text-anchor="middle" font-size="10">update_delay_line_kernel</text>
     <text x="250" y="318" fill="#9aa7bd" text-anchor="middle" font-size="9">roll delay_line ring · advance slot_start_samples (§12.4 Z)</text>
 
     <!-- ===== RIGHT COLUMN: host-fallback path ===== -->
@@ -1901,21 +1978,23 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="500" y="106" fill="#ffb454" text-anchor="middle" font-size="11">every incoming edge has</text>
     <text x="500" y="122" fill="#ffb454" text-anchor="middle" font-size="11">model.chain[0].type == tdl ?</text>
 
-    <!-- false branch (left) -->
-    <line x1="300" y1="110" x2="180" y2="110" stroke="#ff8aa3"/>
-    <line x1="180" y1="110" x2="180" y2="190" stroke="#ff8aa3" marker-end="url(#aa)"/>
-    <text x="240" y="100" fill="#ff8aa3" text-anchor="middle" font-size="10">false</text>
+    <!-- false branch (left) → HOST fallback, green-dashed -->
+    <line x1="300" y1="110" x2="180" y2="110" stroke="#6fd08c" stroke-dasharray="4 3"/>
+    <line x1="180" y1="110" x2="180" y2="190" stroke="#6fd08c" stroke-dasharray="4 3" marker-end="url(#aa)"/>
+    <text x="240" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">false</text>
 
-    <rect x="60" y="190" width="240" height="36" rx="6" fill="#181f2e" stroke="#ffb454"/>
-    <text x="180" y="212" fill="#ffb454" text-anchor="middle" font-size="11">host fallback (stage_link)</text>
+    <!-- FALLBACK modifier: dashed green border (HOST class) -->
+    <rect x="60" y="190" width="240" height="36" rx="6" fill="#0b101a" stroke="#6fd08c" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <text x="180" y="212" fill="#6fd08c" text-anchor="middle" font-size="11">host fallback (stage_link)</text>
 
     <!-- true branch (right) -->
-    <line x1="700" y1="110" x2="820" y2="110" stroke="#6fd08c"/>
-    <line x1="820" y1="110" x2="820" y2="190" stroke="#6fd08c" marker-end="url(#aa)"/>
-    <text x="760" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">true</text>
+    <line x1="700" y1="110" x2="820" y2="110" stroke="#5db1ff"/>
+    <line x1="820" y1="110" x2="820" y2="190" stroke="#5db1ff" marker-end="url(#aa)"/>
+    <text x="760" y="100" fill="#5db1ff" text-anchor="middle" font-size="10">true</text>
 
-    <rect x="700" y="190" width="240" height="36" rx="6" fill="#13391f" stroke="#6fd08c"/>
-    <text x="820" y="212" fill="#6fd08c" text-anchor="middle" font-size="11">device path (apply_channel_kernel)</text>
+    <!-- DEVICE class: blue solid -->
+    <rect x="700" y="190" width="240" height="36" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="820" y="212" fill="#5db1ff" text-anchor="middle" font-size="11">device path (apply_channel_kernel)</text>
   </svg>
   <figcaption>Diagram SG — the per-destination dispatch gate. All-or-nothing
   per node: any non-tdl-leading edge sends the whole destination to host
@@ -1954,14 +2033,14 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="480" y="118" fill="#9aa7bd" text-anchor="middle" font-size="9">never mutated after prepare</text>
     <text x="480" y="138" fill="#9aa7bd" text-anchor="middle" font-size="9">→ writes device_staged only</text>
 
-    <line x1="640" y1="100" x2="680" y2="100" stroke="#ff8aa3" marker-end="url(#arxn)"/>
+    <line x1="640" y1="100" x2="680" y2="100" stroke="#5db1ff" marker-end="url(#arxn)"/>
 
-    <!-- Kernel mutates (writes) -->
-    <rect x="680" y="50" width="280" height="100" rx="6" fill="#0b101a" stroke="#ff8aa3"/>
-    <text x="820" y="74" fill="#ff8aa3" text-anchor="middle" font-size="11">update_delay_line · MUTATES</text>
-    <text x="820" y="98" fill="#cdd6e6" text-anchor="middle" font-size="10">delay_line[] · slot_start_samples</text>
-    <text x="820" y="118" fill="#9aa7bd" text-anchor="middle" font-size="9">the only two mutable fields</text>
-    <text x="820" y="138" fill="#9aa7bd" text-anchor="middle" font-size="9">read again next slot</text>
+    <!-- Kernel mutates (writes) — DEVICE class, "MUTATES" annotated via text only -->
+    <rect x="680" y="50" width="280" height="100" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="820" y="74" fill="#5db1ff" text-anchor="middle" font-size="11">update_delay_line</text>
+    <text x="820" y="90" fill="#9aa7bd" text-anchor="middle" font-size="9">writes back the only two mutable fields</text>
+    <text x="820" y="108" fill="#cdd6e6" text-anchor="middle" font-size="10">delay_line[] · slot_start_samples</text>
+    <text x="820" y="128" fill="#9aa7bd" text-anchor="middle" font-size="9">read again next slot</text>
 
     <!-- Loop arrow -->
     <line x1="820" y1="158" x2="820" y2="180" stroke="#9aa7bd"/>
@@ -2099,10 +2178,10 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <!-- Time axis -->
     <text x="20"  y="48" fill="#9aa7bd" font-size="9">time →</text>
 
-    <!-- Slot N-1: in_buffer bar with highlighted tail -->
+    <!-- Slot N-1: in_buffer bar with highlighted tail — DEVICE storage (device_source_iq) -->
     <text x="20" y="76" fill="#9aa7bd" font-size="10">Slot N−1</text>
-    <rect x="90" y="60" width="400" height="34" fill="#13391f" stroke="#6fd08c" stroke-width="1.4"/>
-    <text x="270" y="80" fill="#cdd6e6" text-anchor="middle" font-size="10">in_buffer[k·count + 0 .. 23039]</text>
+    <rect x="90" y="60" width="400" height="34" fill="#0b101a" stroke="#5db1ff" stroke-width="1.4"/>
+    <text x="270" y="80" fill="#cdd6e6" text-anchor="middle" font-size="10">device_source_iq · slot N−1 window</text>
     <text x="270" y="92" fill="#9aa7bd" text-anchor="middle" font-size="9">first 23008 samples consumed by kernel reads, then discarded</text>
 
     <!-- Highlighted tail (last 32) — narrow strip on the right -->
@@ -2123,8 +2202,8 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <rect x="650" y="170" width="20" height="34" fill="rgba(255,180,84,0.55)" stroke="#ffb454" stroke-width="1.4"/>
     <text x="660" y="166" fill="#ffb454" text-anchor="middle" font-size="9">history · 32</text>
 
-    <rect x="670" y="170" width="280" height="34" fill="#13391f" stroke="#6fd08c" stroke-width="1.4"/>
-    <text x="810" y="190" fill="#cdd6e6" text-anchor="middle" font-size="10">in_buffer[k·count + 0 .. 23039]</text>
+    <rect x="670" y="170" width="280" height="34" fill="#0b101a" stroke="#5db1ff" stroke-width="1.4"/>
+    <text x="810" y="190" fill="#cdd6e6" text-anchor="middle" font-size="10">device_source_iq · slot N window</text>
     <text x="810" y="202" fill="#9aa7bd" text-anchor="middle" font-size="9">kernel reads here for read_idx ≥ 0</text>
 
     <!-- Slot N's own tail (will become slot N+1's ring) -->
@@ -2660,18 +2739,21 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <svg viewBox="0 0 1000 180" font-family="SF Mono,Menlo,monospace" font-size="11">
     <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram TA · three test layers, fast → slow, narrow → broad</text>
 
-    <rect x="60" y="40" width="880" height="36" rx="6" fill="#0b101a" stroke="#5db1ff"/>
-    <text x="80"  y="62" fill="#5db1ff" font-size="11">Layer 1 · ctest 4/4</text>
+    <!-- Layer 1: HOST class (runs locally, host-only on CPU build) -->
+    <rect x="60" y="40" width="880" height="36" rx="6" fill="#13391f" stroke="#6fd08c" stroke-width="1.6"/>
+    <text x="80"  y="62" fill="#6fd08c" font-size="11">Layer 1 · ctest 4/4</text>
     <text x="500" y="62" fill="#cdd6e6" text-anchor="middle" font-size="11">config · ring · processing (largest) · broker</text>
     <text x="920" y="62" fill="#9aa7bd" text-anchor="end" font-size="10">~3 s · per commit</text>
 
-    <rect x="60" y="86" width="880" height="36" rx="6" fill="#0b101a" stroke="#ffb454"/>
-    <text x="80"  y="108" fill="#ffb454" font-size="11">Layer 2 · gpu-test-sequence.sh 7/7</text>
+    <!-- Layer 2: DEVICE class (remote GPU + CUDA broker) -->
+    <rect x="60" y="86" width="880" height="36" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="80"  y="108" fill="#5db1ff" font-size="11">Layer 2 · gpu-test-sequence.sh 7/7</text>
     <text x="500" y="108" fill="#cdd6e6" text-anchor="middle" font-size="11">remote build + ctest + 5 relay scenarios on CUDA broker</text>
     <text x="920" y="108" fill="#9aa7bd" text-anchor="end" font-size="10">~2 min · pre-ship</text>
 
-    <rect x="60" y="132" width="880" height="36" rx="6" fill="#0b101a" stroke="#ff8aa3"/>
-    <text x="80"  y="154" fill="#ff8aa3" font-size="11">Layer 3 · OCUDU + srsRAN smoke</text>
+    <!-- Layer 3: EXTERNAL class (live real radio stacks outside this codebase) -->
+    <rect x="60" y="132" width="880" height="36" rx="6" fill="#181f2e" stroke="#cdd6e6" stroke-width="1.6"/>
+    <text x="80"  y="154" fill="#cdd6e6" font-size="11">Layer 3 · OCUDU + srsRAN smoke</text>
     <text x="500" y="154" fill="#cdd6e6" text-anchor="middle" font-size="11">Milestone A / B / C — live Docker gNB + UE attach + ping</text>
     <text x="920" y="154" fill="#9aa7bd" text-anchor="end" font-size="10">~5–10 min · milestone</text>
   </svg>
@@ -2782,39 +2864,41 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <text x="380" y="80" fill="#5db1ff" text-anchor="middle" font-size="11">chrono::steady_clock</text>
     <text x="380" y="96" fill="#9aa7bd" text-anchor="middle" font-size="9">per-stage CPU µs (align / read / pack / throttle)</text>
 
-    <!-- Row 2: GPU work (always-on, on every CUDA serve) -->
-    <rect x="40" y="118" width="160" height="44" rx="6" fill="#1a2233" stroke="#c98bff" stroke-width="2"/>
-    <text x="120" y="138" fill="#c98bff" text-anchor="middle" font-size="11">GPU kernels</text>
+    <!-- Row 2: GPU work (DEVICE class) -->
+    <rect x="40" y="118" width="160" height="44" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="120" y="138" fill="#5db1ff" text-anchor="middle" font-size="11">GPU kernels</text>
     <text x="120" y="154" fill="#9aa7bd" text-anchor="middle" font-size="9">apply_channel · superpose · rx</text>
 
-    <line x1="200" y1="140" x2="260" y2="140" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
+    <line x1="200" y1="140" x2="260" y2="140" stroke="#5db1ff" stroke-width="1.6" marker-end="url(#arr_on_b)"/>
 
-    <rect x="260" y="118" width="240" height="44" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="2"/>
+    <rect x="260" y="118" width="240" height="44" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
     <text x="380" y="138" fill="#5db1ff" text-anchor="middle" font-size="11">cudaEvent brackets</text>
     <text x="380" y="154" fill="#9aa7bd" text-anchor="middle" font-size="9">H2D / kernel / D2H per-phase µs</text>
 
-    <!-- Row 3: bench (on-demand, alternate driver) -->
-    <rect x="40" y="176" width="160" height="44" rx="6" fill="#1a2233" stroke="#ffb454" stroke-width="2" stroke-dasharray="5 3"/>
-    <text x="120" y="196" fill="#ffb454" text-anchor="middle" font-size="11">bench CLI</text>
-    <text x="120" y="212" fill="#9aa7bd" text-anchor="middle" font-size="9">no ZMQ, no broker</text>
+    <!-- Row 3: bench (FALLBACK modifier on HOST class — dashed green) -->
+    <rect x="40" y="176" width="160" height="44" rx="6" fill="#0b101a" stroke="#6fd08c" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <text x="120" y="196" fill="#6fd08c" text-anchor="middle" font-size="11">bench CLI</text>
+    <text x="120" y="212" fill="#9aa7bd" text-anchor="middle" font-size="9">on-demand · no ZMQ, no broker</text>
 
-    <line x1="200" y1="198" x2="260" y2="160" stroke="#ffb454" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arr_od)"/>
-    <text x="232" y="190" fill="#ffb454" font-size="9">reuses</text>
+    <line x1="200" y1="198" x2="260" y2="160" stroke="#6fd08c" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#arr_on)"/>
+    <text x="232" y="190" fill="#6fd08c" font-size="9">reuses</text>
 
-    <!-- Both timing sources merge into stdout stream -->
-    <line x1="500" y1="82"  x2="560" y2="100" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
-    <line x1="500" y1="140" x2="560" y2="120" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
+    <!-- Both timing sources merge into STREAM (stdout) -->
+    <line x1="500" y1="82"  x2="560" y2="100" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#arr_grey)"/>
+    <line x1="500" y1="140" x2="560" y2="120" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#arr_grey)"/>
 
-    <rect x="560" y="80" width="160" height="64" rx="6" fill="#0b101a" stroke="#ffb454" stroke-width="2"/>
+    <!-- STREAM class: amber rect (shared sink) -->
+    <rect x="560" y="80" width="160" height="64" rx="6" fill="#0b101a" stroke="#ffb454" stroke-width="1.6"/>
     <text x="640" y="100" fill="#ffb454" text-anchor="middle" font-size="11">stdout</text>
     <text x="640" y="116" fill="#cdd6e6" text-anchor="middle" font-size="9">event=cpu_stage_timings</text>
     <text x="640" y="128" fill="#cdd6e6" text-anchor="middle" font-size="9">event=gpu_timings · heartbeat</text>
     <text x="640" y="140" fill="#cdd6e6" text-anchor="middle" font-size="9">event=stats · stop · fatal</text>
 
     <!-- stdout → sink: log capture by harness -->
-    <line x1="720" y1="112" x2="800" y2="112" stroke="#6fd08c" stroke-width="1.6" marker-end="url(#arr_on)"/>
+    <line x1="720" y1="112" x2="800" y2="112" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#arr_grey)"/>
 
-    <rect x="800" y="80" width="160" height="64" rx="6" fill="#13391f" stroke="#6fd08c" stroke-width="2"/>
+    <!-- HOST class: results dir (host-side filesystem) -->
+    <rect x="800" y="80" width="160" height="64" rx="6" fill="#13391f" stroke="#6fd08c" stroke-width="1.6"/>
     <text x="880" y="100" fill="#6fd08c" text-anchor="middle" font-size="11">results/reports/</text>
     <text x="880" y="116" fill="#cdd6e6" text-anchor="middle" font-size="9">CSV + JSON aggregates</text>
     <text x="880" y="128" fill="#cdd6e6" text-anchor="middle" font-size="9">scripts/remote/perf-*.sh</text>
@@ -2824,9 +2908,13 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
     <g font-size="10">
       <line x1="60" y1="252" x2="84" y2="252" stroke="#6fd08c" stroke-width="1.6"/>
       <text x="92" y="256" fill="#9aa7bd">always-on (broker per-serve + 1 Hz heartbeat)</text>
-      <line x1="480" y1="252" x2="504" y2="252" stroke="#ffb454" stroke-width="1.6" stroke-dasharray="5 3"/>
-      <text x="512" y="256" fill="#9aa7bd">on-demand (bench CLI)</text>
+      <line x1="480" y1="252" x2="504" y2="252" stroke="#6fd08c" stroke-width="1.6" stroke-dasharray="4 3"/>
+      <text x="512" y="256" fill="#9aa7bd">on-demand fallback (bench CLI · §2.1 modifier)</text>
     </g>
+    <defs>
+      <marker id="arr_on_b" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/></marker>
+      <marker id="arr_grey" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#9aa7bd"/></marker>
+    </defs>
   </svg>
   <figcaption>Diagram N — instrumentation pipeline, 4 columns. Two
   <b>drivers</b> (broker = always-on, bench CLI = on-demand) push work
