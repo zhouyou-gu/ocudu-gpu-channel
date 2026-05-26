@@ -2291,6 +2291,22 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   return. See <a href="#scope">§21</a> for scope and the design plan at
   <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</p>
 
+  <p class="note"><b>Runtime mutability (Phase 3 v2.0).</b> Beyond the
+  v1 scalar params, the control plane accepts a
+  <code>type: "profile_swap"</code> message that replaces the entire
+  per-edge tap layout at runtime (full <code>taps[]</code> with optional
+  fading sub-config; up to <code>kDeviceMaxTaps = 32</code> taps).
+  Eligibility: by default the swap is rejected on edges whose chain
+  doesn't start with a <code>tdl</code> step; <code>force: true</code>
+  in the REQ overrides this (the snapped profile is stored but kernel
+  output is unchanged on non-tdl-leading chains until a YAML reload).
+  Both backends rebuild derived per-tap fields on the snap;
+  <code>compute_windowed_sinc_taps</code> is shared so post-warmup
+  CPU↔CUDA parity holds. Deterministic <code>take_effect_at_slot</code>
+  timing and an explicit delay-line warmup contract are v2.1 / v2.2.
+  See
+  <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel-v2.md"><code>docs/plans/runtime-mutable-channel-v2.md</code></a>.</p>
+
   <figure>
   <svg viewBox="0 0 1000 410" font-family="SF Mono,Menlo,monospace" font-size="12">
     <defs>
@@ -3829,6 +3845,26 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         deterministic <code>take_effect_at_slot</code> timing. Design
         plan + landed-scope details:
         <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel.md"><code>docs/plans/runtime-mutable-channel.md</code></a>.</li>
+
+    <li><b>Runtime-mutable channel parameters — v2.0 profile_swap (Phase 3 v2.0-F1…F3b, landed).</b>
+        New JSON message type <code>"profile_swap"</code> replaces the
+        whole per-edge tap layout at runtime (up to
+        <code>kDeviceMaxTaps = 32</code> taps + optional fading
+        sub-config). Eligibility: rejected by default on edges whose
+        chain doesn't start with a <code>tdl</code> step; opt-in via
+        <code>"force": true</code>. v1 scalar wire format unchanged
+        (<code>"type":"scalar"</code> defaulted when omitted). Both
+        backends ship a one-shot snap-and-refresh: CPU rebuilds
+        effective taps + polyphase from <code>live_profile</code>; CUDA
+        runs <code>refresh_all_taps_from_live</code> + a conditional
+        D2H+H2D round-trip on dirty edges, preserving the device-owned
+        cross-slot <code>delay_line</code>. CPU side has an end-to-end
+        impulse-+-echo parity test in
+        <code>ctest -R runtime_update_parity</code>. Deterministic
+        <code>take_effect_at_slot</code> timing (v2.1), delay-line
+        warmup contract (v2.2), and multi-link atomic batches (v2.3)
+        are separate increments. Design plan:
+        <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/plans/runtime-mutable-channel-v2.md"><code>docs/plans/runtime-mutable-channel-v2.md</code></a>.</li>
   </ul>
 
   <h3>Planned — operational flexibility</h3>
