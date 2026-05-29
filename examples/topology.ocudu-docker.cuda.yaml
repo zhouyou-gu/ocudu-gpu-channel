@@ -44,6 +44,11 @@ models:
             phase_rad: 0.0
       - type: phase
         phase_rad: 0.125
+      # 125 Hz: a deliberate carrier-frequency-offset impairment kept below the
+      # cold-Msg3 RACH tolerance (~155 Hz on the validation host) so the live
+      # srsUE attach completes. The cold Msg3 PUSCH is decoded before the gNB
+      # locks per-UE frequency tracking, so a larger CFO can break contention
+      # resolution; established traffic tolerates much more. See AGENT_PROGRESS.
       - type: cfo
-        cfo_hz: 250
+        cfo_hz: 125
         phase_rad: 0
