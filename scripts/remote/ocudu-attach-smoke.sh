@@ -14,6 +14,11 @@ sync_worktree="${OCUDU_ATTACH_SYNC_WORKTREE:-1}"
 # Override the broker topology with OCUDU_ATTACH_TOPOLOGY (path is relative
 # to the project root, e.g. examples/topology.ocudu-docker.tx-offset.cuda.yaml).
 topology_rel="${OCUDU_ATTACH_TOPOLOGY:-examples/topology.ocudu-docker.cuda.yaml}"
+# Run the broker as a Docker image instead of the native build. Empty (default)
+# = native binary from the CUDA build dir; non-empty = `docker run --gpus all
+# --network host <image>` (e.g. OCUDU_ATTACH_BROKER_IMAGE=ocudu-gpu-channel:latest).
+# Exercises the containerised broker against the live OCUDU + srsUE attach.
+broker_image="${OCUDU_ATTACH_BROKER_IMAGE:-}"
 
 if [[ -z "${branch}" ]]; then
   echo "unable to determine current branch" >&2
@@ -48,7 +53,8 @@ remote_sh bash -s -- \
   "${build_docker}" \
   "${srsran_ref}" \
   "${skip_remote_pull}" \
-  "${topology_rel}" <<'REMOTE'
+  "${topology_rel}" \
+  "${broker_image}" <<'REMOTE'
 set -euo pipefail
 
 workspace="$1"
@@ -63,6 +69,9 @@ build_docker="$9"
 srsran_ref="${10}"
 skip_remote_pull="${11}"
 topology_rel="${12}"
+# Default-empty: an empty trailing arg can be dropped in ssh transport, so
+# tolerate only 12 positionals arriving (native broker, the default mode).
+broker_image="${13:-}"
 
 expand_remote_path() {
   case "$1" in
@@ -315,6 +324,9 @@ cleanup() {
   set +e
   if [[ -n "${srsue_pid}" ]]; then kill "${srsue_pid}" >/dev/null 2>&1; fi
   if [[ -n "${broker_pid}" ]]; then kill "${broker_pid}" >/dev/null 2>&1; fi
+  # Force-remove the broker container if running in image mode (a SIGKILL'd
+  # `docker run` can leave the --rm container behind).
+  if [[ -n "${broker_image}" ]]; then docker rm -f ocudu_broker_smoke >/dev/null 2>&1; fi
   docker rm -f ocudu_srsue >/dev/null 2>&1
   docker cp ocudu_gnb:/tmp/gnb.log "${log_dir}/ocudu-gnb-internal.log" >/dev/null 2>&1
   docker cp ocudu_gnb:/tmp/gnb_mac.pcap "${log_dir}/gnb_mac.pcap" >/dev/null 2>&1
@@ -347,10 +359,27 @@ wait_for_open5gs
 # The broker runs without --strict-realtime: this script reads the counters
 # from its event=stop line and applies its own verdict (see below), treating
 # rx_starvations as a soft realtime-margin signal rather than a hard failure.
-"${cuda_build}/ocudu-gpu-channel" \
-  --config "${project_root}/${topology_rel}" \
-  --duration "${duration_seconds}s" >"${log_dir}/broker.log" 2>&1 &
-broker_pid="$!"
+#
+# Native binary by default; with OCUDU_ATTACH_BROKER_IMAGE set, run the
+# containerised broker instead. --network host gives the container the same
+# host-namespace ZMQ binding the native binary has (so the gNB reaches it on
+# host.docker.internal identically); --gpus all attaches the GPU; the project
+# tree is mounted read-only so the same topology path resolves inside.
+if [[ -z "${broker_image}" ]]; then
+  "${cuda_build}/ocudu-gpu-channel" \
+    --config "${project_root}/${topology_rel}" \
+    --duration "${duration_seconds}s" >"${log_dir}/broker.log" 2>&1 &
+  broker_pid="$!"
+else
+  echo "broker mode: container image ${broker_image}" >"${log_dir}/broker-mode.txt"
+  docker run --rm --name ocudu_broker_smoke \
+    --gpus all --network host \
+    -v "${project_root}:/work:ro" \
+    "${broker_image}" \
+    --config "/work/${topology_rel}" \
+    --duration "${duration_seconds}s" >"${log_dir}/broker.log" 2>&1 &
+  broker_pid="$!"
+fi
 
 "${compose[@]}" up -d gnb >"${log_dir}/docker-gnb-up.log" 2>&1
 sleep 3
