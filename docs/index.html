@@ -4133,6 +4133,71 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   itself measures the full pipeline. Both rows are reported in the
   <a href="#perf">performance section</a> so the gap is visible.</p>
 
+  <h3 id="container">21.2 Containerised deployment</h3>
+  <p>The repo ships a multi-stage <code>Dockerfile</code> at the root that
+  packages the broker and the companion CLIs
+  (<code>ocudu-gpu-channel-bench</code>, <code>ocudu-zmq-source</code>,
+  <code>ocudu-zmq-sink</code>) and bakes the example topologies into the
+  image at <code>/opt/ocudu/examples</code>. The runtime is well-suited to
+  containerisation: it has no hardcoded host paths and is entirely
+  CLI-driven (<code>--config</code>, <code>--control-endpoint</code>,
+  <code>--telemetry-endpoint</code>, …), so the only host coupling is the
+  GPU and the ZMQ sockets.</p>
+
+  <p><b>Two-stage image.</b> A <code>build</code> stage on
+  <code>nvidia/cuda:&lt;ver&gt;-devel</code> installs
+  <code>cmake&nbsp;pkg-config&nbsp;libzmq3-dev</code> and compiles everything
+  (apps + the eight ctest targets); a slim <code>runtime</code> stage on
+  <code>nvidia/cuda:&lt;ver&gt;-runtime</code> carries only
+  <code>libzmq5</code>, the four binaries, and the examples, running as a
+  non-root <code>ocudu</code> user. Prerequisite for GPU access is the NVIDIA
+  Container Toolkit on the host — the image ships the CUDA runtime libraries,
+  the host provides the driver.</p>
+
+  <table>
+    <tr><th>Build arg</th><th>Default</th><th>Why it exists (portability)</th></tr>
+    <tr><td><code>CUDA_ARCH</code></td>
+        <td><code>80-real;86-real;89-real;90-real;120-real;80-virtual</code></td>
+        <td>Multi-arch by default: native SASS for Ampere → Blackwell plus
+        PTX from compute_80, so any GPU ≥ 8.0 not in the list JIT-compiles at
+        first launch. Override to a single arch (e.g.
+        <code>90-real</code>) for a smaller, faster build.</td></tr>
+    <tr><td><code>CUDA_VER</code></td>
+        <td><code>12.8.1</code></td>
+        <td>Selects the CUDA base image. The host driver must support this
+        runtime version; lower it to match an older driver, and drop
+        <code>120-real</code> since Blackwell needs CUDA ≥ 12.8.</td></tr>
+    <tr><td><code>ENABLE_CUDA</code></td>
+        <td><code>ON</code></td>
+        <td>Set <code>OFF</code> (with <code>DEVEL_BASE</code> /
+        <code>RUNTIME_BASE</code> pointed at <code>ubuntu:24.04</code>) for a
+        GPU-less image on hosts without an NVIDIA GPU — CI, macOS, AMD,
+        laptops. The CPU backend is always built.</td></tr>
+  </table>
+
+  <p><b>Run contract.</b> On a Linux host, host networking matches what the
+  live srsRAN gNB already expects (<code>tcp://host.docker.internal</code>):</p>
+  <pre><code>docker build -t ocudu-gpu-channel:latest .
+docker run --rm --gpus all --network host ocudu-gpu-channel:latest \
+  --config /opt/ocudu/examples/topology.mvp.cuda.yaml --duration 15s</code></pre>
+  <p class="key">On non-host networking (Docker Desktop), publish the control
+  plane with <code>-p 5559:5559 -p 5560:5560</code> plus the per-node data
+  endpoints instead. <b>Real-time caveat:</b> prefer <code>--cpuset-cpus</code>
+  CPU pinning over a <code>--cpus</code> quota — a CFS quota can inject
+  scheduling stalls the broker surfaces as <code>rx_starvations</code>.</p>
+
+  <p><b>Testing in the container.</b> Because <code>docker build</code> has no
+  GPU access, the CUDA-gated tests (<code>hardware_probe</code>,
+  <code>runtime_update_parity</code>, <code>broker</code>) cannot run in a
+  build-time layer; they run post-build against the <code>build</code> target
+  with a GPU attached:</p>
+  <pre><code>docker build --target build -t ocudu-gpu-channel:build .
+docker run --rm --gpus all --entrypoint bash ocudu-gpu-channel:build \
+  -c 'cd /src/build &amp;&amp; ctest --output-on-failure'   # 8/8 on RTX 5090</code></pre>
+  <p class="key">The multi-arch list is compiled for every target but only
+  arch <code>120</code> (the RTX 5090) is hardware-validated; the other arches
+  are built but unverified for lack of the hardware.</p>
+
 
   <!-- ============ PART VII: Scope ============ -->
   <h2 class="part-divider" id="part-vii">Part VII &mdash; Scope</h2>

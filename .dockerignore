@@ -1,0 +1,42 @@
+# Keep the build context small + fast. The image needs only the source tree
+# required by CMake: CMakeLists.txt, src/, include/, apps/, tests/, examples/.
+
+# Version control
+.git
+.gitignore
+
+# Local build outputs (rebuilt inside the image)
+build
+build-*
+out
+cmake-build-*
+Testing
+
+# Downloaded reference material -- ~350 MB of 3GPP specs, papers, and
+# third-party source clones. Never needed in the image; biggest context win.
+references
+
+# Docs, design artifacts, and the published page -- not part of the runtime
+docs
+*.md
+LICENSE
+
+# Run artifacts / generated data
+results
+artifacts
+datasets
+tmp
+*.log
+*.pcap
+*.pcapng
+
+# Local tooling and editor/OS noise
+.claude
+.playwright-mcp
+.config
+writing
+.DS_Store
+
+# The Docker files themselves
+Dockerfile
+.dockerignore

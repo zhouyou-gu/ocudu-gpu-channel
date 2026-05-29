@@ -138,6 +138,46 @@ The **CUDA backend builds automatically when `nvcc` is on PATH** at configure
 time. Without CUDA, only the CPU backend is built and a `backend: cuda` config
 is rejected at load.
 
+## Run in Docker
+
+The repo ships a multi-stage [`Dockerfile`](Dockerfile) that builds the broker
+and bakes in the example topologies. Requires the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+on the host for `--gpus all`.
+
+```sh
+# Build the GPU image (multi-arch by default: Ampere -> Blackwell + PTX).
+docker build -t ocudu-gpu-channel:latest .
+
+# Run the broker on a baked-in example (Linux host networking).
+docker run --rm --gpus all --network host ocudu-gpu-channel:latest \
+  --config /opt/ocudu/examples/topology.mvp.cuda.yaml --duration 15s
+```
+
+Tune for your hardware and host:
+
+```sh
+# Faster build for one known GPU (e.g. H100 = sm_90):
+docker build --build-arg CUDA_ARCH=90-real -t ocudu-gpu-channel:h100 .
+
+# CPU-only image — no NVIDIA GPU, CI, Mac, or AMD:
+docker build \
+  --build-arg ENABLE_CUDA=OFF \
+  --build-arg DEVEL_BASE=ubuntu:24.04 \
+  --build-arg RUNTIME_BASE=ubuntu:24.04 \
+  -t ocudu-gpu-channel:cpu .
+```
+
+`CUDA_VER` (default `12.8.1`) selects the CUDA base image — lower it to match
+an older host driver, dropping `120-real` from `CUDA_ARCH` since Blackwell
+needs CUDA ≥ 12.8. The container runs as a non-root `ocudu` user.
+
+On non-host networking (Docker Desktop), publish the control plane instead:
+`-p 5559:5559 -p 5560:5560` plus your per-node data endpoints. For real-time
+runs, prefer `--cpuset-cpus` pinning over a `--cpus` quota (a CFS quota can
+inject scheduling stalls). The deeper [technical reference
+§21.2](docs/index.html#container) covers the run contract in full.
+
 ## Benchmark
 
 ```sh

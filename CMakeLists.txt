@@ -57,11 +57,14 @@ target_compile_definitions(ocudu_gpu_channel_lib PUBLIC
   OCUDU_GPU_CHANNEL_HAS_CUDA=${OCUDU_GPU_CHANNEL_HAS_CUDA}
 )
 # v3.2: surface the CUDA arch target to C++ so kernel_target_sm() can
-# report it without re-parsing the cache. CMake's
-# CUDA_ARCHITECTURES is a list ("120;90;..."); take the first entry as
-# the canonical target for the strict-mode SM check.
+# report it without re-parsing the cache. CMake's CUDA_ARCHITECTURES is a
+# list ("120;90;...") whose entries may carry -real / -virtual decoration
+# ("80-real;90-virtual;..."); take the first entry and strip any decoration
+# so the C++ macro is a bare integer (the lowest compiled SASS arch, i.e.
+# the SM floor the strict-mode check compares the runtime device against).
 if(OCUDU_GPU_CHANNEL_HAS_CUDA)
   list(GET OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES 0 _ocg_first_sm)
+  string(REGEX MATCH "^[0-9]+" _ocg_first_sm "${_ocg_first_sm}")
   target_compile_definitions(ocudu_gpu_channel_lib PUBLIC
     OCUDU_GPU_CHANNEL_KERNEL_SM=${_ocg_first_sm}
   )
