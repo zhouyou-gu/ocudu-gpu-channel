@@ -414,7 +414,7 @@ int main()
   // ── v2.1: take_effect_at_slot defers a scalar update by N slots ───────
   // Drives the same path_loss chain as the v2.0-F3 block. Runs one warm-up
   // slot (so process_superposition lazily creates the lookup-keyed link
-  // state for `gnb0>ue0`), then writes a path_loss update with
+  // state for the canonical link key), then writes a path_loss update with
   // take_effect_at_slot = 4. Slots 1..3 see the YAML default; slot 4 sees
   // the deferred update (-20 dB → 10x amplitude).
   {
@@ -428,7 +428,7 @@ int main()
         {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}};
 
     // Warm-up slot 0 → ensures the link's per-edge state is lazily
-    // created with the "gnb0>ue0" key the helpers use. After this call
+    // created with the canonical link key the helpers use. After this call
     // the link's next_slot is 1.
     auto warm = run_slot(tea_cpu, tea_model, unit);
     require(near_float(warm[0].i, 1.0F), "v2.1: warm-up slot 0 sees default");
@@ -471,8 +471,8 @@ int main()
         {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F},
         {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 0.0F}};
 
-    // Warm-up slot 0 lazily creates the link state with the "gnb0>ue0"
-    // key the helpers expect.
+    // Warm-up slot 0 lazily creates the link state with the canonical
+    // link key the helpers expect (test_link_key()).
     (void)run_slot(warm_cpu, warm_model, unit);
 
     // Redirect std::cout into a stringstream so the assertion can grep
@@ -559,7 +559,7 @@ int main()
 
     const std::vector<ocg::IqSample> input(8, {1.0F, 0.0F});
 
-    // Warm-up so the lazy-created "gnb0>ue0" state exists.
+    // Warm-up so the lazy-created canonical-key state exists.
     (void)run_slot(proc, model, input);
 
     // Capture stdout to grep for the warning.
