@@ -1,5 +1,5 @@
 .config
-
+.agents/
 # Local build outputs.
 /build/
 /build-*/
