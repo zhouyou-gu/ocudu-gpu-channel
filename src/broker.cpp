@@ -461,18 +461,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     node.batch = ports[representative]->batch;
     node_by_id.emplace(node.id, n);
 
-    // Nt > 1 is served from M1.5: both backends now key their per-lane state
-    // off the same resolved lane table, so every lane of a multi-TX-port radio
-    // has state of its own.
-    //
-    // Nr > 1 still needs the CUDA superposition kernel to produce rows
-    // (M1.6). The CUDA backend rejects it itself, but the check is repeated
-    // here so a CPU-backed run also fails loudly rather than quietly applying
-    // one receiver-model state to several rows.
-    if (declared.rx_ports.size() > 1) {
-      throw std::runtime_error("radio node " + node.id +
-                               " has Nr > 1; multi-row output lands in M1.6");
-    }
+
   }
 
   // Publish the resolved membership and ordering so the canonical matrix index

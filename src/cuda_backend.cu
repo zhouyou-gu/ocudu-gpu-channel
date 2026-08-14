@@ -7,6 +7,7 @@
 #include "ocudu_gpu_channel/runtime_control.h"
 #include <algorithm>
 #include <chrono>
+#include <deque>
 #include <cmath>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -179,17 +180,23 @@ __global__ void apply_steps_kernel(const IqSample* input,
 __global__ void superpose_kernel(IqSample* dst,
                                  std::size_t count,
                                  int link_count,
+                                 int nr,
+                                 const int* row_begin,
                                  const IqSample* staged,
                                  const GpuStep* steps,
                                  const int* step_meta)
 {
   const std::size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= count) {
+  const int r = static_cast<int>(blockIdx.y);
+  if (idx >= count || r >= nr) {
     return;
   }
+  // Lanes are grouped by destination row, so row r owns exactly
+  // [row_begin[r], row_begin[r+1]). The grouping is built at prepare time by a
+  // STABLE sort, which fixes the summation order and with it CPU/CUDA parity.
   float acc_i = 0.0F;
   float acc_q = 0.0F;
-  for (int k = 0; k != link_count; ++k) {
+  for (int k = row_begin[r]; k != row_begin[r + 1]; ++k) {
     const IqSample sample = staged[static_cast<std::size_t>(k) * count + idx];
     float i = sample.i;
     float q = sample.q;
@@ -197,7 +204,7 @@ __global__ void superpose_kernel(IqSample* dst,
     acc_i += i;
     acc_q += q;
   }
-  dst[idx] = {acc_i, acc_q};
+  dst[static_cast<std::size_t>(r) * count + idx] = {acc_i, acc_q};
 }
 
 void check(cudaError_t status, const char* operation)
@@ -288,7 +295,12 @@ struct CudaSuperposeState {
   IqSample* device_output = nullptr;
   GpuStep* device_steps = nullptr;
   int* device_step_meta = nullptr;    // 2*max_links: offsets then counts
-  GpuStep* device_rx_steps = nullptr; // receiver-model chain (may be unused)
+  GpuStep* device_rx_steps = nullptr; // receiver-model chains, rows * rx_step_capacity
+  // Output rows (Nr) and the row->lane index boundaries the kernel reads.
+  std::size_t rows = 1;
+  std::vector<int> host_row_begin;   // rows + 1 entries
+  int* device_row_begin = nullptr;
+  std::size_t rx_step_capacity = 0;
   // Per-(dst_node x incoming edge) device-side link state consumed by
   // apply_channel_kernel. Populated in prepare(); used at serve time
   // whenever sp.use_device_channel is true (every incoming edge has a
@@ -321,7 +333,12 @@ struct CudaSuperposeState {
   cudaEvent_t h2d_done = nullptr;
   cudaEvent_t kernel_done = nullptr;
   cudaEvent_t d2h_done = nullptr;
-  LinkModelState rx_model; // receiver-model state; step_capacity 0 = no rx model
+  // Receiver-model state, one per output ROW. Sibling rows must not share the
+  // receiver chain's CFO phase and AWGN counters.
+  //
+  // deque, not vector: LinkModelState holds a BrokerLinkControl with a
+  // non-movable atomic, so a growing vector could not relocate its elements.
+  std::deque<LinkModelState> rx_models;
   std::vector<GpuStep> host_steps;
   std::vector<int> host_step_meta;
 };
@@ -343,6 +360,8 @@ void free_superpose_state(CudaSuperposeState& state)
   if (state.host_source_iq != nullptr)     { cudaFreeHost(state.host_source_iq);  state.host_source_iq = nullptr; }
   if (state.device_link_states != nullptr) { cudaFree(state.device_link_states);  state.device_link_states = nullptr; }
   if (state.device_rx_steps != nullptr)    { cudaFree(state.device_rx_steps);     state.device_rx_steps = nullptr; }
+  if (state.device_row_begin != nullptr)   { cudaFree(state.device_row_begin);    state.device_row_begin = nullptr; }
+  state.rx_models.clear();
   if (state.device_step_meta != nullptr)   { cudaFree(state.device_step_meta);    state.device_step_meta = nullptr; }
   if (state.device_steps != nullptr)       { cudaFree(state.device_steps);        state.device_steps = nullptr; }
   if (state.device_output != nullptr)      { cudaFree(state.device_output);       state.device_output = nullptr; }
@@ -465,12 +484,14 @@ public:
       free_superpose_state(sp);
       sp.capacity = capacity;
       sp.max_links = incoming;
+      sp.rows = std::max<std::size_t>(1, node.rx_ports.size());
       sp.max_steps = std::max<std::size_t>(1, max_steps);
       sp.host_steps.assign(incoming * sp.max_steps, GpuStep{});
       sp.host_step_meta.assign(2 * incoming, 0);
 
       const std::size_t staged_bytes = incoming * capacity * sizeof(IqSample);
-      const std::size_t out_bytes = capacity * sizeof(IqSample);
+      // One row of output per RX port.
+      const std::size_t out_bytes = sp.rows * capacity * sizeof(IqSample);
       check(cudaHostAlloc(reinterpret_cast<void**>(&sp.host_staged), staged_bytes, cudaHostAllocDefault),
             "cudaHostAlloc superpose staged");
       check(cudaHostAlloc(reinterpret_cast<void**>(&sp.host_output), out_bytes, cudaHostAllocDefault),
@@ -487,16 +508,46 @@ public:
       check(cudaEventCreate(&sp.kernel_done), "cudaEventCreate superpose kernel_done");
       check(cudaEventCreate(&sp.d2h_done), "cudaEventCreate superpose d2h_done");
 
+      // Row boundaries. The resolved lane table is already stable-sorted by
+      // (destination node, rx_port), so walking this node's lanes in order
+      // yields contiguous rows and the boundaries fall out of a counting pass.
+      sp.host_row_begin.assign(sp.rows + 1, 0);
+      {
+        std::vector<int> per_row(sp.rows, 0);
+        for (const auto& lane : resolved.lanes) {
+          if (lane.dst_node != node.id) continue;
+          if (find_model(config, lane.model_id) == nullptr) continue;
+          if (lane.rx_port < 0 || static_cast<std::size_t>(lane.rx_port) >= sp.rows) {
+            throw std::runtime_error("lane rx_port is outside the node's RX ports: " + lane.key);
+          }
+          ++per_row[static_cast<std::size_t>(lane.rx_port)];
+        }
+        for (std::size_t r = 0; r != sp.rows; ++r) {
+          sp.host_row_begin[r + 1] = sp.host_row_begin[r] + per_row[r];
+        }
+      }
+      check(cudaMalloc(reinterpret_cast<void**>(&sp.device_row_begin),
+                       (sp.rows + 1) * sizeof(int)),
+            "cudaMalloc superpose row_begin");
+      check(cudaMemcpy(sp.device_row_begin, sp.host_row_begin.data(),
+                       (sp.rows + 1) * sizeof(int), cudaMemcpyHostToDevice),
+            "cudaMemcpy superpose row_begin H2D");
+
       // Optional receiver model (a thermal-noise floor) applied after the sum.
       // One state here, which is correct while Nr = 1 -- and Nr > 1 is still
       // rejected in process_superposition until M1.6 gives the kernel rows.
       // M1.6 grows this to one state per row, keyed by rx_state_key().
       const auto* rx = node.rx_model.empty() ? nullptr : find_model(config, node.rx_model);
       if (rx != nullptr) {
-        init_model_state(sp.rx_model, rx->chain.size(),
-                         rx_state_key(node.id, 0, static_cast<int>(node.rx_ports.size())));
+        sp.rx_step_capacity = std::max<std::size_t>(1, rx->chain.size());
+        sp.rx_models.clear();
+        const int nr = static_cast<int>(sp.rows);
+        for (std::size_t r = 0; r != sp.rows; ++r) {
+          init_model_state(sp.rx_models.emplace_back(), rx->chain.size(),
+                           rx_state_key(node.id, static_cast<int>(r), nr));
+        }
         check(cudaMalloc(reinterpret_cast<void**>(&sp.device_rx_steps),
-                         std::max<std::size_t>(1, rx->chain.size()) * sizeof(GpuStep)),
+                         sp.rows * sp.rx_step_capacity * sizeof(GpuStep)),
               "cudaMalloc superpose rx steps");
       }
 
@@ -618,29 +669,48 @@ public:
     if (outputs.empty()) {
       return;
     }
-    // M0 plumbs the multi-row signature through without touching a kernel.
-    // `superpose_kernel` still reduces every lane into one row, and
-    // `device_output` is sized for one row, so more than one row cannot be
-    // served yet. M1 extends the kernel to grid.y = Nr and lifts this.
-    if (outputs.size() != 1) {
-      throw std::runtime_error("CUDA superposition supports a single output row until M1");
-    }
-    const std::span<IqSample> output = outputs[0];
-    if (output.empty()) {
-      return;
-    }
     auto sp_it = superpose_states_.find(dst_key);
     if (sp_it == superpose_states_.end()) {
       throw std::runtime_error("CUDA superposition state was not preallocated: " + dst_key);
     }
     auto& sp = sp_it->second;
-    const std::size_t count = output.size();
+    if (outputs.size() != sp.rows) {
+      throw std::runtime_error("CUDA superposition row count does not match the prepared node: " +
+                               dst_key);
+    }
+    const std::size_t count = outputs[0].size();
+    for (const auto& row : outputs) {
+      if (row.size() != count) {
+        throw std::runtime_error("CUDA superposition output rows have unequal lengths");
+      }
+    }
+    if (count == 0) {
+      return;
+    }
     if (count > sp.capacity) {
       throw std::runtime_error("CUDA superposition batch exceeds preallocated capacity");
     }
     if (inputs.empty()) {
-      std::fill(output.begin(), output.end(), IqSample{});
+      for (const auto& row : outputs) {
+        std::fill(row.begin(), row.end(), IqSample{});
+      }
       return;
+    }
+    // The broker hands lanes in resolved order, which is grouped by rx_port,
+    // so the k-th input is the k-th lane the row boundaries were built from.
+    // Verify rather than assume: a mismatch here would silently sum the wrong
+    // lanes into a row.
+    if (static_cast<std::size_t>(sp.host_row_begin.back()) != inputs.size()) {
+      throw std::runtime_error("CUDA superposition lane count does not match the prepared rows: " +
+                               dst_key);
+    }
+    for (std::size_t r = 0; r != sp.rows; ++r) {
+      for (int k = sp.host_row_begin[r]; k != sp.host_row_begin[r + 1]; ++k) {
+        if (inputs[static_cast<std::size_t>(k)].rx_port != static_cast<int>(r)) {
+          throw std::runtime_error("CUDA superposition inputs are not grouped by rx_port: " +
+                                   dst_key);
+        }
+      }
     }
     if (inputs.size() > sp.max_links) {
       throw std::runtime_error("CUDA superposition edge count exceeds preallocated capacity");
@@ -848,11 +918,16 @@ public:
     // floor, so its AWGN should use an absolute noise_power -- it is built with
     // no input signal.
     int rx_steps = 0;
+    const std::size_t rx_stride = sp.rx_step_capacity;
     if (rx_model != nullptr) {
-      if (rx_model->chain.size() > sp.rx_model.step_capacity) {
+      if (sp.rx_models.empty() || rx_model->chain.size() > sp.rx_models.front().step_capacity) {
         throw std::runtime_error("CUDA superposition rx_model chain exceeds preallocated capacity");
       }
-      build_steps(sp.rx_model, *rx_model, nullptr, count, sample_rate_hz);
+      // One build per row: each row advances its own CFO phase and AWGN
+      // counters, so they must not share state.
+      for (std::size_t r = 0; r != sp.rows; ++r) {
+        build_steps(sp.rx_models[r], *rx_model, nullptr, count, sample_rate_hz);
+      }
       rx_steps = static_cast<int>(rx_model->chain.size());
     }
 
@@ -882,9 +957,12 @@ public:
                           static_cast<std::size_t>(2 * link_count) * sizeof(int), cudaMemcpyHostToDevice, sp.stream),
           "cudaMemcpyAsync superpose step meta H2D");
     if (rx_steps != 0) {
-      check(cudaMemcpyAsync(sp.device_rx_steps, sp.rx_model.host_steps.data(),
-                            static_cast<std::size_t>(rx_steps) * sizeof(GpuStep), cudaMemcpyHostToDevice, sp.stream),
-            "cudaMemcpyAsync superpose rx steps H2D");
+      for (std::size_t r = 0; r != sp.rows; ++r) {
+        check(cudaMemcpyAsync(sp.device_rx_steps + r * rx_stride, sp.rx_models[r].host_steps.data(),
+                              static_cast<std::size_t>(rx_steps) * sizeof(GpuStep),
+                              cudaMemcpyHostToDevice, sp.stream),
+              "cudaMemcpyAsync superpose rx steps H2D");
+      }
     }
     check(cudaEventRecord(sp.h2d_done, sp.stream), "cudaEventRecord superpose h2d_done");
 
@@ -917,23 +995,35 @@ public:
     // than an auto-tuned knob. Revisit when the multi-tap `tdl` kernel lands
     // and tap-count fan-out changes the register pressure picture.
     constexpr int block_size = 256;
-    const int grid_size = static_cast<int>((count + block_size - 1) / block_size);
-    superpose_kernel<<<grid_size, block_size, 0, sp.stream>>>(sp.device_output, count, link_count, sp.device_staged,
-                                                              sp.device_steps, sp.device_step_meta);
+    const dim3 grid(static_cast<unsigned>((count + block_size - 1) / block_size),
+                    static_cast<unsigned>(sp.rows));
+    superpose_kernel<<<grid, block_size, 0, sp.stream>>>(
+        sp.device_output, count, link_count, static_cast<int>(sp.rows), sp.device_row_begin,
+        sp.device_staged, sp.device_steps, sp.device_step_meta);
     check(cudaGetLastError(), "superpose_kernel launch");
     if (rx_steps != 0) {
-      // Receiver model applied in place to the summed signal.
-      apply_steps_kernel<<<grid_size, block_size, 0, sp.stream>>>(sp.device_output, sp.device_output, count,
-                                                                 sp.device_rx_steps, rx_steps);
+      // Receiver model applied in place, once per row against that row's own
+      // chain state. Nr is small, so a launch per row costs less than the
+      // machinery a row-aware variant of this kernel would need.
+      const int row_grid = static_cast<int>((count + block_size - 1) / block_size);
+      for (std::size_t r = 0; r != sp.rows; ++r) {
+        IqSample* row = sp.device_output + r * count;
+        apply_steps_kernel<<<row_grid, block_size, 0, sp.stream>>>(
+            row, row, count, sp.device_rx_steps + r * rx_stride, rx_steps);
+      }
       check(cudaGetLastError(), "superpose rx kernel launch");
     }
     check(cudaEventRecord(sp.kernel_done, sp.stream), "cudaEventRecord superpose kernel_done");
 
-    check(cudaMemcpyAsync(sp.host_output, sp.device_output, sample_bytes, cudaMemcpyDeviceToHost, sp.stream),
+    check(cudaMemcpyAsync(sp.host_output, sp.device_output, sp.rows * sample_bytes,
+                          cudaMemcpyDeviceToHost, sp.stream),
           "cudaMemcpyAsync superpose D2H");
     check(cudaEventRecord(sp.d2h_done, sp.stream), "cudaEventRecord superpose d2h_done");
     check(cudaStreamSynchronize(sp.stream), "cudaStreamSynchronize superpose");
-    std::copy(sp.host_output, sp.host_output + count, output.begin());
+    for (std::size_t r = 0; r != sp.rows; ++r) {
+      const IqSample* row = sp.host_output + r * count;
+      std::copy(row, row + count, outputs[r].begin());
+    }
 
     record_timings(sp.h2d_start, sp.h2d_done, sp.kernel_done, sp.d2h_done, total_start,
                    sp.use_device_channel);

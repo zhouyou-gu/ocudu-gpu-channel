@@ -1026,6 +1026,115 @@ int main()
   }
 #endif
 
+  // ---- M1.6: multi-row output (Nr > 1) ------------------------------------
+  //
+  // The marker test in miniature: distinguishable IQ on each TX port, a SWAP
+  // matrix, and the requirement that row r carries the signal of tx port
+  // 1 - r. A port-order mistake, a row-boundary mistake, or a source-dedup
+  // mistake all fail here, and none of them would show up as a crash.
+  {
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = 8;
+    cfg.runtime.queue_samples = 64;
+    int port = 2000;
+    for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = 23040000;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    }
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    gnb.tx_ports = {"gnb_p0", "gnb_p1"};
+    gnb.rx_ports = {"gnb_p0", "gnb_p1"};
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    ue.tx_ports = {"ue_p0", "ue_p1"};
+    ue.rx_ports = {"ue_p0", "ue_p1"};
+    cfg.radio_nodes = {gnb, ue};
+    // Both directions: the validator requires every device to be reachable as
+    // a source and as a destination, which is a real relay invariant.
+    ocg::LinkConfig dl;
+    dl.from = "gnb";
+    dl.to = "ue";
+    dl.model = "h_swap";
+    ocg::LinkConfig ul;
+    ul.from = "ue";
+    ul.to = "gnb";
+    ul.model = "h_swap";
+    cfg.links = {dl, ul};
+
+    ocg::ModelConfig h;
+    h.id = "h_swap";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    h.chain.push_back(step);
+    h.fixed_mimo_declared = true;
+    h.fixed_mimo = {{.tap = 0, .rx = 0, .tx = 1, .real = 1.0, .imag = 0.0},
+                    {.tap = 0, .rx = 1, .tx = 0, .real = 1.0, .imag = 0.0}};
+    cfg.models.emplace("h_swap", h);
+
+    require(ocg::validate_config(cfg).empty(), "M1.6: 2x2 swap topology validates");
+    ocg::expand_fixed_mimo_models(cfg);
+    const auto resolved = ocg::resolve_topology(cfg);
+    require(resolved.lanes.size() == 4,
+            "M1.6: swap H keeps two off-diagonal lanes per direction");
+
+    // Distinguishable per-port markers: port 0 carries +1, port 1 carries -1.
+    ocg::IqBuffer port0(8, ocg::IqSample{1.0F, 0.0F});
+    ocg::IqBuffer port1(8, ocg::IqSample{-1.0F, 0.0F});
+
+    std::vector<ocg::SuperpositionInput> lanes;
+    for (const auto& lane : resolved.lanes) {
+      if (lane.dst_node != "ue") {
+        continue;
+      }
+      const auto* model = ocg::find_model(cfg, lane.model_id);
+      require(model != nullptr, "M1.6: lane model exists after expansion");
+      lanes.push_back({.link_key = lane.key,
+                       .model = model,
+                       .samples = lane.tx_port == 0 ? std::span<const ocg::IqSample>(port0)
+                                                    : std::span<const ocg::IqSample>(port1),
+                       .rx_port = lane.rx_port,
+                       .tx_port = lane.tx_port});
+    }
+
+    ocg::IqBuffer row0(8), row1(8);
+    std::span<ocg::IqSample> rows[2] = {row0, row1};
+
+    ocg::CpuChannelProcessor cpu;
+    cpu.prepare(cfg);
+    cpu.process_superposition("ue", lanes, nullptr, 23040000,
+                              std::span<std::span<ocg::IqSample>>(rows));
+
+    for (std::size_t k = 0; k != 8; ++k) {
+      require(std::abs(row0[k].i - (-1.0F)) < 1e-6F && std::abs(row0[k].q) < 1e-6F,
+              "M1.6: swap H puts tx port 1's marker on row 0");
+      require(std::abs(row1[k].i - 1.0F) < 1e-6F && std::abs(row1[k].q) < 1e-6F,
+              "M1.6: swap H puts tx port 0's marker on row 1");
+    }
+
+#if OCUDU_GPU_CHANNEL_HAS_CUDA
+    if (ocg::cuda_compiled()) {
+      ocg::TopologyConfig cuda_cfg = cfg;
+      cuda_cfg.runtime.backend = ocg::Backend::Cuda;
+      auto cuda_proc = ocg::create_channel_processor(cuda_cfg);
+      ocg::IqBuffer c0(8), c1(8);
+      std::span<ocg::IqSample> crows[2] = {c0, c1};
+      cuda_proc->process_superposition("ue", lanes, nullptr, 23040000,
+                                       std::span<std::span<ocg::IqSample>>(crows));
+      require_near_buffer(row0, c0, "M1.6: CUDA row 0 matches CPU at 1e-3");
+      require_near_buffer(row1, c1, "M1.6: CUDA row 1 matches CPU at 1e-3");
+    }
+#endif
+  }
+
   // ---- Phase 1.4b: fading kernel behaviour tests ----
   // Each test builds its own CpuChannelProcessor (process_superposition path)
   // so the per-link state is isolated.
