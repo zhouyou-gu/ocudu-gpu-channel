@@ -378,6 +378,15 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     port->rx_high_water = port->batch;
     port->tx_req = make_socket(context.get(), ZMQ_REQ);
     port->rx_rep = make_socket(context.get(), ZMQ_REP);
+    // Data-plane REP only: unbounded send high-water mark.
+    //
+    // Carried over from the superseded MIMO attempt, where this cost real time
+    // to rediscover. With a finite REP send HWM, libzmq 4.3.5's internal
+    // non-mandatory ROUTER silently drops the reply at the routing-id envelope
+    // stage while zmq_send() still returns success. A strict REQ peer then
+    // waits forever for a reply that was never queued. The REQ sockets keep
+    // their bounded settings; only this socket is exempt.
+    set_int_option(port->rx_rep.get(), ZMQ_SNDHWM, 0);
     if (zmq_connect(port->tx_req.get(), device.tx_endpoint.c_str()) != 0) {
       throw std::runtime_error("failed to connect TX REQ for " + device.id + ": " + zmq_strerror(zmq_errno()));
     }
@@ -413,6 +422,22 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     ports[p]->rx_port = 0;
     node_by_id.emplace(node.id, p);
   }
+
+  // Publish the resolved membership and ordering so the canonical matrix index
+  // of every port is on the record at startup. Port order is read from the
+  // resolved table, never inferred by parsing a numeric suffix off an id.
+  for (const auto& node : nodes) {
+    std::string line = "event=radio_node_resolved id=" + node.id;
+    for (std::size_t t = 0; t != node.tx_ports.size(); ++t) {
+      line += " tx[" + std::to_string(t) + "]=" + ports[node.tx_ports[t]]->config->id;
+    }
+    for (std::size_t r = 0; r != node.rx_ports.size(); ++r) {
+      line += " rx[" + std::to_string(r) + "]=" + ports[node.rx_ports[r]]->config->id;
+    }
+    line += "\n";
+    std::cout << line;
+  }
+  std::cout.flush();
 
   // Build per-lane runtime state. In M0 a config link is exactly one lane on
   // the (single-port) node pair it names; M1 expands it into Nt x Nr lanes.
@@ -453,6 +478,48 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
   std::vector<WorkerDiag> puller_diag(ports.size());
   std::vector<WorkerDiag> producer_diag(nodes.size());
   std::vector<WorkerDiag> rep_diag(ports.size());
+
+  // Bounded stall detector. A producer that cannot make progress emits one
+  // diagnostic line per interval naming the phase it is stuck in and the live
+  // RX ring occupancies, then a cleared line when it resumes. Deliberately not
+  // a fault state machine: a dead RX peer wedges this node exactly the way a
+  // dead peer wedged the pre-MIMO server on wait_req, and inventing recovery
+  // semantics for it is out of M0's scope.
+  constexpr auto kStallReportInterval = std::chrono::milliseconds(2000);
+  const auto report_node_stall = [&ports](const RadioNodeRuntime& node, const char* phase,
+                                          std::chrono::steady_clock::duration waited) {
+    std::string rings;
+    for (std::size_t r = 0; r != node.rx_ports.size(); ++r) {
+      PortRuntime& out = *ports[node.rx_ports[r]];
+      std::size_t size = 0;
+      std::size_t cap = 0;
+      {
+        std::lock_guard<std::mutex> lk(out.rx_mutex);
+        size = out.rx_ring.size();
+        cap = out.rx_ring.capacity();
+      }
+      if (r != 0) {
+        rings += ",";
+      }
+      rings += std::to_string(size) + "/" + std::to_string(cap);
+    }
+    // Composed into one string so concurrent producers cannot interleave
+    // fragments of each other's line.
+    const std::string line =
+        "event=node_stall node=" + node.id + " phase=" + phase + " waited_ms=" +
+        std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(waited).count()) +
+        " rx_ring=[" + rings + "]\n";
+    std::cout << line;
+    std::cout.flush();
+  };
+  const auto report_node_stall_cleared = [](const RadioNodeRuntime& node, const char* phase,
+                                            std::chrono::steady_clock::duration waited) {
+    const std::string line =
+        "event=node_stall_cleared node=" + node.id + " phase=" + phase + " waited_ms=" +
+        std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(waited).count()) + "\n";
+    std::cout << line;
+    std::cout.flush();
+  };
 
   const auto report_thread_error = [&stats](const char* role, const std::exception& e) {
     stats.zmq_errors.fetch_add(1);
@@ -614,6 +681,8 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         diag.state.store("wait_room");
         const auto t_room_start = std::chrono::steady_clock::now();
         std::size_t room = 0;
+        bool room_stall_reported = false;
+        auto next_room_report = t_room_start + kStallReportInterval;
         while (!stop_requested.load()) {
           room = node.batch;
           for (const std::size_t r : node.rx_ports) {
@@ -623,7 +692,19 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             break;
           }
           diag.blocked_iters.fetch_add(1);
+          const auto now = std::chrono::steady_clock::now();
+          if (now >= next_room_report) {
+            report_node_stall(node, "output_room", now - t_room_start);
+            room_stall_reported = true;
+            next_room_report = now + kStallReportInterval;
+          }
           std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+        // Only a genuine resume clears; a stop request is a shutdown, not
+        // recovery, and must not be logged as one.
+        if (room_stall_reported && !stop_requested.load()) {
+          report_node_stall_cleared(node, "output_room",
+                                    std::chrono::steady_clock::now() - t_room_start);
         }
         if (room == 0) {
           break; // stop requested while waiting for output room
@@ -666,6 +747,8 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         } else {
           const auto wait_start = std::chrono::steady_clock::now();
           bool starvation_counted = false;
+          bool data_stall_reported = false;
+          auto next_data_report = wait_start + kStallReportInterval;
           while (!stop_requested.load()) {
             std::size_t common = node.batch;
             for (std::size_t k = 0; k != incoming.size(); ++k) {
@@ -687,12 +770,21 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             }
             diag.state.store("wait_data");
             diag.blocked_iters.fetch_add(1);
-            if (served > 0 && !starvation_counted &&
-                std::chrono::steady_clock::now() - wait_start > starvation_deadline) {
+            const auto now = std::chrono::steady_clock::now();
+            if (served > 0 && !starvation_counted && now - wait_start > starvation_deadline) {
               stats.rx_starvations.fetch_add(1);
               starvation_counted = true;
             }
+            if (now >= next_data_report) {
+              report_node_stall(node, "input_data", now - wait_start);
+              data_stall_reported = true;
+              next_data_report = now + kStallReportInterval;
+            }
             std::this_thread::sleep_for(std::chrono::microseconds(50));
+          }
+          if (data_stall_reported && !stop_requested.load()) {
+            report_node_stall_cleared(node, "input_data",
+                                      std::chrono::steady_clock::now() - wait_start);
           }
         }
         if (count == 0) {
