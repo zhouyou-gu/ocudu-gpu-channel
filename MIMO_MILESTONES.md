@@ -180,6 +180,8 @@ wire payload에는 타임스탬프가 없다. `IqSample`은 `{float i, float q}`
 
 ### M2 — IID 확률적 페이딩
 
+> 상세 설계: [`docs/plans/m2-iid-stochastic-fading.md`](docs/plans/m2-iid-stochastic-fading.md)
+
 **범위**
 - physical link 하나의 seed에서 lane별 Jakes 파라미터 파생. **절대시간은 physical link가 단일 소유**.
 - 기존 `apply_channel_kernel` 페이딩 경로 무수정.

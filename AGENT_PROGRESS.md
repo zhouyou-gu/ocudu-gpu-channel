@@ -593,7 +593,42 @@ M1.6에서 새로 넣은 2×2 CUDA 테스트가 **가드 매크로 이름이 틀
 | `gpu-test-sequence.sh` 7/7 | ✅ 결정론적 수치 M1 이전과 동일 |
 | 라이브 1×1 attach (회귀 확인) | ✅ `20260814T124533Z` `status=passed`, rrc/pdu/ping 전부 1, strict counter 0, RX ring 추가 지연 0 µs |
 
-**M1 완료.** 다음은 M2 — IID 확률적 페이딩(physical link 하나의 seed에서 lane별 Jakes 파라미터 파생, 절대시간은 physical link가 단일 소유).
+**M1 완료.**
+
+---
+
+## 세션 종료 상태 (2026-08-14)
+
+**M0.1–M0.6, M1.1–M1.7 완료.** 베이스라인 `bc88865` 이후 21 커밋.
+
+| 마일스톤 | 상태 |
+|---|---|
+| M0 단일 엔진 리팩터 | 5개 게이트 green, **2개 환경 차단** (multi-UE / multi-gNB 라이브) |
+| M1 차원 + 고정 행렬 | **전 게이트 green** (라이브 1×1 attach 포함) |
+| M2 IID 확률적 페이딩 | 계획 문서 작성 완료, 구현 미착수 |
+
+### 다음 세션 재개 지점
+
+**M2.2부터 시작한다.** 상세 설계는 [`docs/plans/m2-iid-stochastic-fading.md`](docs/plans/m2-iid-stochastic-fading.md).
+
+M2 계획을 세우며 **현재 코드에서 확인한 세 가지**를 먼저 읽을 것:
+
+1. **lane별 독립 realization은 이미 성립하지만 우연이다.** 시드가 `hash(key + ":fading:" + i)`로 lane 키 문자열에서 나오므로, M1의 suffix(`#r1t0`) 덕에 lane마다 달라진다. 재현성이 **문자열 표기에 의존**한다.
+2. **physical link가 시드의 소유자가 아니다.** M3에서 lane 간 상관을 주려면 하나의 링크 시드에서 파생해야 하는데, 독립 해시 N개로는 상관 구조를 표현할 수 없다.
+3. **절대시간이 lane마다 따로 누적된다.** `slot_start_samples`가 lane별로 `+= count` 한다. 오늘은 producer가 모든 lane을 같은 count로 처리해 결과적으로 동기화되지만 **불변식이 아니라 부수효과다.** 어긋나는 순간 `y = Hx`가 하나의 `x`에 대한 것이 아니게 된다 — M0 §1.1이 커서에 대해 지적한 것과 같은 실패.
+
+M2는 커널 본문을 건드리지 않는다(계획 §2.3). 통계 게이트가 실패하면 원인은 파생식이지 커널이 아니다.
+
+### 환경 관련 (다음 세션에서 필요할 수 있음)
+
+- **loopback 러너**: `.config`가 `REMOTE_HOST=127.0.0.1`을 가리키고, `~/ocudu-loopback-workspace/tools/`에 툴체인 shim이 있다. `gpu-test-sequence.sh`가 여기서 그대로 돈다.
+- **네이티브 라이브 게이트**: `bash scripts/native/run-ocudu-legacy-1x1.sh` — Docker 없이 rootless netns로 1×1 attach를 돌린다. 약 2분.
+- **Docker는 이 컨테이너에서 불가**(unprivileged LXC). runc/crun × snap/apt 4조합 모두 같은 `open()`에서 실패. 호스트 설정 변경이 없으면 bridge 컨테이너는 뜨지 않는다.
+- 오늘 만든 잔여물: `~/ocudu-native-workspace/builds/ocudu-gpu-channel-cuda-baseline` (11 MB, A/B 재실행용으로 남겨둠), `.../ocudu-gpu-channel-cuda-release.audit-bak` (25 MB, audit 트리 빌드를 옆으로 치워둔 것), `/etc/docker/daemon.json`의 crun 런타임 등록 + `/usr/local/bin/crun-latest` (무해, Docker 진단 과정의 산물).
+
+### 검증 규율 — 다음 세션도 유지할 것
+
+M1.6에서 새 CUDA 테스트가 **가드 매크로 이름이 틀려 컴파일에서 빠진 채 통과**했다. 이후 모든 신규 테스트를 뮤테이션 프로브로 확인했다. **새 테스트는 실패시켜 보기 전까지 아무것도 증명하지 않는다.** M2의 통계 테스트는 허용오차가 느슨하면 특히 이 함정에 빠지기 쉬우므로, 계획 §4에 프로브 3종을 명시해 두었다.
 - Sequence and exit gates: `docs/plans/m0-single-engine-refactor.md` §8-§9.
 - Open user decisions blocking nothing but worth settling early: (a) which mission file governs, (b) whether `MIMO_MILESTONES.md` and `AGENT_GOAL.mimo.md` should also be removed from the pristine `ocudu-gpu-channel-pre-mimo` baseline tree, where duplicates of both currently exist and will drift.
 
