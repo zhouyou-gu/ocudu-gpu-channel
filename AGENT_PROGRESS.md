@@ -4,9 +4,10 @@
 
 ## Repository State
 
-- Branch: `main`.
-- Initial repository contents before setup: `.git` only.
-- **32 commits ahead of `origin/main` (Phase 3 v1 + v2 + v3 + publish-prep + post-audit cleanups landed locally; not yet pushed).** Working tree clean as of `f9ac902`. Tests: all 8 ctest cases green on the CPU-only macOS build (CUDA paths compile but await GPU-workstation validation).
+- **This tree is `/home/ubuntu/ocudu-gpu-channel-mimo-claude`, a fresh MIMO rebuild workspace cloned from the pre-MIMO baseline `/home/ubuntu/ocudu-gpu-channel-pre-mimo` on 2026-08-14.** The clone was verified byte-identical to the baseline (`diff -rq`, `.DS_Store` excluded): 159 files, 12,755 source lines.
+- `git init` has been run here. **No commit exists yet**; every file is untracked. No remote is configured.
+- The pre-MIMO baseline tree is also byte-identical to commit `12c2065 baseline: pre-MIMO source` in `/home/ubuntu/ocudu-gpu-channel-audit`, so that repository's `mimo-patched` branch is available as the record of the superseded MIMO attempt.
+- Historical record carried over from the baseline: 32 commits ahead of `origin/main` at `f9ac902` in the original repository (Phase 3 v1 + v2 + v3 + publish-prep + post-audit cleanups). All 8 ctest cases were green on the CPU-only build at that point.
 - Current ignored local artifacts: `.config`, `build*/`, `.claude/`, `.playwright-mcp/`, `references/`, `writing/`.
 - Remote: `origin` points to `https://github.com/zhouyou-gu/ocudu-gpu-channel.git`, with setup pushed to `origin/main`.
 - Current ignored local config: `.config` contains the GPU workstation connection settings.
@@ -19,6 +20,8 @@
 ## Workspace Artifacts
 
 - Control files: `AGENT.md`, `AGENT_GOAL.md`, `AGENT_HARNESS.md`, `AGENT_PROGRESS.md`.
+- MIMO mission amendment: `AGENT_GOAL.mimo.md` is a duplicate of `AGENT_GOAL.md` carrying the user-instructed MIMO amendment (one Statement line changed, five bullets added across Scope / Non-Goals / Success Criteria / Constraints). `AGENT_GOAL.md` itself is unmodified. **Which of the two governs this workspace is an open user decision.**
+- MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and `docs/plans/m0-single-engine-refactor.md` (M0 code-level design).
 - Local configuration: `.gitignore`, tracked `.config.example`, and ignored `.config`.
 - Application scaffold: `CMakeLists.txt`, `apps/`, `include/`, `src/`, `tests/`, `examples/`, and `docs/` exist locally as uncommitted implementation work.
 - Local implementation includes C++20/CMake build plumbing, optional CUDA detection, libzmq integration, CPU and CUDA MVP channel processing, broker/runtime CLIs, synthetic ZMQ tools, config examples, docs, and regression tests.
@@ -272,8 +275,18 @@ Progress entry template
 - [Review-and-fix pass] Acting on the multi-agent review's info findings: removed unused `git` from the Dockerfile build stage (the build is `COPY . /src` + cmake, no git ops; `.dockerignore` excludes `.git` anyway); fixed 4 stale `tests/test_runtime_update_parity.cpp` comments that described the link key as bare `"gnb0>ue0"` (canonical is `"gnb0>ue0:<model_id>"` via `test_link_key()`; the `log.find("link_id=gnb0>ue0")` substring assertions are correct and unchanged); removed 5 untracked CFO-sweep scratch topologies from `examples/` (curated demo dir). macOS `ctest` 8/8 still passes.
 - [Phase 1.4b] The fading kernel landed in commit `e48e95c`; remote `gpu-test-sequence.sh` 6/6 passed on it. `include/ocudu_gpu_channel/delay.h` gained `kTdlFadingSinusoids = 20`, a `TdlFadingState` per-link struct, `prepare_tdl_fading_state` (draws M sub-ray angles + M initial phases + per-tap LOS phase deterministically from `std::mt19937_64` seeded by `hash("<link_key>:fading:<step_idx>")` -- both backends compute the same seed so the realisations come from the same random sequence), and `apply_tdl_step_fading` (coarse-grid Jakes generator with phase accumulation = one complex multiply per sub-ray per grid step, linear interpolation up to per-sample resolution, optional LOS specular composed via Rician `[sqrt(K/(K+1)), sqrt(1/(K+1))]` factors with a per-sample phase accumulator -- no per-sample trig anywhere in the kernel). `fading_grid_us` default corrected from 1.0 us (paste-from-§19 typo, would have demanded 23 kHz grid for 23-tap CDL-A) to 100.0 us (10 kHz, ~28x oversampling vs 350 Hz Jakes; bounds per-slot sinusoid count comfortably under the 1 ms slot budget). Gaussian / Flat spectra throw "not implemented yet" inside `apply_tdl_step_fading`; schema accepts them so future generator math can drop in without schema churn. CPU `prepare_tdl_step` and CUDA `configure_leading_propagation` both extended to call `prepare_tdl_fading_state` with the shared seed; CUDA `stage_link` extended to take `sample_rate_hz` and dispatch to `apply_tdl_step_fading` when `tdl_fading.enabled`. CPU `case ModelStepType::Tdl` does the same dispatch. Three new behaviour tests in test_processing.cpp: (a) `f_d_max=0` stationary case -- g_k collapses to a complex constant so two consecutive slots with the same input produce identical output after the kernel transient; (b) determinism -- two processors with the same model + same link key + same input produce bit-identical output across two slots, exercising the `slot_start_samples` accumulator; (c) strong LOS (K = 40 dB) on a stationary specular -- output magnitude stays within +/- 5% of 1 on a unit-power input. Heavier statistical tests (autocorrelation matches Bessel J0, full Rician envelope distribution) deferred to Phase 1.4.5; the three checks here cover the operational correctness surface. Local `ctest` 4/4; remote 6/6.
 
+- [MIMO rebuild] Created `/home/ubuntu/ocudu-gpu-channel-mimo-claude` as a byte-identical clone of the pre-MIMO baseline and ran `git init` in it. The superseded MIMO attempt in `ocudu-gpu-channel-audit` (+29,296 lines on `mimo-patched`) is retained for reference only; its structure is not carried forward.
+- [MIMO mission] Added `AGENT_GOAL.mimo.md`, a duplicate of the mission file carrying the user-instructed MIMO amendment. `AGENT_GOAL.md` was not modified, per the user's explicit instruction to edit a copy rather than the original.
+- [MIMO plan] Added `MIMO_MILESTONES.md`: RadioNode overlay retained, `RadioNodeCoordinator` replaced by a per-RadioNode producer thread writing into per-RX-port output rings, single processing engine preserved by widening `process_superposition` to multiple output rows, and milestones M0-M5 with per-milestone exit gates.
+- [MIMO analysis] Verified the sibling-port cursor-alignment concern against `src/broker.cpp`. Initial co-initialisation is already common (`broker.cpp:483-492`), so the failure is not at startup; it is that each destination server samples availability at its own instant (`broker.cpp:512-539`), so two servers owning the rows of one radio can select different serve counts and drift permanently, with the recovery path (`broker.cpp:519-523`) then dropping samples on one row only. The producer model removes the second thread that could select a window, making alignment a structural invariant rather than an enforced protocol. Recorded as a mission-level constraint in `AGENT_GOAL.mimo.md`.
+- [MIMO analysis] Identified a residual risk no broker design can remove: the wire carries no timestamp (`IqSample` is 8 bytes; the broker only checks `nbytes % 8 == 0` at `broker.cpp:122-126`), so equal sequence indices on sibling TX ports representing the same PHY instant is a deployment precondition. Mitigations assigned to the M1 gate: equal sibling `tx_timing_offset_samples`, an `event=radio_node_resolved` startup line, and a marker test that injects a distinguishable pattern on one port only.
+- [MIMO plan] Added `docs/plans/m0-single-engine-refactor.md`: broker ownership-transfer table, producer loop with the preserved pre-MIMO invariants annotated, `PortRepWorker` loop, RX ring sizing with an explicit added-latency budget and Msg3 exit condition, deadlock analysis, the multi-row `process_superposition` signature with a single-row convenience overload that keeps all seven existing call sites unchanged, and a six-commit work breakdown.
+
 ## Blockers and Risks
 
+- The added RX-side output ring is new latency that the pre-MIMO design did not have (it computed on demand). It is bounded by the producer high-water mark at one batch, but its effect on NR procedure timing is unmeasured. Msg3 PUSCH is the thinnest margin in this system on record, so M0 cannot be declared complete on unit tests alone.
+- Whether `AGENT_GOAL.md` or `AGENT_GOAL.mimo.md` governs this workspace is unresolved and requires an explicit user decision; the agent shall not promote the amendment autonomously.
+- Multi-port ZMQ `device_args` syntax on the OCUDU side has not been verified against source in this workspace. The M5 multi-port gNB gate shall not be promised until it is.
 - Remote dependency gap: `iperf3` is still missing on the RTX workstation under the user-space-only constraint.
 - Remote GPU driver and CUDA toolkit are visible through `nvidia-smi` and user-space `nvcc`.
 - Remote active network path is Wi-Fi (`wlp129s0`), which is suitable for SSH/control but not accepted as a real-time distributed IQ data path.
@@ -286,6 +299,15 @@ Progress entry template
 - CUDA backend still does a `cudaStreamSynchronize` at the end of every `process_superposition` call, so batches within one link are not pipelined; with `process_mutex` removed the two directions' per-link streams do now overlap, but cross-batch pipelining within a link remains optional future work (deferred with Phase 2 D4 -- PCIe is no longer binding).
 
 ## Next Resume Point
+
+### Active Resume Point
+
+- **M0.1** — take the git baseline commit of the untouched pre-MIMO tree, so M0's later steps have a diff base and the "1x1 bit-exact vs baseline" gate is checkable. Awaiting user go-ahead to commit.
+- Then **M0.2** — widen `ChannelProcessor::process_superposition` to `std::span<std::span<IqSample>> outputs` with a single-row convenience overload, and plumb CPU/CUDA. No kernel changes, no test changes expected.
+- Sequence and exit gates: `docs/plans/m0-single-engine-refactor.md` §8-§9.
+- Open user decisions blocking nothing but worth settling early: (a) which mission file governs, (b) whether `MIMO_MILESTONES.md` and `AGENT_GOAL.mimo.md` should also be removed from the pristine `ocudu-gpu-channel-pre-mimo` baseline tree, where duplicates of both currently exist and will drift.
+
+### Baseline Context (inherited from the pre-MIMO tree)
 
 - **Milestones A / B / C are complete end to end** (real OCUDU + srsRAN paths proven via `ocudu-attach-smoke.sh`, `ocudu-multi-ue-smoke.sh`, `ocudu-multi-gnb-smoke.sh`). The standing GPU test sequence is `scripts/remote/gpu-test-sequence.sh` 7/7 on the RTX 5090: build → ctest → clean relay → AWGN relay → 3-node graph → 2-cell multi-gNB → TDL-A profile.
 - **Phase 1 of the realistic-channel-models milestone is complete end to end** (commits `2bd5a7c` Phase 1.0 → `1bf6e26` Phase 1.1 → `253af35` Phase 1.2 → `9afb2de`/`e0232f1`/`15f82a7`/`aa006a9` Phase 1.3 → `61d76bb`/`e48e95c` Phase 1.4 → `6929183`/`f6d4504` Phase 1.5 → `f535480` review cleanup with Bessel J0 + CPU↔CUDA fading parity tests). The `tdl` step is the canonical chain-leading propagation step (multi-tap convolution + optional Jakes fading + Rician LOS); TR 38.901 §7.7.2 TDL-A through TDL-E ship as ready-to-run example YAMLs.
