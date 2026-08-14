@@ -532,7 +532,37 @@ The OCUDU compose stack uses a custom `ran` bridge with static addressing (`OPEN
 - `~/ocudu-loopback-workspace/tools/env.sh` stands in for `bootstrap-user-tools.sh` output, with `tools/cuda-12.8.1` symlinked to `/opt/conda/envs/cuda128` rather than downloading a second toolchain.
 - `~/ocudu-loopback-workspace/tools/bin/docker` forwards to `sudo -n -E docker`, since this account has passwordless sudo but is not in the docker group. **`-E` is required, not cosmetic**: `docker compose` reads `OCUDU_ZMQ_DOCKERFILE`, `GNB_CONFIG_PATH`, `OS`, and `OS_VERSION` from the environment, and plain `sudo` sanitises them away, so the first attach-smoke run failed with a blank dockerfile path and empty logs.
 
-- **Next: M1** once the live gates above are green -- `radio_nodes.tx_ports` / `rx_ports` schema, lane expansion `Nt x Nr` with `lane = r * Nt + t`, `superpose_kernel` extended to `grid.y = Nr` with `row_begin[]`, model-scope `fixed_mimo`, the validator set, and the marker test. Note the two M1 items already flagged in code: `cpu_backend.cpp` still applies `rx_model` under one `"<node>>rx"` state key for every row, and `cuda_backend.cu` rejects `outputs.size() != 1`.
+## M1 — 차원 도입 + 고정 행렬 (진행 중: M1.1–M1.4 완료)
+
+> 상세 설계: [`docs/plans/m1-dimensions-and-fixed-matrix.md`](docs/plans/m1-dimensions-and-fixed-matrix.md)
+
+M1은 M0의 두 라이브 게이트가 막힌 것과 무관하게 진행 가능하다 — M1의 exit 게이트는 전부 합성·단위 테스트로 판정된다.
+
+| 단계 | 커밋 | 상태 |
+|---|---|---|
+| M1.1 계획 문서 | `18b6d73` | ✅ |
+| M1.2 `radio_nodes` 스키마 + 파서 + validator | `310ab0f` | ✅ |
+| M1.3 브로커 lowering (선언 우선 / implicit fallback) | `00624c7` | ✅ |
+| M1.4 lane 전개 + 공유 resolver | `692dffc` | ✅ |
+| M1.5 백엔드가 lane 소비 + `fixed_mimo` + 행별 rx_model 키 | — | 다음 |
+| M1.6 CUDA `superpose_kernel` `grid.y = Nr` + `row_begin[]` | — | 대기 |
+| M1.7 marker 테스트 + 비대칭 차원 테스트 | — | 대기 |
+
+**M1.2** — `RadioNodeConfig`(id + `tx_ports`/`rx_ports`). 작성 순서가 canonical matrix index이고, 테스트는 gnb의 포트를 일부러 알파벳 역순으로 써서 정렬하거나 숫자 suffix를 파싱하는 구현을 잡는다. flow 리스트는 파서가 이미 전역 거부하므로 새 코드 없이 충족되며 테스트로 고정만 했다. validator 규칙: 미지의 device 참조 / 한 노드 내 포트 중복 / 한 device를 두 노드가 주장 / 노드 id와 device id 충돌 / sibling 간 `sample_rate_hz`·`tx_timing_offset_samples`·`rx_model` 불일치 / 포트 없는 노드 / `radio_nodes` 선언 시 device를 가리키는 링크. **선언은 all-or-nothing** — 부분 선언은 나머지를 implicit singleton으로 남겨 matrix index가 작성자가 아니라 파스 순서에 좌우되게 만든다.
+
+기존 규칙 셋이 링크가 이제 **노드**를 가리킨다는 걸 몰랐고, 코드 독해가 아니라 새 테스트가 잡았다: orphan-device 검사(정상 다중포트 토폴로지의 모든 포트를 오탐), link endpoint 존재 검사, mixed-sample-rate 검사. `fold_link_leading_delays`도 같은 함정이라 선제 수정했다 — 노드 참조 링크의 TX offset을 **조용히 0으로** 접었을 것이다.
+
+**M1.3** — lowering이 두 소스(선언/implicit) 하나의 출력 테이블. 포트가 한쪽 역할만 맡을 수 있고, 맡지 않은 역할의 인덱스는 `-1`이다. 스레드 기동이 그걸 읽어 TX 포트가 아니면 puller를, RX 포트가 아니면 REP worker를 띄우지 않는다 — producer가 쓰지 않는 포트의 REP worker는 빈 링에서 영원히 대기하며, 이는 에러가 아니라 조용한 hang이다.
+
+**M1.4** — `resolve_topology()` 도입. **이 마일스톤에서 가장 중요한 구조 판단이다.** 브로커뿐 아니라 CPU/CUDA 백엔드도 `config.links`를 직접 읽어 상태를 만든다는 것을 발견했고, 세 소비자가 각자 lane을 계산하면 반드시 어긋나며 **그 어긋남은 조용하다** — 릴레이는 IQ를 계속 뱉지만 그것이 더 이상 토폴로지가 기술한 `y = Hx`가 아니다. 그래서 lane 집합·lane 순서·per-lane 상태 키를 한 번만 계산하고 셋이 그것을 참조한다.
+
+- `lane_key()`가 M1의 안전망을 담는다: `Nt = Nr = 1`이면 suffix 없이 pre-M1 링크 키 그대로. **조건이 함수 하나에만 존재하며** config 테스트가 직접 단언한다.
+- lane은 `(destination node, rx_port)` 기준 **안정 정렬**. 한 행의 lane이 연속이 되어 M1.6의 `[row_begin[r], row_begin[r+1])` 구간이 성립하고, 안정성이 부동소수 합산 순서를 고정해 CPU↔CUDA parity의 근거가 된다.
+- 다중포트 노드는 아직 브로커에서 거부하되 **어느 마일스톤이 어느 차원을 푸는지** 메시지에 명시했다(M1.5가 `Nt>1`, M1.6이 `Nr>1`).
+
+**M1.4 판정** — `ctest` 8/8 양쪽 트리, `gpu-test-sequence` 7/7, 그리고 결정론적 수치가 재작성 전과 일치: clean relay `1/1`, AWGN `1.25/1.24994`(6자리), 3-node `gnb0_rx=2.01473`, 2-cell `0.262`. 나머지 차이는 Jakes/AWGN 확률 성분이다.
+
+**M1.5 이후 남은 M0 유래 항목 두 개**: `cpu_backend.cpp`가 아직 모든 행에 `"<node>>rx"` 상태 키 하나를 쓰고, `cuda_backend.cu`가 `outputs.size() != 1`을 거부한다.
 - Sequence and exit gates: `docs/plans/m0-single-engine-refactor.md` §8-§9.
 - Open user decisions blocking nothing but worth settling early: (a) which mission file governs, (b) whether `MIMO_MILESTONES.md` and `AGENT_GOAL.mimo.md` should also be removed from the pristine `ocudu-gpu-channel-pre-mimo` baseline tree, where duplicates of both currently exist and will drift.
 
