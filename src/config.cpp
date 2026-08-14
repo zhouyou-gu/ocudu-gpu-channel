@@ -664,6 +664,13 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
                               " ports disagree on tx_timing_offset_samples: " + reference->id +
                               " and " + device->id);
         }
+        // The receiver model is applied once per output row by a single
+        // process_superposition call, so it is a node property. Ports that
+        // disagree would leave which one wins up to port ordering.
+        if (device->rx_model != reference->rx_model) {
+          errors.emplace_back("radio node " + node.id + " ports disagree on rx_model: " +
+                              reference->id + " and " + device->id);
+        }
       }
     }
 

@@ -407,30 +407,92 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     ports.push_back(std::move(port));
   }
 
-  // Implicit singleton lowering: with no `radio_nodes` schema yet (M1), every
-  // Device becomes a RadioNode owning exactly that one port as tx port 0 and
-  // rx port 0. Node index therefore equals port index throughout M0, and the
-  // node-level parameters are read straight off the port's DeviceConfig.
-  // Everything downstream is written against the node/port vocabulary, so M1
-  // only has to change how this table is built.
-  std::vector<RadioNodeRuntime> nodes(ports.size());
-  std::unordered_map<std::string, std::size_t> node_by_id;
-  node_by_id.reserve(ports.size());
+  // Lowering Devices to RadioNodes. Two sources, one output table.
+  //
+  // Declared (`radio_nodes` present): the node's port lists give each port its
+  // canonical matrix index directly by position. The validator has already
+  // rejected every ambiguity this could carry -- unknown ports, a port listed
+  // twice, a port claimed by two nodes, siblings disagreeing on sample rate /
+  // TX offset / rx_model, and partial declaration -- so this loop reads the
+  // schema without re-litigating it.
+  //
+  // Implicit (no `radio_nodes`): every Device becomes a singleton node owning
+  // that one port as tx port 0 and rx port 0. This is the pre-M1 behaviour and
+  // the reason existing SISO topologies keep their exact meaning.
+  //
+  // A port may belong to only one of the two lists. Its index for the role it
+  // does not fill is -1, and the thread launch below reads that: a port that is
+  // no TX port gets no puller, and one that is no RX port gets no REP worker,
+  // because a REP worker on a port the producer never writes would block on an
+  // empty ring forever.
+  std::unordered_map<std::string, std::size_t> port_by_id;
+  port_by_id.reserve(ports.size());
   for (std::size_t p = 0; p != ports.size(); ++p) {
-    auto& node = nodes[p];
-    node.id = ports[p]->config->id;
-    node.config = ports[p]->config;
-    node.tx_ports.push_back(p);
-    node.rx_ports.push_back(p);
-    node.sample_rate_hz = ports[p]->config->sample_rate_hz;
-    node.batch = ports[p]->batch;
-    node.rx_model =
-        node.config->rx_model.empty() ? nullptr : find_model(config_, node.config->rx_model);
-    node.implicit = true;
-    ports[p]->node_index = p;
-    ports[p]->tx_port = 0;
-    ports[p]->rx_port = 0;
-    node_by_id.emplace(node.id, p);
+    port_by_id.emplace(ports[p]->config->id, p);
+    ports[p]->tx_port = -1;
+    ports[p]->rx_port = -1;
+  }
+
+  std::vector<RadioNodeRuntime> nodes;
+  std::unordered_map<std::string, std::size_t> node_by_id;
+  const auto resolve_port = [&](const std::string& id) {
+    auto it = port_by_id.find(id);
+    if (it == port_by_id.end()) {
+      throw std::runtime_error("radio node references an unknown device: " + id);
+    }
+    return it->second;
+  };
+
+  if (!config_.radio_nodes.empty()) {
+    nodes.resize(config_.radio_nodes.size());
+    node_by_id.reserve(nodes.size());
+    for (std::size_t n = 0; n != config_.radio_nodes.size(); ++n) {
+      const auto& declared = config_.radio_nodes[n];
+      auto& node = nodes[n];
+      node.id = declared.id;
+      node.implicit = false;
+      for (std::size_t t = 0; t != declared.tx_ports.size(); ++t) {
+        const std::size_t p = resolve_port(declared.tx_ports[t]);
+        node.tx_ports.push_back(p);
+        ports[p]->node_index = n;
+        ports[p]->tx_port = static_cast<int>(t);
+      }
+      for (std::size_t r = 0; r != declared.rx_ports.size(); ++r) {
+        const std::size_t p = resolve_port(declared.rx_ports[r]);
+        node.rx_ports.push_back(p);
+        ports[p]->node_index = n;
+        ports[p]->rx_port = static_cast<int>(r);
+      }
+      // Any port serves as the representative: the validator rejected nodes
+      // whose ports disagree on these.
+      const std::size_t representative =
+          node.tx_ports.empty() ? node.rx_ports.front() : node.tx_ports.front();
+      node.config = ports[representative]->config;
+      node.sample_rate_hz = node.config->sample_rate_hz;
+      node.batch = ports[representative]->batch;
+      node.rx_model =
+          node.config->rx_model.empty() ? nullptr : find_model(config_, node.config->rx_model);
+      node_by_id.emplace(node.id, n);
+    }
+  } else {
+    nodes.resize(ports.size());
+    node_by_id.reserve(ports.size());
+    for (std::size_t p = 0; p != ports.size(); ++p) {
+      auto& node = nodes[p];
+      node.id = ports[p]->config->id;
+      node.config = ports[p]->config;
+      node.tx_ports.push_back(p);
+      node.rx_ports.push_back(p);
+      node.sample_rate_hz = ports[p]->config->sample_rate_hz;
+      node.batch = ports[p]->batch;
+      node.rx_model =
+          node.config->rx_model.empty() ? nullptr : find_model(config_, node.config->rx_model);
+      node.implicit = true;
+      ports[p]->node_index = p;
+      ports[p]->tx_port = 0;
+      ports[p]->rx_port = 0;
+      node_by_id.emplace(node.id, p);
+    }
   }
 
   // Publish the resolved membership and ordering so the canonical matrix index
@@ -455,12 +517,13 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
   std::vector<LinkRuntime> links(config_.links.size());
   for (std::size_t i = 0; i != config_.links.size(); ++i) {
     const auto& link = config_.links[i];
-    const auto* src = find_device(config_, link.from);
-    const auto* dst = find_device(config_, link.to);
     const auto* model = find_model(config_, link.model);
-    if (src == nullptr || dst == nullptr || model == nullptr) {
+    if (model == nullptr) {
       throw std::runtime_error("invalid link: " + link_key(link));
     }
+    // Endpoints name radio nodes. Without a `radio_nodes` block each Device
+    // lowered to a node of its own name, so a device-referencing link resolves
+    // through the same table.
     const auto src_node_it = node_by_id.find(link.from);
     const auto dst_node_it = node_by_id.find(link.to);
     if (src_node_it == node_by_id.end() || dst_node_it == node_by_id.end()) {
@@ -468,6 +531,15 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     }
     links[i].src_node = src_node_it->second;
     links[i].dst_node = dst_node_it->second;
+    // M1.3 wires the declared schema through but still emits one lane per
+    // config link. Rejecting multi-port endpoints keeps this intermediate
+    // commit from silently modelling a 2x2 radio as its port 0 only; M1.4
+    // replaces this with the Nt x Nr expansion.
+    if (nodes[links[i].src_node].tx_ports.size() != 1 ||
+        nodes[links[i].dst_node].rx_ports.size() != 1) {
+      throw std::runtime_error(
+          "multi-port radio nodes are not served until M1.4 lane expansion: " + link_key(link));
+    }
     links[i].src_index = nodes[links[i].src_node].tx_ports[0];
     links[i].dst_index = nodes[links[i].dst_node].rx_ports[0];
     links[i].tx_port = ports[links[i].src_index]->tx_port;
@@ -985,13 +1057,17 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
   std::vector<std::thread> workers;
   workers.reserve(2 * ports.size() + nodes.size());
   for (std::size_t p = 0; p != ports.size(); ++p) {
-    workers.emplace_back(run_puller, p);
+    if (ports[p]->tx_port >= 0) {
+      workers.emplace_back(run_puller, p);
+    }
   }
   for (std::size_t n = 0; n != nodes.size(); ++n) {
     workers.emplace_back(run_producer, n);
   }
   for (std::size_t p = 0; p != ports.size(); ++p) {
-    workers.emplace_back(run_rep_worker, p);
+    if (ports[p]->rx_port >= 0) {
+      workers.emplace_back(run_rep_worker, p);
+    }
   }
 
   // Heartbeat: once per second, publish each worker's live state so a wedged
