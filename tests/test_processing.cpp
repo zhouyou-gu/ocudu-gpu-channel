@@ -1135,6 +1135,223 @@ int main()
 #endif
   }
 
+  // ---- M1.7: asymmetric dimensions and the 1x1 bit-exact gate --------------
+  //
+  // Builds a Nt x Nr topology with a chosen matrix, runs one slot, and returns
+  // the rows. Nt != Nr is where an implementation that quietly assumes a square
+  // matrix, or that swaps the two dimensions, comes apart.
+  const auto run_matrix = [&](int nt, int nr,
+                              const std::vector<ocg::MimoCoefficient>& coefficients,
+                              const std::vector<ocg::IqBuffer>& per_tx_port,
+                              std::vector<ocg::IqBuffer>& rows_out) {
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = 4;
+    cfg.runtime.queue_samples = 64;
+    int port = 4000;
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    const auto add_device = [&](const std::string& id) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = 23040000;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    };
+    for (int t = 0; t != nt; ++t) {
+      const std::string id = "gnb_t" + std::to_string(t);
+      add_device(id);
+      gnb.tx_ports.push_back(id);
+      gnb.rx_ports.push_back(id); // every device must be reachable both ways
+    }
+    for (int r = 0; r != nr; ++r) {
+      const std::string id = "ue_r" + std::to_string(r);
+      add_device(id);
+      ue.rx_ports.push_back(id);
+      ue.tx_ports.push_back(id);
+    }
+    cfg.radio_nodes = {gnb, ue};
+    ocg::LinkConfig dl;
+    dl.from = "gnb";
+    dl.to = "ue";
+    dl.model = "h";
+    ocg::LinkConfig ul;
+    ul.from = "ue";
+    ul.to = "gnb";
+    ul.model = "unit";
+    cfg.links = {dl, ul};
+
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    ocg::ModelConfig h;
+    h.id = "h";
+    h.chain.push_back(step);
+    h.fixed_mimo_declared = true;
+    h.fixed_mimo = coefficients;
+    ocg::ModelConfig unit;
+    unit.id = "unit";
+    unit.chain.push_back(step);
+    cfg.models.emplace("h", h);
+    cfg.models.emplace("unit", unit);
+
+    const auto errors = ocg::validate_config(cfg);
+    require(errors.empty(), "M1.7: asymmetric topology validates");
+    ocg::expand_fixed_mimo_models(cfg);
+    const auto resolved = ocg::resolve_topology(cfg);
+
+    std::vector<ocg::SuperpositionInput> lanes;
+    for (const auto& lane : resolved.lanes) {
+      if (lane.dst_node != "ue") {
+        continue;
+      }
+      lanes.push_back({.link_key = lane.key,
+                       .model = ocg::find_model(cfg, lane.model_id),
+                       .samples = per_tx_port.at(static_cast<std::size_t>(lane.tx_port)),
+                       .rx_port = lane.rx_port,
+                       .tx_port = lane.tx_port});
+    }
+
+    rows_out.assign(static_cast<std::size_t>(nr), ocg::IqBuffer(4));
+    std::vector<std::span<ocg::IqSample>> rows;
+    for (auto& row : rows_out) {
+      rows.push_back(row);
+    }
+    ocg::CpuChannelProcessor cpu;
+    cpu.prepare(cfg);
+    cpu.process_superposition("ue", lanes, nullptr, 23040000,
+                              std::span<std::span<ocg::IqSample>>(rows));
+  };
+
+  {
+    // 2x1: two TX ports fan into ONE row. Distinct markers, so a lane silently
+    // dropped or double-counted changes the sum.
+    const ocg::IqBuffer tx0(4, ocg::IqSample{1.0F, 0.0F});
+    const ocg::IqBuffer tx1(4, ocg::IqSample{0.0F, 1.0F});
+    std::vector<ocg::IqBuffer> rows;
+    run_matrix(2, 1,
+               {{.tap = 0, .rx = 0, .tx = 0, .real = 1.0, .imag = 0.0},
+                {.tap = 0, .rx = 0, .tx = 1, .real = 1.0, .imag = 0.0}},
+               {tx0, tx1}, rows);
+    require(rows.size() == 1, "M1.7: a 2x1 link produces exactly one row");
+    for (std::size_t k = 0; k != 4; ++k) {
+      require(std::abs(rows[0][k].i - 1.0F) < 1e-6F && std::abs(rows[0][k].q - 1.0F) < 1e-6F,
+              "M1.7: 2x1 sums both TX ports into the single row");
+    }
+  }
+
+  {
+    // 1x2: one TX port feeds TWO rows through different coefficients. Row 1's
+    // 0+1j must rotate by +pi/2, which a square-matrix assumption would miss.
+    const ocg::IqBuffer tx0(4, ocg::IqSample{1.0F, 0.0F});
+    std::vector<ocg::IqBuffer> rows;
+    run_matrix(1, 2,
+               {{.tap = 0, .rx = 0, .tx = 0, .real = 1.0, .imag = 0.0},
+                {.tap = 0, .rx = 1, .tx = 0, .real = 0.0, .imag = 1.0}},
+               {tx0}, rows);
+    require(rows.size() == 2, "M1.7: a 1x2 link produces exactly two rows");
+    for (std::size_t k = 0; k != 4; ++k) {
+      require(std::abs(rows[0][k].i - 1.0F) < 1e-6F && std::abs(rows[0][k].q) < 1e-6F,
+              "M1.7: 1x2 row 0 passes the source through");
+      require(std::abs(rows[1][k].i) < 1e-6F && std::abs(rows[1][k].q - 1.0F) < 1e-6F,
+              "M1.7: 1x2 row 1 rotates the source by +pi/2");
+    }
+  }
+
+  {
+    // 1x1 bit-exact gate. A declared single-port topology and the implicit
+    // lowering of the same devices must key their channel state identically, so
+    // the OUTPUT must be bit-identical -- not close. If lane expansion ever
+    // changes the legacy path's meaning, this is where it shows.
+    const auto build = [&](bool declared) {
+      ocg::TopologyConfig cfg;
+      cfg.runtime.backend = ocg::Backend::Cpu;
+      cfg.runtime.batch_samples_auto = false;
+      cfg.runtime.batch_samples = 8;
+      cfg.runtime.queue_samples = 64;
+      int port = 5000;
+      for (const char* id : {"gnb0", "ue0"}) {
+        ocg::DeviceConfig d;
+        d.id = id;
+        d.sample_rate_hz = 23040000;
+        d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+        d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+        cfg.devices.push_back(d);
+      }
+      if (declared) {
+        ocg::RadioNodeConfig a;
+        a.id = "gnb0_node";
+        a.tx_ports = {"gnb0"};
+        a.rx_ports = {"gnb0"};
+        ocg::RadioNodeConfig b;
+        b.id = "ue0_node";
+        b.tx_ports = {"ue0"};
+        b.rx_ports = {"ue0"};
+        cfg.radio_nodes = {a, b};
+      }
+      ocg::LinkConfig dl;
+      dl.from = declared ? "gnb0_node" : "gnb0";
+      dl.to = declared ? "ue0_node" : "ue0";
+      dl.model = "chan";
+      ocg::LinkConfig ul;
+      ul.from = declared ? "ue0_node" : "ue0";
+      ul.to = declared ? "gnb0_node" : "gnb0";
+      ul.model = "chan";
+      cfg.links = {dl, ul};
+      ocg::ModelConfig chan;
+      chan.id = "chan";
+      ocg::ModelStep st;
+      st.type = ocg::ModelStepType::Tdl;
+      st.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = -3.0, .phase_rad = 0.25}};
+      st.taps_declared = true;
+      chan.chain.push_back(st);
+      ocg::ModelStep cfo;
+      cfo.type = ocg::ModelStepType::Cfo;
+      cfo.params["cfo_hz"] = 125.0;
+      chan.chain.push_back(cfo);
+      cfg.models.emplace("chan", chan);
+      require(ocg::validate_config(cfg).empty(), "M1.7: 1x1 bit-exact fixture validates");
+      return cfg;
+    };
+
+    const ocg::IqBuffer src = {{0.30F, -0.10F}, {0.45F, 0.25F}, {-0.20F, 0.60F}, {0.15F, -0.55F},
+                               {0.70F, 0.05F}, {-0.35F, 0.40F}, {0.50F, -0.30F}, {-0.65F, 0.20F}};
+    const auto run = [&](bool declared) {
+      ocg::TopologyConfig cfg = build(declared);
+      const auto resolved = ocg::resolve_topology(cfg);
+      const std::string dst = declared ? "ue0_node" : "ue0";
+      std::vector<ocg::SuperpositionInput> lanes;
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != dst) continue;
+        lanes.push_back({.link_key = lane.key,
+                         .model = ocg::find_model(cfg, lane.model_id),
+                         .samples = src,
+                         .rx_port = lane.rx_port,
+                         .tx_port = lane.tx_port});
+      }
+      ocg::IqBuffer out(8);
+      ocg::CpuChannelProcessor cpu;
+      cpu.prepare(cfg);
+      // Two slots, so the CFO phase accumulator and the delay line both carry
+      // across -- a state-keying difference would only show from slot 2.
+      cpu.process_superposition(dst, lanes, nullptr, 23040000, out);
+      cpu.process_superposition(dst, lanes, nullptr, 23040000, out);
+      return out;
+    };
+
+    const ocg::IqBuffer implicit_out = run(false);
+    const ocg::IqBuffer declared_out = run(true);
+    for (std::size_t k = 0; k != implicit_out.size(); ++k) {
+      require(implicit_out[k].i == declared_out[k].i && implicit_out[k].q == declared_out[k].q,
+              "M1.7: a declared 1x1 node is BIT-identical to implicit lowering");
+    }
+  }
+
   // ---- Phase 1.4b: fading kernel behaviour tests ----
   // Each test builds its own CpuChannelProcessor (process_superposition path)
   // so the per-link state is isolated.
