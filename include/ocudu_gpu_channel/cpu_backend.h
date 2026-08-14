@@ -25,11 +25,15 @@ class CpuChannelProcessor final : public ChannelProcessor {
 public:
   void prepare(const TopologyConfig& config) override;
 
+  // Keep the base class's single-row convenience overload visible; overriding
+  // the row-vector virtual below would otherwise hide it.
+  using ChannelProcessor::process_superposition;
+
   void process_superposition(const std::string& dst_key,
                              const std::vector<SuperpositionInput>& inputs,
                              const ModelConfig* rx_model,
                              std::uint64_t sample_rate_hz,
-                             std::span<IqSample> output) override;
+                             std::span<std::span<IqSample>> outputs) override;
 
   ProcessorTimings last_timings() const override { return {}; }
   const char* backend_name() const override { return "cpu"; }

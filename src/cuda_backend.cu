@@ -371,6 +371,10 @@ public:
     check(cudaSetDevice(device_), "cudaSetDevice");
   }
 
+  // Keep the base class's single-row convenience overload visible; overriding
+  // the row-vector virtual below would otherwise hide it.
+  using ChannelProcessor::process_superposition;
+
   ~CudaChannelProcessor() override
   {
     for (auto& [_, sp] : superpose_states_) {
@@ -590,8 +594,19 @@ public:
                              const std::vector<SuperpositionInput>& inputs,
                              const ModelConfig* rx_model,
                              std::uint64_t sample_rate_hz,
-                             std::span<IqSample> output) override
+                             std::span<std::span<IqSample>> outputs) override
   {
+    if (outputs.empty()) {
+      return;
+    }
+    // M0 plumbs the multi-row signature through without touching a kernel.
+    // `superpose_kernel` still reduces every lane into one row, and
+    // `device_output` is sized for one row, so more than one row cannot be
+    // served yet. M1 extends the kernel to grid.y = Nr and lifts this.
+    if (outputs.size() != 1) {
+      throw std::runtime_error("CUDA superposition supports a single output row until M1");
+    }
+    const std::span<IqSample> output = outputs[0];
     if (output.empty()) {
       return;
     }

@@ -36,12 +36,23 @@ struct ProcessorTimings {
   bool used_device_channel = false;
 };
 
-// One incoming edge of a superposition: the link's channel model and the
-// source node's current TX batch. `samples` is borrowed for the call only.
+// One incoming lane of a superposition: the lane's channel model and the
+// source port's current TX batch. `samples` is borrowed for the call only.
+//
+// A lane is the (rx_port, tx_port) pair of one physical link. For a scalar
+// 1x1 link there is exactly one lane and both indices are 0, which is the
+// pre-MIMO meaning of "one incoming edge" -- the field names changed, the
+// semantics for existing topologies did not.
 struct SuperpositionInput {
   std::string link_key;
   const ModelConfig* model = nullptr;
   std::span<const IqSample> samples;
+  // Which output row this lane accumulates into: the destination radio's
+  // RX-port index. Every lane with the same rx_port sums into the same row.
+  int rx_port = 0;
+  // The source radio's TX-port index. Lanes sharing a tx_port read identical
+  // input bytes, which is what the CUDA backend's source-dedup path keys on.
+  int tx_port = 0;
 };
 
 class ChannelProcessor {
@@ -55,19 +66,44 @@ public:
   // per destination device, in the broker).
   virtual void prepare(const TopologyConfig& config) = 0;
 
-  // Processes every incoming edge of destination node `dst_key` through its
-  // own channel model, sums them, and applies the node's optional receiver
-  // model `rx_model` (a thermal-noise floor) once to the sum -- writing the
-  // node's received signal (desired + interference + crosstalk + noise) into
-  // `output`. `rx_model` may be null. On the CUDA backend the per-edge
+  // Processes every incoming lane of destination node `dst_key` through its
+  // own channel model and accumulates it into the output row named by that
+  // lane's `rx_port`, then applies the node's optional receiver model
+  // `rx_model` (a thermal-noise floor) once per row -- writing the node's
+  // received signal (desired + interference + crosstalk + noise) into
+  // `outputs`. `rx_model` may be null. On the CUDA backend the per-lane
   // shaping, the summation, and the receiver model all run on the GPU in a
-  // single fused launch. Single-edge processing is just the N=1 case: pass a
-  // one-element inputs list with rx_model = nullptr.
+  // single fused launch.
+  //
+  // Every row in `outputs` must be the same length, and that length is the
+  // per-lane sample count. `outputs.size()` is the destination radio's RX
+  // port count Nr; a scalar destination passes one row and every lane's
+  // rx_port is 0, which is exactly the pre-MIMO behaviour.
+  //
+  // Single-lane processing is just the N=1 case: pass a one-element inputs
+  // list with rx_model = nullptr.
   virtual void process_superposition(const std::string& dst_key,
                                      const std::vector<SuperpositionInput>& inputs,
                                      const ModelConfig* rx_model,
                                      std::uint64_t sample_rate_hz,
-                                     std::span<IqSample> output) = 0;
+                                     std::span<std::span<IqSample>> outputs) = 0;
+
+  // Single-row adapter for scalar destinations. This is a non-virtual
+  // convenience wrapper over the row-vector entry point above, not a second
+  // processing path: it forwards to the same virtual call with Nr = 1.
+  // Derived classes must pull it back into scope with
+  //   using ChannelProcessor::process_superposition;
+  // because overriding the virtual otherwise hides this overload.
+  void process_superposition(const std::string& dst_key,
+                             const std::vector<SuperpositionInput>& inputs,
+                             const ModelConfig* rx_model,
+                             std::uint64_t sample_rate_hz,
+                             std::span<IqSample> output)
+  {
+    std::span<IqSample> rows[1] = {output};
+    process_superposition(dst_key, inputs, rx_model, sample_rate_hz,
+                          std::span<std::span<IqSample>>(rows));
+  }
 
   virtual ProcessorTimings last_timings() const = 0;
   virtual const char* backend_name() const = 0;
