@@ -17,11 +17,18 @@
 
 // Concurrent per-direction relay broker, modelled on srsRAN's GNU Radio
 // Companion ZMQ broker (ZMQ REQ source -> Throttle -> channel -> ZMQ REP sink).
-// Each device gets a dedicated puller thread (ZMQ REQ, drains the peer's TX
-// into a ring) and a dedicated server thread (ZMQ REP, feeds the peer's RX
-// from the processed link). The server is REQ/REP-gated and never zero-fills:
-// it holds a request until real processed IQ is ready, and throttles its serve
-// to the device sample rate so both directions stay balanced and lock-step.
+//
+// Two levels of state. A PortRuntime is one transport port: a ZMQ endpoint
+// pair plus the TX ring its puller thread drains (ZMQ REQ, bounded only by
+// ring room, exactly as srsRAN's RX channel drains a peer TX). A
+// RadioNodeRuntime owns one or more ports and everything with timing in it --
+// the sample epoch, the source cursors, the single channel call, the throttle,
+// and the output. Every Device lowers to an implicit singleton node until the
+// `radio_nodes` schema arrives in M1, so a node is currently its port.
+//
+// The serving thread is REQ/REP-gated and never zero-fills: it holds a request
+// until real processed IQ is ready, and throttles its serve to the node sample
+// rate so both directions stay balanced and lock-step.
 //
 // Every worker publishes a lock-free `WorkerDiag` (current state plus progress
 // and stall counters); a once-per-second `event=heartbeat` line reports them so
@@ -163,22 +170,60 @@ bool send_samples(void* socket, std::span<const IqSample> samples)
   return static_cast<std::size_t>(sent) == nbytes;
 }
 
-// One device's broker-side state: a REQ socket draining the device TX into a
-// ring, and a REP socket feeding the device RX.
-struct Device {
+// One transport port's broker-side state: a REQ socket draining the port's TX
+// into a ring, and a REP socket feeding the port's RX. This is exactly the
+// pre-MIMO `Device` -- a ZMQ endpoint pair plus its TX ring. A port owns no
+// timing: the sample epoch, the throttle, and the channel call belong to the
+// RadioNode that owns the port.
+struct PortRuntime {
   const DeviceConfig* config = nullptr;
   SocketPtr tx_req;
   SocketPtr rx_rep;
   IqRing tx_ring;
   std::mutex ring_mutex;
   std::size_t batch = 0;
+  // Index of the owning RadioNodeRuntime, and this port's position in that
+  // node's tx/rx port lists (the canonical matrix index from M1 onwards).
+  std::size_t node_index = 0;
+  int tx_port = 0;
+  int rx_port = 0;
 };
 
-// One link's runtime state. The cursor is advanced by the destination device's
-// server thread and read by the source device's puller thread, so it is atomic.
+// A RadioNode: the owner of a common sample epoch, cursor set, throttle, and
+// output for one or more transport ports.
+//
+// M0 has no `radio_nodes` schema, so every Device lowers to an implicit
+// singleton node holding exactly one port as both tx port 0 and rx port 0.
+// That lowering is what makes the pre-MIMO semantics survive verbatim: with
+// Nt = Nr = 1 a node IS its port. M1 adds the parser that can put several
+// ports under one node; nothing else in this struct has to change.
+struct RadioNodeRuntime {
+  std::string id;
+  // M0: the singleton port's DeviceConfig supplies the node-level parameters
+  // (sample rate, rx_model). M1 promotes these to the RadioNode block and
+  // validates that sibling ports agree.
+  const DeviceConfig* config = nullptr;
+  std::vector<std::size_t> tx_ports; // port indices, canonical matrix order
+  std::vector<std::size_t> rx_ports;
+  std::uint64_t sample_rate_hz = 0;
+  std::size_t batch = 0;
+  const ModelConfig* rx_model = nullptr;
+  // Indices into `links` of every lane terminating on this node.
+  std::vector<std::size_t> incoming;
+};
+
+// One lane's runtime state -- the (rx_port, tx_port) pair of one physical
+// link. The cursor is advanced by the destination node's serving thread and
+// read by the source port's puller thread, so it is atomic.
 struct LinkRuntime {
-  std::size_t src_index = 0;
-  std::size_t dst_index = 0;
+  std::size_t src_index = 0; // source PORT index
+  std::size_t dst_index = 0; // destination PORT index
+  std::size_t src_node = 0;
+  std::size_t dst_node = 0;
+  // Canonical matrix indices. Both are 0 for every M0 lane, which is the
+  // scalar 1x1 case; M1 expands one physical link into Nt x Nr lanes.
+  int rx_port = 0;
+  int tx_port = 0;
   const ModelConfig* model = nullptr;
   std::string key; // canonical link_key, precomputed to keep it off the hot path
   std::atomic<std::uint64_t> cursor{0};
@@ -264,28 +309,54 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
 
   AtomicStats stats;
 
-  // Build per-device broker state.
-  std::vector<std::unique_ptr<Device>> devices;
-  devices.reserve(config_.devices.size());
+  // Build per-port broker state (one transport port per configured Device).
+  std::vector<std::unique_ptr<PortRuntime>> ports;
+  ports.reserve(config_.devices.size());
   for (const auto& device : config_.devices) {
-    auto dev = std::make_unique<Device>();
-    dev->config = &device;
-    dev->batch = resolve_batch_samples(config_.runtime, device.sample_rate_hz);
-    dev->tx_ring.reset(config_.runtime.queue_samples);
-    dev->tx_req = make_socket(context.get(), ZMQ_REQ);
-    dev->rx_rep = make_socket(context.get(), ZMQ_REP);
-    if (zmq_connect(dev->tx_req.get(), device.tx_endpoint.c_str()) != 0) {
+    auto port = std::make_unique<PortRuntime>();
+    port->config = &device;
+    port->batch = resolve_batch_samples(config_.runtime, device.sample_rate_hz);
+    port->tx_ring.reset(config_.runtime.queue_samples);
+    port->tx_req = make_socket(context.get(), ZMQ_REQ);
+    port->rx_rep = make_socket(context.get(), ZMQ_REP);
+    if (zmq_connect(port->tx_req.get(), device.tx_endpoint.c_str()) != 0) {
       throw std::runtime_error("failed to connect TX REQ for " + device.id + ": " + zmq_strerror(zmq_errno()));
     }
-    if (zmq_bind(dev->rx_rep.get(), device.rx_endpoint.c_str()) != 0) {
+    if (zmq_bind(port->rx_rep.get(), device.rx_endpoint.c_str()) != 0) {
       throw std::runtime_error("failed to bind RX REP for " + device.id + ": " + zmq_strerror(zmq_errno()));
     }
     std::cout << "event=socket_ready device=" << device.id << " tx_connect=" << device.tx_endpoint
               << " rx_bind=" << device.rx_endpoint << "\n";
-    devices.push_back(std::move(dev));
+    ports.push_back(std::move(port));
   }
 
-  // Build per-link runtime state.
+  // Implicit singleton lowering: with no `radio_nodes` schema yet (M1), every
+  // Device becomes a RadioNode owning exactly that one port as tx port 0 and
+  // rx port 0. Node index therefore equals port index throughout M0, and the
+  // node-level parameters are read straight off the port's DeviceConfig.
+  // Everything downstream is written against the node/port vocabulary, so M1
+  // only has to change how this table is built.
+  std::vector<RadioNodeRuntime> nodes(ports.size());
+  std::unordered_map<std::string, std::size_t> node_by_id;
+  node_by_id.reserve(ports.size());
+  for (std::size_t p = 0; p != ports.size(); ++p) {
+    auto& node = nodes[p];
+    node.id = ports[p]->config->id;
+    node.config = ports[p]->config;
+    node.tx_ports.push_back(p);
+    node.rx_ports.push_back(p);
+    node.sample_rate_hz = ports[p]->config->sample_rate_hz;
+    node.batch = ports[p]->batch;
+    node.rx_model =
+        node.config->rx_model.empty() ? nullptr : find_model(config_, node.config->rx_model);
+    ports[p]->node_index = p;
+    ports[p]->tx_port = 0;
+    ports[p]->rx_port = 0;
+    node_by_id.emplace(node.id, p);
+  }
+
+  // Build per-lane runtime state. In M0 a config link is exactly one lane on
+  // the (single-port) node pair it names; M1 expands it into Nt x Nr lanes.
   std::vector<LinkRuntime> links(config_.links.size());
   for (std::size_t i = 0; i != config_.links.size(); ++i) {
     const auto& link = config_.links[i];
@@ -295,23 +366,33 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     if (src == nullptr || dst == nullptr || model == nullptr) {
       throw std::runtime_error("invalid link: " + link_key(link));
     }
-    for (std::size_t d = 0; d != config_.devices.size(); ++d) {
-      if (config_.devices[d].id == link.from) {
-        links[i].src_index = d;
-      }
-      if (config_.devices[d].id == link.to) {
-        links[i].dst_index = d;
-      }
+    const auto src_node_it = node_by_id.find(link.from);
+    const auto dst_node_it = node_by_id.find(link.to);
+    if (src_node_it == node_by_id.end() || dst_node_it == node_by_id.end()) {
+      throw std::runtime_error("link endpoint resolves to no radio node: " + link_key(link));
     }
+    links[i].src_node = src_node_it->second;
+    links[i].dst_node = dst_node_it->second;
+    links[i].src_index = nodes[links[i].src_node].tx_ports[0];
+    links[i].dst_index = nodes[links[i].dst_node].rx_ports[0];
+    links[i].tx_port = ports[links[i].src_index]->tx_port;
+    links[i].rx_port = ports[links[i].dst_index]->rx_port;
     links[i].model = model;
     links[i].key = link_key(link);
   }
 
-  // Live per-worker diagnostics, one entry per device for each thread role.
-  // Sized once up front and never resized, so the worker threads and the
-  // heartbeat can reference stable elements without synchronisation.
-  std::vector<WorkerDiag> puller_diag(devices.size());
-  std::vector<WorkerDiag> server_diag(devices.size());
+  // Per-node incoming lane lists, resolved once so no serve walks every link.
+  for (std::size_t i = 0; i != links.size(); ++i) {
+    nodes[links[i].dst_node].incoming.push_back(i);
+  }
+
+  // Live per-worker diagnostics: one entry per port for the puller role, one
+  // per node for the serving role. Sized once up front and never resized, so
+  // the worker threads and the heartbeat can reference stable elements without
+  // synchronisation. (In M0 the two are the same length -- node index equals
+  // port index -- but they are indexed distinctly so M0.4 can split them.)
+  std::vector<WorkerDiag> puller_diag(ports.size());
+  std::vector<WorkerDiag> server_diag(nodes.size());
 
   const auto report_thread_error = [&stats](const char* role, const std::exception& e) {
     stats.zmq_errors.fetch_add(1);
@@ -319,12 +400,13 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     std::cerr << "event=error role=" << role << " detail=\"" << e.what() << "\"\n";
   };
 
-  // Puller thread: ZMQ REQ source. Drains device d's TX flat-out (bounded only
-  // by ring room), exactly as srsRAN's RX channel drains a peer TX.
+  // Puller thread: ZMQ REQ source. Drains port p's TX flat-out (bounded only
+  // by ring room), exactly as srsRAN's RX channel drains a peer TX. Unchanged
+  // by the node overlay -- pulling is a per-port transport concern.
   const auto run_puller = [&](std::size_t d) {
     WorkerDiag& diag = puller_diag[d];
     try {
-      Device& dev = *devices[d];
+      PortRuntime& dev = *ports[d];
       // recv_buf must hold the largest single ZMQ payload the peer can send.
       // The ring capacity is that hard upper bound: a larger payload could
       // never be relayed and is rejected by recv_samples_into().
@@ -416,43 +498,50 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     diag.state.store("stopped");
   };
 
-  // Server thread: ZMQ REP sink. Feeds device d's RX with processed IQ, one
+  // Server thread: ZMQ REP sink. Feeds node n's RX with processed IQ, one
   // request at a time, holding the request until real data is ready, and
-  // throttling the serve to the device sample rate.
-  const auto run_server = [&](std::size_t d) {
-    WorkerDiag& diag = server_diag[d];
+  // throttling the serve to the node sample rate.
+  //
+  // M0.3 rehomes this thread's state onto the RadioNode without changing the
+  // thread structure: it is still one request-driven thread that selects the
+  // window, calls the channel, and replies on the port's REP socket. M0.4
+  // splits it into a producer plus a thin PortRepWorker, which is what makes
+  // sibling-port cursor alignment structural rather than incidental. Until
+  // then a node has exactly one RX port, so the two are equivalent.
+  const auto run_server = [&](std::size_t n) {
+    WorkerDiag& diag = server_diag[n];
     try {
-      Device& dev = *devices[d];
-      std::vector<std::size_t> incoming;
-      for (std::size_t i = 0; i != links.size(); ++i) {
-        if (links[i].dst_index == d) {
-          incoming.push_back(i);
-        }
+      RadioNodeRuntime& node = nodes[n];
+      if (node.rx_ports.size() != 1) {
+        throw std::runtime_error("M0 broker serves exactly one RX port per node: " + node.id);
       }
-      IqBuffer rx_reply(dev.batch);
-      std::vector<IqBuffer> inputs(incoming.size(), IqBuffer(dev.batch));
+      PortRuntime& dev = *ports[node.rx_ports[0]];
+      const std::vector<std::size_t>& incoming = node.incoming;
+      IqBuffer rx_reply(node.batch);
+      std::vector<IqBuffer> inputs(incoming.size(), IqBuffer(node.batch));
 
-      // Fixed description of this node's incoming edges; the `samples` span is
+      // Fixed description of this node's incoming lanes; the `samples` span is
       // repointed at the freshly read ring data each serve. process_superposition
-      // shapes every edge through its model and sums them = the node's RX signal.
+      // shapes every lane through its model and sums them = the node's RX signal.
       std::vector<SuperpositionInput> superposition(incoming.size());
       for (std::size_t k = 0; k != incoming.size(); ++k) {
         superposition[k].link_key = links[incoming[k]].key;
         superposition[k].model = links[incoming[k]].model;
+        superposition[k].rx_port = links[incoming[k]].rx_port;
+        superposition[k].tx_port = links[incoming[k]].tx_port;
       }
 
       // Optional receiver model (thermal-noise floor) applied once to the sum.
-      const ModelConfig* rx_model =
-          dev.config->rx_model.empty() ? nullptr : find_model(config_, dev.config->rx_model);
+      const ModelConfig* rx_model = node.rx_model;
 
-      const std::uint64_t rate = std::max<std::uint64_t>(1, dev.config->sample_rate_hz);
+      const std::uint64_t rate = std::max<std::uint64_t>(1, node.sample_rate_hz);
       std::chrono::steady_clock::time_point throttle_anchor{};
       std::uint64_t served = 0;
       bool throttle_anchored = false;
       bool epoch_set = false;
       const auto batch_duration = std::chrono::nanoseconds(
-          (dev.batch * 1000000000ULL) /
-          std::max<std::uint64_t>(1, dev.config->sample_rate_hz));
+          (node.batch * 1000000000ULL) /
+          std::max<std::uint64_t>(1, node.sample_rate_hz));
       const auto starvation_deadline = batch_duration * 5;
 
       while (!stop_requested.load()) {
@@ -483,7 +572,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         if (!epoch_set) {
           for (std::size_t k = 0; k != incoming.size(); ++k) {
             auto& link = links[incoming[k]];
-            Device& src = *devices[link.src_index];
+            PortRuntime& src = *ports[link.src_index];
             std::lock_guard<std::mutex> lk(src.ring_mutex);
             link.cursor.store(src.tx_ring.earliest_sequence());
             link.cursor_init.store(true);
@@ -505,15 +594,15 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         // keeps every radio fed and the pipeline moving.
         std::size_t serve = 0;
         if (incoming.empty()) {
-          serve = dev.batch; // no edges -> a full batch of zero-fill
+          serve = node.batch; // no lanes -> a full batch of zero-fill
         } else {
           const auto wait_start = std::chrono::steady_clock::now();
           bool starvation_counted = false;
           while (!stop_requested.load()) {
-            std::size_t common = dev.batch;
+            std::size_t common = node.batch;
             for (std::size_t k = 0; k != incoming.size(); ++k) {
               auto& link = links[incoming[k]];
-              Device& src = *devices[link.src_index];
+              PortRuntime& src = *ports[link.src_index];
               std::lock_guard<std::mutex> lk(src.ring_mutex);
               std::uint64_t cur = link.cursor.load();
               if (cur < src.tx_ring.earliest_sequence()) {
@@ -547,7 +636,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         // advanced only here, so the ring cannot have shifted under the read.
         for (std::size_t k = 0; k != incoming.size(); ++k) {
           auto& link = links[incoming[k]];
-          Device& src = *devices[link.src_index];
+          PortRuntime& src = *ports[link.src_index];
           const std::span<IqSample> window(inputs[k].data(), serve);
           {
             std::lock_guard<std::mutex> lk(src.ring_mutex);
@@ -568,7 +657,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         const auto t_process_start = std::chrono::steady_clock::now();
         const double read_us =
             std::chrono::duration<double, std::micro>(t_process_start - t_read_start).count();
-        processor_->process_superposition(dev.config->id, superposition, rx_model, dev.config->sample_rate_hz,
+        processor_->process_superposition(node.id, superposition, rx_model, node.sample_rate_hz,
                                           reply);
         const auto t_throttle_start = std::chrono::steady_clock::now();
         const double process_us =
@@ -617,27 +706,34 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     diag.state.store("stopped");
   };
 
+  // One puller per port, one server per node. M0's implicit singleton lowering
+  // makes those counts equal; M0.4 grows the node side to a producer plus one
+  // PortRepWorker per RX port.
   std::vector<std::thread> workers;
-  workers.reserve(devices.size() * 2);
-  for (std::size_t d = 0; d != devices.size(); ++d) {
-    workers.emplace_back(run_puller, d);
-    workers.emplace_back(run_server, d);
+  workers.reserve(ports.size() + nodes.size());
+  for (std::size_t p = 0; p != ports.size(); ++p) {
+    workers.emplace_back(run_puller, p);
+  }
+  for (std::size_t n = 0; n != nodes.size(); ++n) {
+    workers.emplace_back(run_server, n);
   }
 
   // Heartbeat: once per second, publish each worker's live state so a wedged
   // relay is diagnosable from the broker log without attaching a debugger.
   const auto emit_heartbeat = [&](std::uint64_t elapsed_s) {
-    for (std::size_t d = 0; d != devices.size(); ++d) {
+    for (std::size_t d = 0; d != ports.size(); ++d) {
       std::size_t ring_size = 0;
       std::size_t ring_cap = 0;
       {
-        std::lock_guard<std::mutex> lk(devices[d]->ring_mutex);
-        ring_size = devices[d]->tx_ring.size();
-        ring_cap = devices[d]->tx_ring.capacity();
+        std::lock_guard<std::mutex> lk(ports[d]->ring_mutex);
+        ring_size = ports[d]->tx_ring.size();
+        ring_cap = ports[d]->tx_ring.capacity();
       }
       const WorkerDiag& p = puller_diag[d];
-      const WorkerDiag& s = server_diag[d];
-      std::cout << "event=heartbeat t=" << elapsed_s << " dev=" << devices[d]->config->id << " ring="
+      // Server diagnostics belong to the owning node. One port per node in M0,
+      // so this stays a 1:1 line per device exactly as before.
+      const WorkerDiag& s = server_diag[ports[d]->node_index];
+      std::cout << "event=heartbeat t=" << elapsed_s << " dev=" << ports[d]->config->id << " ring="
                 << ring_size << "/" << ring_cap << " puller[state=" << p.state.load()
                 << " pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
                 << " room_stall=" << p.blocked_iters.load() << " last=" << p.last_samples.load()
@@ -655,9 +751,9 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     // and throttle_us are mostly idle time waiting for the next REP request
     // and the wall-clock anchor respectively; align_us is non-zero only on
     // the first serve.
-    for (std::size_t d = 0; d != devices.size(); ++d) {
-      const WorkerDiag& s = server_diag[d];
-      std::cout << "event=cpu_stage_timings t=" << elapsed_s << " dev=" << devices[d]->config->id
+    for (std::size_t n = 0; n != nodes.size(); ++n) {
+      const WorkerDiag& s = server_diag[n];
+      std::cout << "event=cpu_stage_timings t=" << elapsed_s << " dev=" << nodes[n].id
                 << " wait_req_us=" << load_us(s.last_wait_req_us_bits)
                 << " align_us=" << load_us(s.last_align_us_bits)
                 << " read_us=" << load_us(s.last_read_us_bits)
@@ -689,10 +785,10 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
 
   // Final per-device worker breakdown, so the relay outcome is legible even
   // without the heartbeat trail.
-  for (std::size_t d = 0; d != devices.size(); ++d) {
+  for (std::size_t d = 0; d != ports.size(); ++d) {
     const WorkerDiag& p = puller_diag[d];
-    const WorkerDiag& s = server_diag[d];
-    std::cout << "event=worker_summary dev=" << devices[d]->config->id
+    const WorkerDiag& s = server_diag[ports[d]->node_index];
+    std::cout << "event=worker_summary dev=" << ports[d]->config->id
               << " puller[pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
               << " room_stall=" << p.blocked_iters.load() << "]"
               << " server[serves=" << s.progress.load() << " idle=" << s.idle_waits.load()
