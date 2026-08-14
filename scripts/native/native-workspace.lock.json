@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "name": "ocudu-native-workspace",
+  "platform": {
+    "os_id": "ubuntu",
+    "version_id": "24.04",
+    "codename": "noble",
+    "architecture": "amd64",
+    "machine": "x86_64"
+  },
+  "debian_overlay": {
+    "manifest": "scripts/native/locks/ubuntu-noble-amd64.debs.lock.tsv",
+    "rows": 89,
+    "bytes": 20909,
+    "sha256": "4389c0de56369d42b06aff5838f6e19f1010d1469d668017a4903c5421242426",
+    "cache_root": "tools/debs",
+    "extract_root": "install/sysroot",
+    "download_template": "apt-get download <package>:<architecture>=<version>",
+    "closure": "user-space-overlay-only"
+  },
+  "archives": [
+    {
+      "name": "bison",
+      "version": "3.8.2",
+      "url": "https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz",
+      "cache_path": "tools/bison-3.8.2.tar.xz",
+      "bytes": 2817324,
+      "sha256": "9bba0214ccf7f1079c5d59210045227bcf619519840ebfa80cd3849cff5a5bf2",
+      "authentication": "sha256-lock-only; upstream detached signature not cached"
+    },
+    {
+      "name": "gnutls",
+      "version": "3.7.3",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7/gnutls-3.7.3.tar.xz",
+      "cache_path": "tools/gnutls-3.7.3.tar.xz",
+      "bytes": 6119292,
+      "sha256": "fc59c43bc31ab20a6977ff083029277a31935b8355ce387b634fa433f8f6c49a",
+      "authentication": "sha256-lock-only; upstream detached signature not cached"
+    },
+    {
+      "name": "mongodb-community",
+      "version": "6.0.29",
+      "platform": "ubuntu2204-x86_64",
+      "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-6.0.29.tgz",
+      "cache_path": "tools/mongodb-linux-x86_64-ubuntu2204-6.0.29.tgz",
+      "bytes": 73131036,
+      "sha256": "46de5a28be8066e0c44b60e9919e5edd00c28f55fc187f8e0c60ab38dedc9054",
+      "sha256_sidecar": {
+        "cache_path": "tools/mongodb-linux-x86_64-ubuntu2204-6.0.29.tgz.sha256",
+        "bytes": 109,
+        "sha256": "fe90974f939724e771d1912b22654537e4f2996b2f63142a889ecead65e93d90"
+      },
+      "authentication": "official sha256 sidecar cached and verified"
+    }
+  ],
+  "git_sources": [
+    {
+      "name": "ocudu",
+      "url": "https://gitlab.com/ocudu/ocudu.git",
+      "path": "src/ocudu",
+      "commit": "a1916edcdbcd70ba6e0af47ee87be061dad5a4e4"
+    },
+    {
+      "name": "srsRAN_4G",
+      "url": "https://github.com/srsran/srsRAN_4G.git",
+      "path": "src/srsRAN_4G",
+      "label": "release_23_11",
+      "commit": "eea87b1d893ae58e0b08bc381730c502024ae71f"
+    },
+    {
+      "name": "open5gs",
+      "url": "https://github.com/open5gs/open5gs.git",
+      "path": "src/open5gs",
+      "label": "v2.7.6",
+      "commit": "d9d3abdd480be96fac3bc8a997e83446648763ca"
+    },
+    {
+      "name": "prometheus-client-c",
+      "url": "https://github.com/open5gs/prometheus-client-c.git",
+      "path": "src/open5gs/subprojects/prometheus-client-c",
+      "label": "open5gs",
+      "commit": "a58ba25bf87a9b1b7c6be4e6f4c62047d620f402"
+    },
+    {
+      "name": "freeDiameter",
+      "url": "https://github.com/open5gs/freeDiameter.git",
+      "path": "src/open5gs/subprojects/freeDiameter",
+      "label": "r1.5.0",
+      "commit": "14725af3ba0edbf9ff61c4e3239ed42464423b2e"
+    },
+    {
+      "name": "libtins",
+      "url": "https://github.com/open5gs/libtins.git",
+      "path": "src/open5gs/subprojects/libtins",
+      "label": "r4.5",
+      "commit": "bf22438172d269e6db70e27246dffd8e1f0b96e3"
+    },
+    {
+      "name": "usrsctp",
+      "url": "https://github.com/sctplab/usrsctp.git",
+      "path": "src/open5gs/subprojects/usrsctp",
+      "label": "0.9.5.0",
+      "commit": "07f871bda23943c43c9e74cc54f25130459de830"
+    }
+  ],
+  "host_contract": {
+    "python": {
+      "path": "/usr/bin/python3",
+      "version": "3.12.3"
+    },
+    "gcc": {
+      "path": "/usr/bin/gcc",
+      "version": "13.3.0"
+    },
+    "gxx": {
+      "path": "/usr/bin/g++",
+      "version": "13.3.0"
+    },
+    "cmake": {
+      "path": "/usr/bin/cmake",
+      "version": "3.28.3"
+    },
+    "binutils": {
+      "linker": "/usr/bin/ld",
+      "version": "2.42"
+    },
+    "make": {
+      "path": "/usr/bin/make",
+      "version": "4.3"
+    },
+    "pkg_config": {
+      "path": "/usr/bin/pkg-config",
+      "version": "1.8.1"
+    },
+    "glibc_package_version": "2.39-0ubuntu8.8",
+    "cuda": {
+      "nvcc": "/opt/conda/envs/cuda128/bin/nvcc",
+      "version": "12.8.93",
+      "required_for": "ocudu-gpu-channel CUDA build only"
+    }
+  },
+  "build_profiles": {
+    "bison": {
+      "prefix": "install/bison-3.8.2",
+      "configure": [
+        "M4=<root>/install/sysroot/usr/bin/m4"
+      ]
+    },
+    "gnutls": {
+      "prefix": "install/gnutls-3.7.3",
+      "configure": [
+        "--disable-doc",
+        "--disable-guile",
+        "--disable-tests",
+        "--without-p11-kit",
+        "--without-tpm",
+        "--without-idn",
+        "--without-libintl-prefix",
+        "--disable-tools",
+        "--with-included-unistring"
+      ]
+    },
+    "ocudu": {
+      "build_dir": "builds/ocudu-zmq-release",
+      "install_prefix": "install/ocudu",
+      "cmake": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DENABLE_UHD=OFF",
+        "-DENABLE_SIDEKIQ=OFF",
+        "-DENABLE_MKL=OFF",
+        "-DENABLE_FFTZ=OFF",
+        "-DENABLE_ARMPL=OFF",
+        "-DENABLE_DPDK=OFF",
+        "-DENABLE_LIBNUMA=OFF",
+        "-DENABLE_PLUGINS=OFF",
+        "-DENABLE_BACKWARD=OFF",
+        "-DENABLE_ZEROMQ=ON",
+        "-DENABLE_FFTW=ON",
+        "-DENABLE_EXPORT=ON"
+      ]
+    },
+    "srsran4g": {
+      "build_dir": "builds/srsran4g-zmq-release",
+      "install_prefix": "install/srsran4g",
+      "cmake": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DENABLE_SRSUE=ON",
+        "-DENABLE_SRSENB=OFF",
+        "-DENABLE_SRSEPC=OFF",
+        "-DENABLE_UHD=OFF",
+        "-DENABLE_ZEROMQ=ON",
+        "-DENABLE_WERROR=OFF",
+        "-DENABLE_EXPORT=ON"
+      ]
+    },
+    "open5gs": {
+      "build_dir": "builds/open5gs-v2.7.6",
+      "install_prefix": "install/open5gs-v2.7.6",
+      "meson": [
+        "--buildtype=release",
+        "--wrap-mode=nodownload"
+      ],
+      "required_target": "tests/app/5gc"
+    },
+    "mongodb-community": {
+      "install_dir": "install/mongodb-6.0.29",
+      "operation": "verified archive extraction"
+    }
+  },
+  "claim_boundary": {
+    "verified_now": "locked cached inputs and current Ubuntu-24.04 user-space overlay",
+    "not_claimed": "hermetic or arbitrary-clean-host offline build",
+    "reason": "48 Debian dependency clauses and compiler/base-runtime libraries are supplied by the current host"
+  }
+}

@@ -334,10 +334,46 @@ Passed locally:
 
 Every step had broker data-integrity counters at zero. The analytic power expectations matching is the numeric evidence that the producer rewrite did not disturb the channel math.
 
-Still outstanding -- **blocked in this container by nested-LXC Docker, not by anything in the code**:
-- `scripts/remote/ocudu-attach-smoke.sh` -- `rrc_connected=1`, `pdu_session_established=1`, `ping_ok=1`, 0 gNB `Real-time failure in RF: overflow`. **This is the gate that matters most**: Msg3 PUSCH is the thinnest margin in this system on record and the RX ring is new delay in that path. If Msg3 fails, lower `runtime.rx_ring_batches` or drop the high-water mark below one batch and re-measure.
-- `scripts/remote/ocudu-multi-ue-smoke.sh`, `scripts/remote/ocudu-multi-gnb-smoke.sh`
-- The live counterpart of the RX-ring occupancy/latency measurement, labelled per the `AGENT_HARNESS.md` measured-envelope rule.
+**Live 1x1 attach gate PASSED, Docker-free** -- `event=native_mimo_legacy_attach_gate result=pass`, run `20260814T084855Z`. The Docker attach smoke stayed blocked (see the nested-LXC section below), so the gate was met through the rootless native harness instead, which needs no container runtime at all.
+
+```json
+"status": "passed",  "docker_used": false,
+"runtime_mode": "rootless_user_net_mount_namespace",
+"rrc_connected": 1,  "pdu_session_established": 1,  "ping_ok": 1,
+"tx_queue_overflows": 0,  "tx_sequence_gaps": 0,  "zmq_errors": 0,
+"rx_starvations": 4,  "duration_seconds": 15
+```
+
+- **Msg3 PUSCH passed** -- `Random Access Complete. c-rnti=0x4601, ta=0`, then `RRC Connected` and `PDU Session Establishment successful. IP: 10.45.1.2`. This was the M0 risk: the RX ring is new delay in exactly that path.
+- `ping_ok`: 3/3 packets, 0% loss, rtt min/avg/max 26.0/30.6/35.9 ms.
+- gNB logs: **0** matches for `Real-time failure in RF|overflow|underflow|segmentation fault|assertion failed`, ZMQ RF plugin exposed, clean-shutdown token present.
+- `rx_starvations=4` is the soft real-time-margin signal the smoke scripts already treat as non-fatal.
+- Broker counters: `tx_pulls=19225 rx_requests=19260`, every strict counter 0.
+- Node resolution: `event=radio_node_resolved id=gnb0 tx[0]=gnb0 rx[0]=gnb0 implicit=true` (and `ue0`).
+
+**Live RX-ring measurement (M0 exit gate 6).** Host: LXC container on 4x RTX 5090 / driver 570.211.01, CUDA 12.8.93, sm_120 build. Topology `examples/topology.ocudu-docker.cuda.yaml`, 23.04 MS/s, batch 23040, `rx_ring_batches` 2, model chain tdl(-3 dB) + phase + cfo(125 Hz), CUDA backend, 15 s live attach.
+
+```
+event=rx_ring dev=gnb0 occupancy=0 peak=23040 capacity=46080 high_water=23040
+              added_one_way_us=0 peak_one_way_us=1000
+event=rep_stage_timings dev=gnb0 wait_req_us~105 pop_us~880-980 send_us~7
+```
+
+Steady-state occupancy is **0 samples -> 0 us of added one-way delay**; the peak is one batch (1000 us), the run-ahead bound, touched only transiently at startup. `pop_us` sitting near a full slot is the direct evidence: the REP worker finds the ring *empty* when a request arrives, so the consumer is ahead of the producer and the buffer contributes no steady-state latency. That is why Msg3 survived.
+
+Still outstanding:
+- `scripts/remote/ocudu-multi-ue-smoke.sh`, `scripts/remote/ocudu-multi-gnb-smoke.sh` -- Docker-only, still blocked here. No native equivalents exist; they would have to be written, or run on the RTX workstation.
+
+### Native rootless attach harness (salvaged from the superseded attempt)
+
+`scripts/native/` and the two `examples/native/` fixtures come from `ocudu-gpu-channel-audit`, which `MIMO_MILESTONES.md` section 3 designates a reference asset. It stands up Open5GS + OCUDU gNB + srsUE with `unshare --user --map-root-user --net --mount` -- rootless network namespaces, no container runtime -- and builds the broker with `cmake -S "${repo_root}"`, so it exercises *this* tree's M0 code. Prebuilt binaries already existed in `~/ocudu-native-workspace` (gNB at the audited revision `a1916edcd` with the ZMQ RF plugin, srsUE `release_23_11`, Open5GS v2.7.6, mongod 6.0.29), and `native-workspace.lock.json` pins the platform, a 89-row Debian overlay manifest, and all seven git sources.
+
+Four changes were needed to run it against this tree:
+
+1. **Fixture pin repointed** from the audit tree's commit `12c2065` to this tree's baseline `bc88865`. All four pinned files (`examples/topology.ocudu-docker.cuda.yaml`, `examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml`, `scripts/remote/ocudu-attach-smoke.sh`, `scripts/remote/common.sh`) were verified byte-identical between the two revisions first, so the check keeps its exact meaning.
+2. **`implicit=true` added to `event=radio_node_resolved`** in `src/broker.cpp`. Adopted on its merits, not to satisfy the verifier: M1 will have schema-declared nodes alongside lowered ones, and a port's canonical matrix index means something different in each case, so the startup line has to say which kind it is.
+3. **Coordinator-era assertions removed from `verify-legacy-1x1-artifacts.py`.** It required `group_prepares`, `group_commits`, `group_aborts` and `partial_group_aborts` -- `RadioNodeCoordinator` counters. Section 0.2 discards that coordinator outright, and the producer model reaches the same cursor-alignment invariant structurally instead of through a generation barrier. Those counters cannot be made to exist without reinstating the architecture M0 was created to remove, so the assertions were dropped rather than satisfied, with the reasoning recorded in the file. Every other check in the verifier is untouched and passing.
+4. **`PYTHONDONTWRITEBYTECODE=1`** on the Open5GS `add_users` invocation in `run-ocudu-legacy-1x1-inner.sh`. It imports `Open5GS.py` out of the pinned checkout, and the `__pycache__` CPython dropped there made that checkout dirty -- failing the workspace lock on the *next* run, so the gate could only ever be run once. Confirmed re-runnable afterwards: the audited source tree stays byte-identical across runs.
 
 ### Nested-LXC Docker limitation (diagnosed 2026-08-14)
 

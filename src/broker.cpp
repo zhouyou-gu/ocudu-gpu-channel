@@ -237,6 +237,11 @@ struct RadioNodeRuntime {
   std::uint64_t sample_rate_hz = 0;
   std::size_t batch = 0;
   const ModelConfig* rx_model = nullptr;
+  // True when this node came from implicit singleton lowering rather than a
+  // declared `radio_nodes` block. Every M0 node is implicit; M1 has both kinds
+  // and the startup log has to say which, because a port's canonical matrix
+  // index means something different in each case.
+  bool implicit = true;
   // Indices into `links` of every lane terminating on this node.
   std::vector<std::size_t> incoming;
 };
@@ -421,6 +426,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     node.batch = ports[p]->batch;
     node.rx_model =
         node.config->rx_model.empty() ? nullptr : find_model(config_, node.config->rx_model);
+    node.implicit = true;
     ports[p]->node_index = p;
     ports[p]->tx_port = 0;
     ports[p]->rx_port = 0;
@@ -438,6 +444,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     for (std::size_t r = 0; r != node.rx_ports.size(); ++r) {
       line += " rx[" + std::to_string(r) + "]=" + ports[node.rx_ports[r]]->config->id;
     }
+    line += node.implicit ? " implicit=true" : " implicit=false";
     line += "\n";
     std::cout << line;
   }
