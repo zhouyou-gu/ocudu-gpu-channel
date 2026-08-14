@@ -320,11 +320,55 @@ Passed locally:
 - Synthetic **3-node fan-in graph**, CUDA backend (`topology.graph.cuda.yaml`, 6 links so every node has two incoming lanes), 10 s: `tx_pulls=30318 rx_requests=30000`, strict counters all 0, no `node_stall`, 10001 producer slots per node in 10 s = real time.
 - **RX ring measurement (local synthetic only):** steady-state occupancy 0 samples -> 0 us added one-way delay; peak 23040 samples -> 1000 us, which is the one-batch run-ahead bound touched transiently rather than a sustained cost. Identical on CPU and CUDA and on the 3-node graph.
 
-Still outstanding, and they need hardware/Docker the agent cannot drive from this shell (`docker ps` returns permission denied on the socket, and these are long runs the user executes in tmux):
-- `scripts/remote/gpu-test-sequence.sh` 7/7
+**`scripts/remote/gpu-test-sequence.sh` 7/7 PASSED** -- run against this container over loopback SSH (see "Loopback runner" below), 53 s wall clock, sm_120 CUDA build:
+
+| step | result |
+|---|---|
+| [1/7] CUDA release build (sm_120) | OK |
+| [2/7] ctest | 8/8 |
+| [3/7] clean 0 dB relay | `avg_power=1/1` (expected ~1.0) |
+| [4/7] AWGN relay, noise_power 0.25 | `1.25 / 1.24994` (expected ~1.25) |
+| [5/7] 3-node interference graph | `gnb0=2.01473 ue0=0.511291 ue1=0.511296` (expected 2.015 / 0.511) |
+| [6/7] 2-cell multi-gNB | all four nodes `0.262` (expected 0.262) |
+| [7/7] TDL-A 23-tap Jakes 100 Hz | `3.3572 / 3.91851` (expected 3.468 +/- 1.5) |
+
+Every step had broker data-integrity counters at zero. The analytic power expectations matching is the numeric evidence that the producer rewrite did not disturb the channel math.
+
+Still outstanding -- **blocked in this container by nested-LXC Docker, not by anything in the code**:
 - `scripts/remote/ocudu-attach-smoke.sh` -- `rrc_connected=1`, `pdu_session_established=1`, `ping_ok=1`, 0 gNB `Real-time failure in RF: overflow`. **This is the gate that matters most**: Msg3 PUSCH is the thinnest margin in this system on record and the RX ring is new delay in that path. If Msg3 fails, lower `runtime.rx_ring_batches` or drop the high-water mark below one batch and re-measure.
 - `scripts/remote/ocudu-multi-ue-smoke.sh`, `scripts/remote/ocudu-multi-gnb-smoke.sh`
 - The live counterpart of the RX-ring occupancy/latency measurement, labelled per the `AGENT_HARNESS.md` measured-envelope rule.
+
+### Nested-LXC Docker limitation (diagnosed 2026-08-14)
+
+This workspace runs inside an LXC container (`systemd-detect-virt` = lxc). Docker **image builds** work -- `docker-5gc:latest`, `ocudu/gnb:latest`, and `ocudu-gpu-channel/srsue-zmq:release_23_11` all built from source here. Docker **container startup fails** whenever a new network namespace is created:
+
+```
+runc create failed: unable to start container process: error during container init:
+open sysctl net.ipv4.ip_unprivileged_port_start file: reopen fd 8: permission denied
+```
+
+Confirmed properties:
+- Reproduces on a bare `docker run --rm <img> echo ok`, so it is not specific to the OCUDU stack, the compose file, or the smoke script.
+- `--privileged` does not help.
+- Setting `net.ipv4.ip_unprivileged_port_start=0` at the LXC level does not help (runc writes it into the container's own netns regardless), and was reverted to 1024.
+- **`--network host` works** -- no new netns, so no sysctl write. Verified with `docker run --network host --entrypoint /bin/echo docker-5gc:latest`.
+
+The OCUDU compose stack uses a custom `ran` bridge with static addressing (`OPEN5GS_IP` default `10.53.1.2`) for NGAP, so it takes the blocked path. Three ways forward, in order of preference:
+
+1. **Fix the container host-side** -- relaunch this LXC with nesting plus an unconfined AppArmor profile (or privileged). The published gate then runs here unmodified. Preferred: the gate keeps its diagnostic value.
+2. **Run the live smokes on the RTX workstation**, the host these scripts were written for.
+3. **Rewire the compose stack to host networking.** Technically possible since host-net containers do start, but it means rewriting the open5gs bind addresses and the gNB AMF address, and resolving port collisions between 5GC / gNB / srsUE / broker in one namespace. Deliberately not done: M0 exists to make a live regression attributable to the producer rewrite and nothing else, and a rewired network stack would forfeit exactly that property -- a failure could no longer be told apart from an artefact of the rewiring.
+
+### Loopback runner (how the remote scripts were pointed at this container)
+
+`scripts/remote/*.sh` SSH to `${REMOTE_HOST}`; this container already runs sshd on 22 and has CUDA 12.8.93, CMake 3.28.3, and libzmq 4.3.5, so it can be its own "remote". Set up, all reversible:
+
+- `~/.ssh/ocudu_loopback` keypair, public half appended to `~/.ssh/authorized_keys`.
+- `.config` (gitignored) with `REMOTE_HOST=127.0.0.1`, `REMOTE_WORKSPACE=~/ocudu-loopback-workspace`, `REMOTE_OCUDU_ROOT=~/ocudu-native-workspace/src/ocudu` (an existing OCUDU checkout with a `docker/` directory, so no clone was needed), and an explicit `REMOTE_REPO_URL` because this tree has no `origin` and `common.sh` resolves it under `set -e`.
+- The workspace path is deliberately **outside** the source tree: `gpu-test-sequence.sh` rsyncs with `--delete`.
+- `~/ocudu-loopback-workspace/tools/env.sh` stands in for `bootstrap-user-tools.sh` output, with `tools/cuda-12.8.1` symlinked to `/opt/conda/envs/cuda128` rather than downloading a second toolchain.
+- `~/ocudu-loopback-workspace/tools/bin/docker` forwards to `sudo -n -E docker`, since this account has passwordless sudo but is not in the docker group. **`-E` is required, not cosmetic**: `docker compose` reads `OCUDU_ZMQ_DOCKERFILE`, `GNB_CONFIG_PATH`, `OS`, and `OS_VERSION` from the environment, and plain `sudo` sanitises them away, so the first attach-smoke run failed with a blank dockerfile path and empty logs.
 
 - **Next: M1** once the live gates above are green -- `radio_nodes.tx_ports` / `rx_ports` schema, lane expansion `Nt x Nr` with `lane = r * Nt + t`, `superpose_kernel` extended to `grid.y = Nr` with `row_begin[]`, model-scope `fixed_mimo`, the validator set, and the marker test. Note the two M1 items already flagged in code: `cpu_backend.cpp` still applies `rx_model` under one `"<node>>rx"` state key for every row, and `cuda_backend.cu` rejects `outputs.size() != 1`.
 - Sequence and exit gates: `docs/plans/m0-single-engine-refactor.md` §8-§9.
