@@ -100,6 +100,29 @@ struct DeviceConfig {
   double tx_timing_offset_samples = 0.0;
 };
 
+// A RadioNode: the owner of a common sample epoch and, from M1 onward, of the
+// canonical matrix index of its transport ports.
+//
+// `tx_ports` and `rx_ports` name Devices. **Writing order IS the matrix index**:
+// tx_ports[0] is t = 0, rx_ports[1] is r = 1. Nothing parses a numeric suffix
+// off a Device id to infer order -- names like `p0`/`p1` are for humans, the
+// emulator only reads position. The two lists are independent, so a node may be
+// asymmetric (Nt != Nr), and the same Device normally appears in both.
+//
+// Declaring `radio_nodes` is all-or-nothing: if the block is present, every
+// Device must be claimed by exactly one node. Partial declaration is rejected
+// because a half-declared topology silently leaves the remaining Devices as
+// implicit singletons, and which matrix index they end up with would depend on
+// parse order rather than on anything the author wrote.
+//
+// Omitting the block entirely keeps the pre-M1 behaviour: every Device lowers
+// to its own implicit singleton node with Nt = Nr = 1.
+struct RadioNodeConfig {
+  std::string id;
+  std::vector<std::string> tx_ports;
+  std::vector<std::string> rx_ports;
+};
+
 // A directed edge in the graph: the channel `model` shapes IQ travelling from
 // node `from` to node `to`. Multiple edges may target the same node.
 struct LinkConfig {
@@ -159,6 +182,8 @@ struct ModelConfig {
 struct TopologyConfig {
   RuntimeConfig runtime;
   std::vector<DeviceConfig> devices;
+  // Optional. Empty means every Device lowers to an implicit singleton node.
+  std::vector<RadioNodeConfig> radio_nodes;
   std::vector<LinkConfig> links;
   std::map<std::string, ModelConfig> models;
 };
@@ -185,6 +210,7 @@ ModelStepType parse_model_step_type(const std::string& value);
 
 std::size_t resolve_batch_samples(const RuntimeConfig& runtime, std::uint64_t sample_rate_hz);
 const DeviceConfig* find_device(const TopologyConfig& config, const std::string& id);
+const RadioNodeConfig* find_radio_node(const TopologyConfig& config, const std::string& id);
 const ModelConfig* find_model(const TopologyConfig& config, const std::string& id);
 
 // Canonical per-link identity ("from>to:model"), shared by the broker and the

@@ -1549,6 +1549,250 @@ models:
   }
   require(rejected, "runtime.rx_ring_batches below 2 must be rejected");
 
+  // ---- radio_nodes (M1) ---------------------------------------------------
+  //
+  // Writing order in tx_ports/rx_ports IS the canonical matrix index, so these
+  // check that the parser preserves order and that the validator rejects every
+  // way the mapping from port to index could become ambiguous.
+  const char* rn_path = "test_radio_nodes_topology.yaml";
+  const auto write_rn_config = [&](const char* devices_block, const char* nodes_block,
+                                   const char* links_block) {
+    std::ofstream f(rn_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+)yaml";
+    f << devices_block;
+    if (nodes_block != nullptr) {
+      f << "radio_nodes:\n" << nodes_block;
+    }
+    f << "links:\n" << links_block;
+    f << R"yaml(models:
+  clean:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+)yaml";
+  };
+
+  // Two two-port radios. gnb0 is deliberately written with its ports in
+  // NON-alphabetical order so a parser that sorted, or that inferred order from
+  // the numeric suffix, would be caught.
+  const char* two_port_devices = R"yaml(  - id: gnb_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+)yaml";
+  const char* two_port_nodes = R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml";
+  const char* node_links = R"yaml(  - from: gnb
+    to: ue
+    model: clean
+  - from: ue
+    to: gnb
+    model: clean
+)yaml";
+
+  write_rn_config(two_port_devices, two_port_nodes, node_links);
+  const auto rn = ocg::load_config_file(rn_path);
+  require(rn.radio_nodes.size() == 2, "radio_nodes parses both nodes");
+  require(rn.radio_nodes[0].id == "gnb", "first radio node id parses");
+  require(rn.radio_nodes[0].tx_ports.size() == 2 && rn.radio_nodes[0].rx_ports.size() == 2,
+          "radio node port lists parse");
+  require(rn.radio_nodes[0].tx_ports[0] == "gnb_b" && rn.radio_nodes[0].tx_ports[1] == "gnb_a",
+          "tx_ports keeps writing order, it is the canonical matrix index");
+  require(ocg::find_radio_node(rn, "ue") != nullptr, "find_radio_node resolves a declared node");
+  require(ocg::find_radio_node(rn, "nope") == nullptr, "find_radio_node returns null for unknown ids");
+  require(ocg::validate_config(rn).empty(), "a well-formed radio_nodes topology validates");
+
+  // Each rejection below is a distinct way the port -> matrix index mapping
+  // could become ambiguous or unowned.
+  const auto rn_rejects = [&](const char* devices_block, const char* nodes_block,
+                              const char* links_block, const char* what) {
+    write_rn_config(devices_block, nodes_block, links_block);
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(rn_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, what);
+  };
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_b
+    rx_ports:
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links, "a port listed twice in one node must be rejected");
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - missing_device
+    rx_ports:
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links, "a port naming an unknown device must be rejected");
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+      - gnb_a
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links, "a device claimed by two radio nodes must be rejected");
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb_a
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", R"yaml(  - from: gnb_a
+    to: ue
+    model: clean
+)yaml", "a radio node id colliding with a device id must be rejected");
+
+  // Partial declaration: ue_b exists but no node claims it.
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+    rx_ports:
+      - ue_a
+)yaml", node_links, "an unclaimed device must be rejected when radio_nodes is declared");
+
+  rn_rejects(two_port_devices, two_port_nodes, R"yaml(  - from: gnb_a
+    to: ue
+    model: clean
+)yaml", "a link naming a device rather than a node must be rejected");
+
+  // A node owns one sample epoch; siblings must agree on rate and TX offset.
+  const char* mixed_rate_devices = R"yaml(  - id: gnb_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_a
+    sample_rate_hz: 2000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+)yaml";
+  rn_rejects(mixed_rate_devices, two_port_nodes, node_links,
+             "sibling ports disagreeing on sample_rate_hz must be rejected");
+
+  const char* mixed_offset_devices = R"yaml(  - id: gnb_b
+    sample_rate_hz: 1000000
+    tx_timing_offset_samples: 4.0
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+)yaml";
+  rn_rejects(mixed_offset_devices, two_port_nodes, node_links,
+             "sibling ports disagreeing on tx_timing_offset_samples must be rejected");
+
+  // The parser already refuses flow style globally; assert it for the port
+  // lists specifically, since writing order carries meaning here.
+  write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports: [gnb_b, gnb_a]
+    rx_ports:
+      - gnb_b
+)yaml", node_links);
+  rejected = false;
+  try {
+    (void)ocg::load_config_file(rn_path);
+  } catch (const std::runtime_error&) {
+    rejected = true;
+  }
+  require(rejected, "flow-style port lists must be rejected");
+
+  std::remove(rn_path);
   std::remove(rx_ring_path);
   std::remove(los_k_zero_path);
   std::remove(path);

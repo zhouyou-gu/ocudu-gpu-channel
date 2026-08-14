@@ -93,8 +93,16 @@ enum class Section {
   None,
   Runtime,
   Devices,
+  RadioNodes,
   Links,
   Models
+};
+
+// Which port list of the current radio node subsequent `- ` items belong to.
+enum class PortList {
+  None,
+  Tx,
+  Rx
 };
 
 void apply_runtime(RuntimeConfig& runtime, const std::string& key, const std::string& value)
@@ -139,6 +147,15 @@ void apply_device(DeviceConfig& device, const std::string& key, const std::strin
     device.tx_timing_offset_samples = parse_double(value, key);
   } else {
     throw std::runtime_error("unknown device key: " + key);
+  }
+}
+
+void apply_radio_node(RadioNodeConfig& node, const std::string& key, const std::string& value)
+{
+  if (key == "id") {
+    node.id = value;
+  } else {
+    throw std::runtime_error("unknown radio_nodes key: " + key);
   }
 }
 
@@ -259,6 +276,11 @@ TopologyConfig load_config_file(const std::string& path)
   TopologyConfig config;
   Section section = Section::None;
   DeviceConfig* current_device = nullptr;
+  RadioNodeConfig* current_node = nullptr;
+  // Indent of the `- ` that opens a radio node. Port entries sit deeper, which
+  // is how the two levels of `- ` items under `radio_nodes:` are told apart.
+  int radio_node_indent = -1;
+  PortList current_port_list = PortList::None;
   LinkConfig* current_link = nullptr;
   ModelConfig* current_model = nullptr;
   ModelStep* current_step = nullptr;
@@ -317,6 +339,9 @@ TopologyConfig load_config_file(const std::string& path)
 
     if (indent == 0) {
       current_device = nullptr;
+      current_node = nullptr;
+      radio_node_indent = -1;
+      current_port_list = PortList::None;
       current_link = nullptr;
       current_model = nullptr;
       current_step = nullptr;
@@ -327,6 +352,8 @@ TopologyConfig load_config_file(const std::string& path)
         section = Section::Runtime;
       } else if (line == "devices:") {
         section = Section::Devices;
+      } else if (line == "radio_nodes:") {
+        section = Section::RadioNodes;
       } else if (line == "links:") {
         section = Section::Links;
       } else if (line == "models:") {
@@ -354,6 +381,48 @@ TopologyConfig load_config_file(const std::string& path)
         apply_device(*current_device, key, value);
       } else {
         throw std::runtime_error("malformed devices section at line " + std::to_string(line_number));
+      }
+      continue;
+    }
+
+    if (section == Section::RadioNodes) {
+      const bool is_item = line.rfind("- ", 0) == 0;
+      if (is_item && (radio_node_indent < 0 || indent <= radio_node_indent)) {
+        config.radio_nodes.emplace_back();
+        current_node = &config.radio_nodes.back();
+        radio_node_indent = indent;
+        current_port_list = PortList::None;
+        auto [key, value] = split_key_value(trim(line.substr(2)));
+        apply_radio_node(*current_node, key, value);
+      } else if (is_item) {
+        if (current_port_list == PortList::None || current_node == nullptr) {
+          throw std::runtime_error("radio_nodes list item outside tx_ports/rx_ports at line " +
+                                   std::to_string(line_number));
+        }
+        const std::string port = trim(line.substr(2));
+        // A port entry is a bare Device id. A `key: value` here would mean the
+        // author indented a node field into the port list by mistake.
+        if (port.empty() || port.find(':') != std::string::npos) {
+          throw std::runtime_error("radio_nodes port entry must be a bare device id at line " +
+                                   std::to_string(line_number) + ": " + port);
+        }
+        (current_port_list == PortList::Tx ? current_node->tx_ports : current_node->rx_ports)
+            .push_back(port);
+      } else if (current_node != nullptr) {
+        auto [key, value] = split_key_value(line);
+        if (key == "tx_ports" || key == "rx_ports") {
+          if (!value.empty()) {
+            throw std::runtime_error("radio_nodes." + key +
+                                     " must be a block list, not an inline value, at line " +
+                                     std::to_string(line_number));
+          }
+          current_port_list = key == "tx_ports" ? PortList::Tx : PortList::Rx;
+        } else {
+          current_port_list = PortList::None;
+          apply_radio_node(*current_node, key, value);
+        }
+      } else {
+        throw std::runtime_error("malformed radio_nodes section at line " + std::to_string(line_number));
       }
       continue;
     }
@@ -514,14 +583,142 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     }
   }
 
+  // ---- radio_nodes (M1) ---------------------------------------------------
+  //
+  // The block is optional. When absent every Device lowers to an implicit
+  // singleton node, which is the pre-M1 behaviour and needs no validation here.
+  if (!config.radio_nodes.empty()) {
+    std::set<std::string> node_ids;
+    std::map<std::string, std::string> port_owner; // device id -> owning node id
+    for (const auto& node : config.radio_nodes) {
+      if (node.id.empty()) {
+        errors.emplace_back("radio node id must not be empty");
+        continue;
+      }
+      if (!node_ids.insert(node.id).second) {
+        errors.emplace_back("duplicate radio node id: " + node.id);
+      }
+      // A shared id would make `links.from` ambiguous between a node and a
+      // device, and the broker resolves link endpoints to nodes.
+      if (device_ids.count(node.id) != 0) {
+        errors.emplace_back("radio node id collides with a device id: " + node.id);
+      }
+      if (node.tx_ports.empty() && node.rx_ports.empty()) {
+        errors.emplace_back("radio node " + node.id + " declares no ports");
+      }
+
+      for (const auto* list : {&node.tx_ports, &node.rx_ports}) {
+        const bool is_tx = list == &node.tx_ports;
+        const std::string which = is_tx ? "tx_ports" : "rx_ports";
+        std::set<std::string> seen;
+        for (const auto& port : *list) {
+          if (device_ids.count(port) == 0) {
+            errors.emplace_back("radio node " + node.id + "." + which +
+                                " references an unknown device: " + port);
+            continue;
+          }
+          // Two matrix indices for one port would make `lane = r * Nt + t`
+          // ambiguous.
+          if (!seen.insert(port).second) {
+            errors.emplace_back("radio node " + node.id + "." + which +
+                                " lists device " + port + " twice");
+          }
+        }
+      }
+
+      // One TX ring must not have two nodes advancing cursors into it.
+      std::set<std::string> claimed;
+      for (const auto* list : {&node.tx_ports, &node.rx_ports}) {
+        for (const auto& port : *list) {
+          claimed.insert(port);
+        }
+      }
+      for (const auto& port : claimed) {
+        auto [it, inserted] = port_owner.emplace(port, node.id);
+        if (!inserted && it->second != node.id) {
+          errors.emplace_back("device " + port + " is claimed by radio nodes " + it->second +
+                              " and " + node.id);
+        }
+      }
+
+      // A node owns one sample epoch, so its ports must agree on rate; and the
+      // sibling TX-start offsets must agree or the ports' sequence indices do
+      // not denote the same PHY instant (MIMO_MILESTONES.md section 1.3).
+      const DeviceConfig* reference = nullptr;
+      for (const auto& port : claimed) {
+        const DeviceConfig* device = find_device(config, port);
+        if (device == nullptr) {
+          continue;
+        }
+        if (reference == nullptr) {
+          reference = device;
+          continue;
+        }
+        if (device->sample_rate_hz != reference->sample_rate_hz) {
+          errors.emplace_back("radio node " + node.id + " ports disagree on sample_rate_hz: " +
+                              reference->id + "=" + std::to_string(reference->sample_rate_hz) +
+                              ", " + device->id + "=" + std::to_string(device->sample_rate_hz));
+        }
+        if (device->tx_timing_offset_samples != reference->tx_timing_offset_samples) {
+          errors.emplace_back("radio node " + node.id +
+                              " ports disagree on tx_timing_offset_samples: " + reference->id +
+                              " and " + device->id);
+        }
+      }
+    }
+
+    // All-or-nothing: a half-declared topology would leave the rest as implicit
+    // singletons whose matrix index depends on parse order, not on the author.
+    for (const auto& device : config.devices) {
+      if (!device.id.empty() && port_owner.count(device.id) == 0) {
+        errors.emplace_back("device " + device.id +
+                            " is not claimed by any radio node; declaring radio_nodes requires "
+                            "declaring all of them");
+      }
+    }
+
+    // With nodes declared, links join nodes, not devices.
+    for (const auto& link : config.links) {
+      for (const auto* endpoint : {&link.from, &link.to}) {
+        if (!endpoint->empty() && node_ids.count(*endpoint) == 0) {
+          errors.emplace_back("link endpoint " + *endpoint +
+                              " does not name a radio node (radio_nodes is declared)");
+        }
+      }
+    }
+  }
+
+  // Resolves a link endpoint to a Device carrying the endpoint's sample rate.
+  // Without radio_nodes an endpoint IS a device; with radio_nodes it is a node,
+  // and any of its ports serves as the representative because the block above
+  // already rejects a node whose ports disagree on the rate.
+  const auto endpoint_device = [&config](const std::string& id) -> const DeviceConfig* {
+    if (config.radio_nodes.empty()) {
+      return find_device(config, id);
+    }
+    const auto* node = find_radio_node(config, id);
+    if (node == nullptr) {
+      return nullptr;
+    }
+    for (const auto* list : {&node->tx_ports, &node->rx_ports}) {
+      for (const auto& port : *list) {
+        if (const auto* device = find_device(config, port)) {
+          return device;
+        }
+      }
+    }
+    return nullptr;
+  };
+  const std::string endpoint_kind = config.radio_nodes.empty() ? "device" : "radio node";
+
   for (const auto& link : config.links) {
-    const auto* source = find_device(config, link.from);
-    const auto* destination = find_device(config, link.to);
+    const auto* source = endpoint_device(link.from);
+    const auto* destination = endpoint_device(link.to);
     if (source == nullptr) {
-      errors.emplace_back("link source device does not exist: " + link.from);
+      errors.emplace_back("link source " + endpoint_kind + " does not exist: " + link.from);
     }
     if (destination == nullptr) {
-      errors.emplace_back("link destination device does not exist: " + link.to);
+      errors.emplace_back("link destination " + endpoint_kind + " does not exist: " + link.to);
     }
     if (find_model(config, link.model) == nullptr) {
       errors.emplace_back("link model does not exist: " + link.model);
@@ -540,11 +737,27 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
   // TX and feeds each device's RX. A device that is no link's source has its
   // pulled IQ discarded; one that is no link's destination could only be
   // zero-filled. Reject both rather than silently mishandle such a device.
+  //
+  // Links name radio nodes once radio_nodes is declared, so the reachability
+  // question is asked of the device's OWNING node in that case. Asking it of
+  // the device id directly would flag every port of a perfectly well-formed
+  // multi-port topology.
+  const auto endpoint_for = [&config](const DeviceConfig& device) {
+    for (const auto& node : config.radio_nodes) {
+      for (const auto* list : {&node.tx_ports, &node.rx_ports}) {
+        if (std::find(list->begin(), list->end(), device.id) != list->end()) {
+          return node.id;
+        }
+      }
+    }
+    return device.id;
+  };
   for (const auto& device : config.devices) {
+    const std::string endpoint = endpoint_for(device);
     const bool is_source = std::any_of(config.links.begin(), config.links.end(),
-                                       [&](const LinkConfig& link) { return link.from == device.id; });
+                                       [&](const LinkConfig& link) { return link.from == endpoint; });
     const bool is_destination = std::any_of(config.links.begin(), config.links.end(),
-                                            [&](const LinkConfig& link) { return link.to == device.id; });
+                                            [&](const LinkConfig& link) { return link.to == endpoint; });
     if (!is_source) {
       errors.emplace_back("device " + device.id + " is not the source of any link");
     }
@@ -679,9 +892,25 @@ void fold_link_leading_delays(TopologyConfig& config)
   // key on the sum because the leading-delay step doesn't care which knob
   // contributed which sample — both effects look identical at the receiver.
   std::map<std::pair<double, std::string>, std::string> synthesized;
+  // With radio_nodes declared a link names a node, not a device. Resolve to any
+  // of the node's ports: the validator has already rejected a node whose ports
+  // disagree on tx_timing_offset_samples, so every port carries the same value.
+  // This stays correct after M1.4 expands links into lanes, because a lane's
+  // source device is one of exactly those ports.
+  const auto source_device_id = [&config](const std::string& from) {
+    if (const auto* node = find_radio_node(config, from)) {
+      for (const auto* list : {&node->tx_ports, &node->rx_ports}) {
+        if (!list->empty()) {
+          return list->front();
+        }
+      }
+    }
+    return from;
+  };
   for (auto& link : config.links) {
+    const std::string from_device = source_device_id(link.from);
     auto src_it = std::find_if(config.devices.begin(), config.devices.end(),
-                               [&](const DeviceConfig& d) { return d.id == link.from; });
+                               [&](const DeviceConfig& d) { return d.id == from_device; });
     const double tx_timing_offset =
         src_it == config.devices.end() ? 0.0 : src_it->tx_timing_offset_samples;
     const double propagation_delay = link.propagation_delay_samples;
@@ -806,6 +1035,13 @@ const DeviceConfig* find_device(const TopologyConfig& config, const std::string&
 {
   auto it = std::find_if(config.devices.begin(), config.devices.end(), [&](const DeviceConfig& d) { return d.id == id; });
   return it == config.devices.end() ? nullptr : &*it;
+}
+
+const RadioNodeConfig* find_radio_node(const TopologyConfig& config, const std::string& id)
+{
+  auto it = std::find_if(config.radio_nodes.begin(), config.radio_nodes.end(),
+                         [&](const RadioNodeConfig& n) { return n.id == id; });
+  return it == config.radio_nodes.end() ? nullptr : &*it;
 }
 
 const ModelConfig* find_model(const TopologyConfig& config, const std::string& id)
