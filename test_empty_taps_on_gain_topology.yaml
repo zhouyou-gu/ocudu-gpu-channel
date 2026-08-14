@@ -1,0 +1,29 @@
+
+runtime:
+  backend: cpu
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+links:
+  - from: gnb0
+    to: ue0
+    model: phantom_taps
+  - from: ue0
+    to: gnb0
+    model: phantom_taps
+models:
+  phantom_taps:
+    chain:
+      - type: awgn
+        snr_db: 25
+        taps:
+      - type: phase
+        phase_rad: 0.0

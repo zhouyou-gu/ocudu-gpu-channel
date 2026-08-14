@@ -1485,6 +1485,71 @@ models:
   }
   require(rejected, "is_los with defaulted los_k_db (= 0) must be rejected");
 
+  // runtime.rx_ring_batches sizes each RX port's output ring in the broker.
+  // Two is the floor: one batch is the producer's run-ahead bound and the
+  // second is the slack that lets a full batch land while the REP worker is
+  // still draining the previous one.
+  const char* rx_ring_path = "test_rx_ring_batches_topology.yaml";
+  const auto write_rx_ring_config = [&](const char* rx_ring_line) {
+    std::ofstream f(rx_ring_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+)yaml";
+    if (rx_ring_line != nullptr) {
+      f << rx_ring_line << "\n";
+    }
+    f << R"yaml(devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+links:
+  - from: gnb0
+    to: ue0
+    model: clean
+  - from: ue0
+    to: gnb0
+    model: clean
+models:
+  clean:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+)yaml";
+  };
+
+  write_rx_ring_config(nullptr);
+  const auto rx_ring_default = ocg::load_config_file(rx_ring_path);
+  require(rx_ring_default.runtime.rx_ring_batches == 2,
+          "runtime.rx_ring_batches defaults to 2 when omitted");
+
+  write_rx_ring_config("  rx_ring_batches: 4");
+  const auto rx_ring_explicit = ocg::load_config_file(rx_ring_path);
+  require(rx_ring_explicit.runtime.rx_ring_batches == 4,
+          "runtime.rx_ring_batches parses an explicit value");
+
+  write_rx_ring_config("  rx_ring_batches: 1");
+  rejected = false;
+  try {
+    (void)ocg::load_config_file(rx_ring_path);
+  } catch (const std::runtime_error&) {
+    rejected = true;
+  }
+  require(rejected, "runtime.rx_ring_batches below 2 must be rejected");
+
+  std::remove(rx_ring_path);
   std::remove(los_k_zero_path);
   std::remove(path);
   std::remove(bad_path);

@@ -113,6 +113,8 @@ void apply_runtime(RuntimeConfig& runtime, const std::string& key, const std::st
     }
   } else if (key == "queue_samples") {
     runtime.queue_samples = parse_size(value, key);
+  } else if (key == "rx_ring_batches") {
+    runtime.rx_ring_batches = parse_size(value, key);
   } else {
     throw std::runtime_error("unknown runtime key: " + key);
   }
@@ -462,6 +464,14 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
   std::vector<std::string> errors;
   if (config.runtime.queue_samples == 0) {
     errors.emplace_back("runtime.queue_samples must be greater than zero");
+  }
+  // Two batches is the floor: one is the producer's run-ahead bound and the
+  // second is the slack that lets a full batch land while the REP worker is
+  // still draining the previous one. One batch of capacity would cap the
+  // producer at partial pushes for the whole run.
+  if (config.runtime.rx_ring_batches < 2) {
+    errors.emplace_back("runtime.rx_ring_batches must be at least 2, got " +
+                        std::to_string(config.runtime.rx_ring_batches));
   }
   if (!config.runtime.batch_samples_auto && config.runtime.batch_samples == 0) {
     errors.emplace_back("runtime.batch_samples must be greater than zero or auto");

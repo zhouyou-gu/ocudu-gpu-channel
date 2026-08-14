@@ -212,6 +212,10 @@ struct PortRuntime {
   std::mutex rx_mutex;
   std::uint64_t rx_cursor = 0;   // PortRepWorker read cursor
   std::size_t rx_high_water = 0; // producer run-ahead bound, in samples
+  // High-water occupancy actually reached, sampled by the producer under the
+  // ring lock right after each push. The heartbeat samples occupancy once a
+  // second, which would miss the peaks that set the real added latency.
+  std::atomic<std::size_t> rx_peak_occupancy{0};
 };
 
 // A RadioNode: the owner of a common sample epoch, cursor set, throttle, and
@@ -371,10 +375,10 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     port->config = &device;
     port->batch = resolve_batch_samples(config_.runtime, device.sample_rate_hz);
     port->tx_ring.reset(config_.runtime.queue_samples);
-    // RX output ring: two batches of capacity, one batch of producer run-ahead.
-    // M0.6 promotes the multiplier to a `runtime.rx_ring_batches` knob so the
-    // added latency can be tuned against the measured slot budget.
-    port->rx_ring.reset(2 * port->batch);
+    // RX output ring. Capacity is `runtime.rx_ring_batches` batches; the
+    // producer's run-ahead is capped at one batch regardless, so the steady-
+    // state added latency is one batch and the rest is push slack.
+    port->rx_ring.reset(config_.runtime.rx_ring_batches * port->batch);
     port->rx_high_water = port->batch;
     port->tx_req = make_socket(context.get(), ZMQ_REQ);
     port->rx_rep = make_socket(context.get(), ZMQ_REP);
@@ -858,6 +862,10 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           if (!out.rx_ring.push(std::span<const IqSample>(rows[r].data(), count))) {
             throw std::runtime_error("RX output ring rejected a reserved push: " + out.config->id);
           }
+          const std::size_t occupancy = out.rx_ring.size();
+          if (occupancy > out.rx_peak_occupancy.load(std::memory_order_relaxed)) {
+            out.rx_peak_occupancy.store(occupancy, std::memory_order_relaxed);
+          }
         }
         const double push_us =
             std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_push_start).count();
@@ -1035,6 +1043,27 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
                 << " process_us=" << load_us(s.stage_us_bits[kProducerStageProcess])
                 << " throttle_us=" << load_us(s.stage_us_bits[kProducerStageThrottle])
                 << " push_us=" << load_us(s.stage_us_bits[kProducerStagePush]) << "\n";
+    }
+    // RX output-ring occupancy translated into the latency it adds. This ring
+    // is the only buffer the pre-MIMO broker did not have, so its steady-state
+    // occupancy IS the added one-way delay; a round trip pays it twice. peak is
+    // sampled by the producer after every push, not by this once-a-second loop.
+    for (std::size_t d = 0; d != ports.size(); ++d) {
+      const PortRuntime& port = *ports[d];
+      std::size_t rx_size = 0;
+      std::size_t rx_cap = 0;
+      {
+        std::lock_guard<std::mutex> lk(ports[d]->rx_mutex);
+        rx_size = ports[d]->rx_ring.size();
+        rx_cap = ports[d]->rx_ring.capacity();
+      }
+      const std::size_t peak = port.rx_peak_occupancy.load(std::memory_order_relaxed);
+      const double rate = static_cast<double>(std::max<std::uint64_t>(1, port.config->sample_rate_hz));
+      std::cout << "event=rx_ring t=" << elapsed_s << " dev=" << port.config->id
+                << " occupancy=" << rx_size << " peak=" << peak << " capacity=" << rx_cap
+                << " high_water=" << port.rx_high_water
+                << " added_one_way_us=" << (static_cast<double>(rx_size) * 1e6 / rate)
+                << " peak_one_way_us=" << (static_cast<double>(peak) * 1e6 / rate) << "\n";
     }
     // Per-port REP worker timings from its last completed reply.
     for (std::size_t d = 0; d != ports.size(); ++d) {

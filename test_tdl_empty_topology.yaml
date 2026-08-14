@@ -1,0 +1,25 @@
+
+runtime:
+  backend: cpu
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+links:
+  - from: gnb0
+    to: ue0
+    model: empty_tdl
+  - from: ue0
+    to: gnb0
+    model: empty_tdl
+models:
+  empty_tdl:
+    chain:
+      - type: tdl

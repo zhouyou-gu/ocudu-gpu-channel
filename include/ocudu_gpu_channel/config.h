@@ -62,6 +62,16 @@ struct RuntimeConfig {
   bool batch_samples_auto = true;
   std::size_t batch_samples = 0;
   std::size_t queue_samples = 614400;
+  // Capacity of each RX port's output ring, in batches. The broker's producer
+  // may run ahead by one batch; the remaining capacity is slack so a full batch
+  // can be pushed while the REP worker is still draining the previous one.
+  //
+  // This ring is the one buffer the pre-MIMO design did not have -- it computed
+  // each reply on demand -- so it adds directly to one-way latency. At the
+  // reference 23.04 MS/s with a 23040-sample batch, the one-batch run-ahead
+  // bound is 1 ms. Lower it if a live attach shows the added delay eating the
+  // slot budget; Msg3 PUSCH is the thinnest margin in this system on record.
+  std::size_t rx_ring_batches = 2;
 };
 
 // A node in the channel-emulation graph. gNBs and UEs are the SAME class -- a

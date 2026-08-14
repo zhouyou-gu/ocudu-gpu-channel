@@ -1,0 +1,20 @@
+
+runtime:
+  backend: cpu
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+links:
+  - from: gnb0
+    to: gnb0
+    model: typo
+models:
+  typo:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_dB: 0
