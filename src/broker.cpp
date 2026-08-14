@@ -1,6 +1,7 @@
 #include "ocudu_gpu_channel/broker.h"
 #include "ocudu_gpu_channel/ring.h"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -26,9 +27,18 @@
 // and the output. Every Device lowers to an implicit singleton node until the
 // `radio_nodes` schema arrives in M1, so a node is currently its port.
 //
-// The serving thread is REQ/REP-gated and never zero-fills: it holds a request
-// until real processed IQ is ready, and throttles its serve to the node sample
-// rate so both directions stay balanced and lock-step.
+// Three thread roles, nodes + 2 x ports in total. A puller per port drains the
+// peer TX into that port's ring. A producer per node picks one common window
+// across every incoming lane, calls the channel exactly once, advances all
+// source cursors by that same count, throttles to the node sample rate, and
+// pushes each output row into its RX port's ring. A REP worker per port owns
+// only the socket state machine: receive a request, pop a row, reply.
+//
+// Splitting the window choice away from the request-driven thread is the point:
+// with one producer per node there is no second thread that could select a
+// different window, so sibling RX ports consuming different sample ranges is
+// unrepresentable rather than merely unlikely. Nothing zero-fills -- an empty
+// ring means waiting for real processed IQ.
 //
 // Every worker publishes a lock-free `WorkerDiag` (current state plus progress
 // and stall counters); a once-per-second `event=heartbeat` line reports them so
@@ -187,6 +197,21 @@ struct PortRuntime {
   std::size_t node_index = 0;
   int tx_port = 0;
   int rx_port = 0;
+
+  // RX output ring: the owning node's producer pushes this port's processed
+  // row here and the PortRepWorker pops it. This buffer is new in M0.4 -- the
+  // pre-MIMO broker had no RX-side storage and computed a reply on demand --
+  // and it sits directly in the latency path, which is why its occupancy is a
+  // named M0 exit measurement rather than an implementation detail.
+  //
+  // Capacity is deliberately larger than the producer's run-ahead bound: the
+  // producer may only fill up to `rx_high_water`, and the slack above it is
+  // what lets a full batch be pushed while the consumer is still working
+  // through the previous one.
+  IqRing rx_ring;
+  std::mutex rx_mutex;
+  std::uint64_t rx_cursor = 0;   // PortRepWorker read cursor
+  std::size_t rx_high_water = 0; // producer run-ahead bound, in samples
 };
 
 // A RadioNode: the owner of a common sample epoch, cursor set, throttle, and
@@ -247,23 +272,52 @@ struct WorkerDiag {
   std::atomic<std::uint64_t> progress{0};      // completed pulls / serves
   std::atomic<std::uint64_t> idle_waits{0};    // ZMQ timeouts waiting on the peer
   std::atomic<std::uint64_t> blocked_iters{0}; // puller room stalls / server data spins
-  std::atomic<std::uint64_t> last_samples{0};  // samples in the last pull / serve
-  // Per-stage CPU timings for the last completed serve, in microseconds.
-  // wait_req covers the ZMQ recv of the next request (idle wait); align is the
-  // first-serve cursor co-init; read is the common-window computation plus the
-  // ring reads and cursor advance; process is the entire processor call (which
-  // on the CUDA backend includes the host-side delay, packing, H2D, kernel,
-  // D2H -- the GPU sub-phases are emitted separately by event=gpu_timings);
-  // throttle is sleep_until duration; send is the ZMQ reply duration. The
-  // heartbeat publishes these as event=cpu_stage_timings. Atomically stored as
-  // bit-cast uint64 so they can be read lock-free by the heartbeat thread.
-  std::atomic<std::uint64_t> last_wait_req_us_bits{0};
-  std::atomic<std::uint64_t> last_align_us_bits{0};
-  std::atomic<std::uint64_t> last_read_us_bits{0};
-  std::atomic<std::uint64_t> last_process_us_bits{0};
-  std::atomic<std::uint64_t> last_throttle_us_bits{0};
-  std::atomic<std::uint64_t> last_send_us_bits{0};
+  std::atomic<std::uint64_t> last_samples{0};  // samples in the last pull / slot
+  // Per-stage CPU timings for this worker's last completed unit of work, in
+  // microseconds. The slots are generic because the roles have different
+  // stages: see kProducerStage* and kRepStage* below for the two vocabularies.
+  // Atomically stored as bit-cast uint64 so the heartbeat thread can read them
+  // lock-free.
+  std::array<std::atomic<std::uint64_t>, 8> stage_us_bits{};
 };
+
+// Producer stage slots. room is the wait for output-ring headroom; align is
+// the first-slot cursor co-init; data is the wait for a common input window;
+// read is the ring reads; process is the entire processor call (which on the
+// CUDA backend includes the host-side delay, packing, H2D, kernel, D2H -- the
+// GPU sub-phases are emitted separately by event=gpu_timings); throttle is the
+// sleep_until duration; push is the handoff into the RX output rings.
+enum : std::size_t {
+  kProducerStageRoom = 0,
+  kProducerStageAlign,
+  kProducerStageData,
+  kProducerStageRead,
+  kProducerStageProcess,
+  kProducerStageThrottle,
+  kProducerStagePush,
+};
+
+// PortRepWorker stage slots. wait_req is the ZMQ recv of the next request (an
+// idle wait); pop is the wait for a row to appear in this port's RX ring; send
+// is the ZMQ reply duration.
+enum : std::size_t {
+  kRepStageWaitReq = 0,
+  kRepStagePop,
+  kRepStageSend,
+};
+
+// Samples the producer may still push into this port's RX ring. Bounded by the
+// run-ahead high-water mark rather than by raw capacity, so the steady-state
+// added latency is the high-water mark and not the whole ring.
+std::size_t rx_headroom(PortRuntime& port)
+{
+  std::lock_guard<std::mutex> lk(port.rx_mutex);
+  const std::size_t occupancy = port.rx_ring.size();
+  if (occupancy >= port.rx_high_water) {
+    return 0;
+  }
+  return std::min(port.rx_high_water - occupancy, port.rx_ring.free_capacity());
+}
 
 inline void store_us(std::atomic<std::uint64_t>& slot, double us)
 {
@@ -317,6 +371,11 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     port->config = &device;
     port->batch = resolve_batch_samples(config_.runtime, device.sample_rate_hz);
     port->tx_ring.reset(config_.runtime.queue_samples);
+    // RX output ring: two batches of capacity, one batch of producer run-ahead.
+    // M0.6 promotes the multiplier to a `runtime.rx_ring_batches` knob so the
+    // added latency can be tuned against the measured slot budget.
+    port->rx_ring.reset(2 * port->batch);
+    port->rx_high_water = port->batch;
     port->tx_req = make_socket(context.get(), ZMQ_REQ);
     port->rx_rep = make_socket(context.get(), ZMQ_REP);
     if (zmq_connect(port->tx_req.get(), device.tx_endpoint.c_str()) != 0) {
@@ -392,7 +451,8 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
   // synchronisation. (In M0 the two are the same length -- node index equals
   // port index -- but they are indexed distinctly so M0.4 can split them.)
   std::vector<WorkerDiag> puller_diag(ports.size());
-  std::vector<WorkerDiag> server_diag(nodes.size());
+  std::vector<WorkerDiag> producer_diag(nodes.size());
+  std::vector<WorkerDiag> rep_diag(ports.size());
 
   const auto report_thread_error = [&stats](const char* role, const std::exception& e) {
     stats.zmq_errors.fetch_add(1);
@@ -498,31 +558,32 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     diag.state.store("stopped");
   };
 
-  // Server thread: ZMQ REP sink. Feeds node n's RX with processed IQ, one
-  // request at a time, holding the request until real data is ready, and
-  // throttling the serve to the node sample rate.
+  // RadioNode producer thread: the single owner of this node's sample epoch,
+  // source cursors, channel call, and throttle.
   //
-  // M0.3 rehomes this thread's state onto the RadioNode without changing the
-  // thread structure: it is still one request-driven thread that selects the
-  // window, calls the channel, and replies on the port's REP socket. M0.4
-  // splits it into a producer plus a thin PortRepWorker, which is what makes
-  // sibling-port cursor alignment structural rather than incidental. Until
-  // then a node has exactly one RX port, so the two are equivalent.
-  const auto run_server = [&](std::size_t n) {
-    WorkerDiag& diag = server_diag[n];
+  // This is the structural change M0 exists for. In the pre-MIMO broker the
+  // per-destination server thread selected its own serve window at its own
+  // instant, so two threads owning the rows of one radio could pick different
+  // counts and drift apart permanently. Here there is exactly one thread per
+  // node, it chooses `count` once, calls the channel once, and advances every
+  // source cursor by that same count in one loop. A state where sibling RX
+  // ports consumed different windows is not reachable, because no second
+  // thread exists that could choose a window.
+  const auto run_producer = [&](std::size_t n) {
+    WorkerDiag& diag = producer_diag[n];
     try {
       RadioNodeRuntime& node = nodes[n];
-      if (node.rx_ports.size() != 1) {
-        throw std::runtime_error("M0 broker serves exactly one RX port per node: " + node.id);
-      }
-      PortRuntime& dev = *ports[node.rx_ports[0]];
       const std::vector<std::size_t>& incoming = node.incoming;
-      IqBuffer rx_reply(node.batch);
+
       std::vector<IqBuffer> inputs(incoming.size(), IqBuffer(node.batch));
+      // One output row per RX port. M0 always has exactly one.
+      std::vector<IqBuffer> row_storage(node.rx_ports.size(), IqBuffer(node.batch));
+      std::vector<std::span<IqSample>> rows(node.rx_ports.size());
 
       // Fixed description of this node's incoming lanes; the `samples` span is
-      // repointed at the freshly read ring data each serve. process_superposition
-      // shapes every lane through its model and sums them = the node's RX signal.
+      // repointed at the freshly read ring data each slot. process_superposition
+      // shapes every lane through its model and accumulates it into the row its
+      // rx_port names = the node's RX signal.
       std::vector<SuperpositionInput> superposition(incoming.size());
       for (std::size_t k = 0; k != incoming.size(); ++k) {
         superposition[k].link_key = links[incoming[k]].key;
@@ -531,7 +592,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         superposition[k].tx_port = links[incoming[k]].tx_port;
       }
 
-      // Optional receiver model (thermal-noise floor) applied once to the sum.
+      // Optional receiver model (thermal-noise floor) applied once per row.
       const ModelConfig* rx_model = node.rx_model;
 
       const std::uint64_t rate = std::max<std::uint64_t>(1, node.sample_rate_hz);
@@ -545,27 +606,37 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
       const auto starvation_deadline = batch_duration * 5;
 
       while (!stop_requested.load()) {
-        diag.state.store("wait_req");
-        const auto t_wait_req_start = std::chrono::steady_clock::now();
-        std::uint8_t dummy = 0;
-        const int received = zmq_recv(dev.rx_rep.get(), &dummy, sizeof(dummy), 0);
-        if (received < 0) {
-          const int err = zmq_errno();
-          if (err == EAGAIN || err == EINTR || err == EFSM) {
-            diag.idle_waits.fetch_add(1);
-            continue;
+        // (A) Output room. Every RX row must be able to take at least one
+        // sample. Partial progress is deliberate and mirrors the input side:
+        // demanding a full batch of headroom would strand the partial chunks a
+        // lock-step radio leaves behind, which is the B2.2 dead-lock in a new
+        // place.
+        diag.state.store("wait_room");
+        const auto t_room_start = std::chrono::steady_clock::now();
+        std::size_t room = 0;
+        while (!stop_requested.load()) {
+          room = node.batch;
+          for (const std::size_t r : node.rx_ports) {
+            room = std::min(room, rx_headroom(*ports[r]));
           }
-          throw std::runtime_error(std::string("rx request failed: ") + zmq_strerror(err));
+          if (room > 0) {
+            break;
+          }
+          diag.blocked_iters.fetch_add(1);
+          std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+        if (room == 0) {
+          break; // stop requested while waiting for output room
         }
         const auto t_align_start = std::chrono::steady_clock::now();
-        const double wait_req_us =
-            std::chrono::duration<double, std::micro>(t_align_start - t_wait_req_start).count();
+        const double room_us =
+            std::chrono::duration<double, std::micro>(t_align_start - t_room_start).count();
 
-        // First serve: co-initialise every incoming edge's cursor to its
+        // (B) First slot: co-initialise every incoming lane's cursor to its
         // source's earliest buffered sample in one pass. No ring discards
         // anything before its first consumer co-initialises, so this is each
         // ring's true start (sequence 0) -- the superposition still sums every
-        // edge from a common epoch. Co-initialising to the live frontier
+        // lane from a common epoch. Co-initialising to the live frontier
         // instead would drop whatever head-start IQ the lock-step radios had
         // already buffered; in a multi-device topology that head-start is the
         // radios' only timing slack, and dropping it dead-locks the relay.
@@ -579,22 +650,19 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           }
           epoch_set = true;
         }
-        const auto t_read_start = std::chrono::steady_clock::now();
+        const auto t_data_start = std::chrono::steady_clock::now();
         const double align_us =
-            std::chrono::duration<double, std::micro>(t_read_start - t_align_start).count();
+            std::chrono::duration<double, std::micro>(t_data_start - t_align_start).count();
 
-        // A request was accepted; it must be answered with real processed IQ.
-        //
-        // Variable-size relay: serve the largest window simultaneously available
-        // on EVERY incoming edge, capped at the device batch, instead of blocking
-        // until each edge holds a full fixed batch. A fixed-batch serve strands
-        // the partial final chunk every lock-step radio leaves on its ring; in a
-        // multi-device fan-in/fan-out topology no radio can advance to refill it,
-        // so the whole relay dead-locks. Relaying whatever common amount is ready
-        // keeps every radio fed and the pipeline moving.
-        std::size_t serve = 0;
+        // (C) Common input window: the largest amount simultaneously available
+        // on EVERY incoming lane, capped at the node batch and at the output
+        // room, instead of blocking until each lane holds a full fixed batch.
+        // A fixed-batch serve strands the partial final chunk every lock-step
+        // radio leaves on its ring; in a multi-device fan-in/fan-out topology
+        // no radio can advance to refill it, so the whole relay dead-locks.
+        std::size_t count = 0;
         if (incoming.empty()) {
-          serve = node.batch; // no lanes -> a full batch of zero-fill
+          count = room; // no lanes -> zero-fill, still paced and bounded
         } else {
           const auto wait_start = std::chrono::steady_clock::now();
           bool starvation_counted = false;
@@ -614,7 +682,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
               common = std::min<std::size_t>(common, static_cast<std::size_t>(avail));
             }
             if (common > 0) {
-              serve = common;
+              count = std::min(common, room);
               break;
             }
             diag.state.store("wait_data");
@@ -627,17 +695,21 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             std::this_thread::sleep_for(std::chrono::microseconds(50));
           }
         }
-        if (serve == 0) {
-          break; // stop requested while waiting for edge data
+        if (count == 0) {
+          break; // stop requested while waiting for lane data
         }
+        const auto t_read_start = std::chrono::steady_clock::now();
+        const double data_us =
+            std::chrono::duration<double, std::micro>(t_read_start - t_data_start).count();
 
-        // Read the common serve window from every incoming edge. The window was
-        // sized against each ring's live frontier above and a node's cursor is
-        // advanced only here, so the ring cannot have shifted under the read.
+        // (D) Read the window from every incoming lane. Cursors do NOT move
+        // here; the window was sized against each ring's live frontier above
+        // and this thread is the only one that advances a cursor, so the ring
+        // cannot shift under the read.
         for (std::size_t k = 0; k != incoming.size(); ++k) {
           auto& link = links[incoming[k]];
           PortRuntime& src = *ports[link.src_index];
-          const std::span<IqSample> window(inputs[k].data(), serve);
+          const std::span<IqSample> window(inputs[k].data(), count);
           {
             std::lock_guard<std::mutex> lk(src.ring_mutex);
             if (!src.tx_ring.read(link.cursor.load(), window)) {
@@ -645,26 +717,34 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             }
           }
           superposition[k].samples = std::span<const IqSample>(window.data(), window.size());
-          link.cursor.fetch_add(serve);
         }
 
-        // Superpose every incoming edge into the node's RX signal. On the CUDA
-        // backend the per-edge channel shaping and the summation run on the GPU.
-        // No lock needed: prepare() preallocated this node's processor state, so
-        // concurrent process_superposition() calls touch disjoint state.
-        const std::span<IqSample> reply(rx_reply.data(), serve);
+        // (E) One channel call per node per slot, producing every row. On the
+        // CUDA backend the per-lane shaping, the summation, and the receiver
+        // model all run on the GPU. No lock needed: prepare() preallocated this
+        // node's processor state, so concurrent calls touch disjoint state.
+        for (std::size_t r = 0; r != rows.size(); ++r) {
+          rows[r] = std::span<IqSample>(row_storage[r].data(), count);
+        }
         diag.state.store("process");
         const auto t_process_start = std::chrono::steady_clock::now();
         const double read_us =
             std::chrono::duration<double, std::micro>(t_process_start - t_read_start).count();
         processor_->process_superposition(node.id, superposition, rx_model, node.sample_rate_hz,
-                                          reply);
-        const auto t_throttle_start = std::chrono::steady_clock::now();
+                                          std::span<std::span<IqSample>>(rows));
+        const auto t_commit_start = std::chrono::steady_clock::now();
         const double process_us =
-            std::chrono::duration<double, std::micro>(t_throttle_start - t_process_start).count();
+            std::chrono::duration<double, std::micro>(t_commit_start - t_process_start).count();
 
-        // Throttle: cap the serve cadence at the device sample rate so the
-        // lock-step radio runs at real time, not faster.
+        // (F) Commit: advance every lane cursor by the SAME count, in one
+        // loop, in the one thread that owns them. This is the statement that
+        // makes sibling-port alignment a structural invariant.
+        for (std::size_t k = 0; k != incoming.size(); ++k) {
+          links[incoming[k]].cursor.fetch_add(count);
+        }
+
+        // (G) Throttle: cap the production cadence at the node sample rate so
+        // the lock-step radio runs at real time, not faster.
         if (!throttle_anchored) {
           throttle_anchor = std::chrono::steady_clock::now();
           throttle_anchored = true;
@@ -673,49 +753,138 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           const auto target = throttle_anchor + std::chrono::nanoseconds((served * 1000000000ULL) / rate);
           std::this_thread::sleep_until(target);
         }
-        const auto t_send_start = std::chrono::steady_clock::now();
+        const auto t_push_start = std::chrono::steady_clock::now();
         const double throttle_us =
-            std::chrono::duration<double, std::micro>(t_send_start - t_throttle_start).count();
+            std::chrono::duration<double, std::micro>(t_push_start - t_commit_start).count();
 
-        diag.state.store("send");
-        while (!stop_requested.load() && !send_samples(dev.rx_rep.get(), reply)) {
-          // send timed out; retry so the REP socket stays in a valid state
+        // (H) Publish each row to its RX port's ring. Headroom was reserved in
+        // (A) and this is the only producer, so the push cannot fail.
+        diag.state.store("push");
+        for (std::size_t r = 0; r != node.rx_ports.size(); ++r) {
+          PortRuntime& out = *ports[node.rx_ports[r]];
+          std::lock_guard<std::mutex> lk(out.rx_mutex);
+          if (!out.rx_ring.push(std::span<const IqSample>(rows[r].data(), count))) {
+            throw std::runtime_error("RX output ring rejected a reserved push: " + out.config->id);
+          }
         }
-        const double send_us =
-            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_send_start).count();
-        store_us(diag.last_wait_req_us_bits, wait_req_us);
-        store_us(diag.last_align_us_bits, align_us);
-        store_us(diag.last_read_us_bits, read_us);
-        store_us(diag.last_process_us_bits, process_us);
-        store_us(diag.last_throttle_us_bits, throttle_us);
-        store_us(diag.last_send_us_bits, send_us);
-        served += serve;
+        const double push_us =
+            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_push_start).count();
+
+        store_us(diag.stage_us_bits[kProducerStageRoom], room_us);
+        store_us(diag.stage_us_bits[kProducerStageAlign], align_us);
+        store_us(diag.stage_us_bits[kProducerStageData], data_us);
+        store_us(diag.stage_us_bits[kProducerStageRead], read_us);
+        store_us(diag.stage_us_bits[kProducerStageProcess], process_us);
+        store_us(diag.stage_us_bits[kProducerStageThrottle], throttle_us);
+        store_us(diag.stage_us_bits[kProducerStagePush], push_us);
+        served += count;
         // Re-base the throttle origin every ~1 s of served IQ so the
         // (served * 1e9) product cannot overflow on a long-running relay.
         if (served >= rate) {
           throttle_anchor += std::chrono::nanoseconds((served * 1000000000ULL) / rate);
           served = 0;
         }
-        diag.last_samples.store(serve);
+        diag.last_samples.store(count);
         diag.progress.fetch_add(1);
-        stats.rx_requests.fetch_add(1);
       }
     } catch (const std::exception& e) {
-      report_thread_error("server", e);
+      report_thread_error("producer", e);
     }
     diag.state.store("stopped");
   };
 
-  // One puller per port, one server per node. M0's implicit singleton lowering
-  // makes those counts equal; M0.4 grows the node side to a producer plus one
-  // PortRepWorker per RX port.
+  // PortRepWorker: ZMQ REP sink for one RX port. Its only responsibility is
+  // the socket state machine -- receive a request, pop this port's row, reply.
+  // No window selection, no cursors, no channel, no throttle, no epoch: those
+  // all belong to the node producer. It never zero-fills; an empty ring means
+  // waiting, exactly as the pre-MIMO server held a request until real IQ was
+  // ready.
+  const auto run_rep_worker = [&](std::size_t p) {
+    WorkerDiag& diag = rep_diag[p];
+    try {
+      PortRuntime& port = *ports[p];
+      IqBuffer reply_buf(port.batch);
+      while (!stop_requested.load()) {
+        diag.state.store("wait_req");
+        const auto t_wait_req_start = std::chrono::steady_clock::now();
+        std::uint8_t dummy = 0;
+        const int received = zmq_recv(port.rx_rep.get(), &dummy, sizeof(dummy), 0);
+        if (received < 0) {
+          const int err = zmq_errno();
+          if (err == EAGAIN || err == EINTR || err == EFSM) {
+            diag.idle_waits.fetch_add(1);
+            continue;
+          }
+          throw std::runtime_error(std::string("rx request failed: ") + zmq_strerror(err));
+        }
+        const auto t_pop_start = std::chrono::steady_clock::now();
+        const double wait_req_us =
+            std::chrono::duration<double, std::micro>(t_pop_start - t_wait_req_start).count();
+
+        // A request was accepted; it must be answered with real processed IQ.
+        diag.state.store("wait_row");
+        std::size_t take = 0;
+        while (!stop_requested.load()) {
+          {
+            std::lock_guard<std::mutex> lk(port.rx_mutex);
+            const std::uint64_t avail = port.rx_ring.next_sequence() - port.rx_cursor;
+            take = std::min<std::size_t>(port.batch, static_cast<std::size_t>(avail));
+            if (take > 0) {
+              if (!port.rx_ring.read(port.rx_cursor, std::span<IqSample>(reply_buf.data(), take))) {
+                throw std::runtime_error("RX output window vanished from ring: " + port.config->id);
+              }
+              port.rx_cursor += take;
+              port.rx_ring.discard_before(port.rx_cursor);
+            }
+          }
+          if (take > 0) {
+            break;
+          }
+          diag.blocked_iters.fetch_add(1);
+          std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+        if (take == 0) {
+          break; // stop requested while waiting for a row
+        }
+        const auto t_send_start = std::chrono::steady_clock::now();
+        const double pop_us =
+            std::chrono::duration<double, std::micro>(t_send_start - t_pop_start).count();
+
+        diag.state.store("send");
+        const std::span<const IqSample> reply(reply_buf.data(), take);
+        while (!stop_requested.load() && !send_samples(port.rx_rep.get(), reply)) {
+          // send timed out; retry so the REP socket stays in a valid state
+        }
+        const double send_us =
+            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_send_start).count();
+        store_us(diag.stage_us_bits[kRepStageWaitReq], wait_req_us);
+        store_us(diag.stage_us_bits[kRepStagePop], pop_us);
+        store_us(diag.stage_us_bits[kRepStageSend], send_us);
+        diag.last_samples.store(take);
+        diag.progress.fetch_add(1);
+        stats.rx_requests.fetch_add(1);
+      }
+    } catch (const std::exception& e) {
+      report_thread_error("rep_worker", e);
+    }
+    diag.state.store("stopped");
+  };
+
+  // Thread count is nodes + 2 x ports: a puller and a REP worker per port,
+  // plus one producer per node. Under M0's implicit singleton lowering that is
+  // one more thread per device than the pre-MIMO broker had, and the producer
+  // is thin because a node is its port. The GPU call count is unchanged: still
+  // exactly one process_superposition per node per slot.
   std::vector<std::thread> workers;
-  workers.reserve(ports.size() + nodes.size());
+  workers.reserve(2 * ports.size() + nodes.size());
   for (std::size_t p = 0; p != ports.size(); ++p) {
     workers.emplace_back(run_puller, p);
   }
   for (std::size_t n = 0; n != nodes.size(); ++n) {
-    workers.emplace_back(run_server, n);
+    workers.emplace_back(run_producer, n);
+  }
+  for (std::size_t p = 0; p != ports.size(); ++p) {
+    workers.emplace_back(run_rep_worker, p);
   }
 
   // Heartbeat: once per second, publish each worker's live state so a wedged
@@ -729,37 +898,59 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         ring_size = ports[d]->tx_ring.size();
         ring_cap = ports[d]->tx_ring.capacity();
       }
+      // RX output ring occupancy -- the buffer M0.4 added to the latency path.
+      std::size_t rx_size = 0;
+      std::size_t rx_cap = 0;
+      {
+        std::lock_guard<std::mutex> lk(ports[d]->rx_mutex);
+        rx_size = ports[d]->rx_ring.size();
+        rx_cap = ports[d]->rx_ring.capacity();
+      }
       const WorkerDiag& p = puller_diag[d];
-      // Server diagnostics belong to the owning node. One port per node in M0,
-      // so this stays a 1:1 line per device exactly as before.
-      const WorkerDiag& s = server_diag[ports[d]->node_index];
+      // Producer diagnostics belong to the owning node; the REP worker's are
+      // this port's own. One port per node in M0, so this stays one line per
+      // device.
+      const WorkerDiag& s = producer_diag[ports[d]->node_index];
+      const WorkerDiag& r = rep_diag[d];
       std::cout << "event=heartbeat t=" << elapsed_s << " dev=" << ports[d]->config->id << " ring="
-                << ring_size << "/" << ring_cap << " puller[state=" << p.state.load()
+                << ring_size << "/" << ring_cap << " rx_ring=" << rx_size << "/" << rx_cap
+                << " puller[state=" << p.state.load()
                 << " pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
                 << " room_stall=" << p.blocked_iters.load() << " last=" << p.last_samples.load()
-                << "] server[state=" << s.state.load() << " serves=" << s.progress.load()
-                << " idle=" << s.idle_waits.load() << " data_spin=" << s.blocked_iters.load()
-                << " last=" << s.last_samples.load() << "]\n";
+                << "] producer[state=" << s.state.load() << " slots=" << s.progress.load()
+                << " stall=" << s.blocked_iters.load() << " last=" << s.last_samples.load()
+                << "] rep[state=" << r.state.load() << " replies=" << r.progress.load()
+                << " idle=" << r.idle_waits.load() << " row_spin=" << r.blocked_iters.load()
+                << " last=" << r.last_samples.load() << "]\n";
     }
     // Channel-processor GPU timings (zero on the CPU backend).
     const ProcessorTimings t = processor_->last_timings();
     std::cout << "event=gpu_timings t=" << elapsed_s << " h2d_us=" << t.h2d_us << " kernel_us=" << t.kernel_us
               << " d2h_us=" << t.d2h_us << "\n";
-    // Per-device CPU stage timings from the last completed serve. process_us
+    // Per-node producer stage timings from its last completed slot. process_us
     // is the WHOLE processor call -- on the CUDA backend its h2d/kernel/d2h
-    // subset is reported separately by event=gpu_timings above. wait_req_us
-    // and throttle_us are mostly idle time waiting for the next REP request
-    // and the wall-clock anchor respectively; align_us is non-zero only on
-    // the first serve.
+    // subset is reported separately by event=gpu_timings above. room_us and
+    // data_us are the two waits the producer can block on (output headroom and
+    // a common input window); throttle_us is the real-time pacing sleep;
+    // align_us is non-zero only on the first slot.
     for (std::size_t n = 0; n != nodes.size(); ++n) {
-      const WorkerDiag& s = server_diag[n];
-      std::cout << "event=cpu_stage_timings t=" << elapsed_s << " dev=" << nodes[n].id
-                << " wait_req_us=" << load_us(s.last_wait_req_us_bits)
-                << " align_us=" << load_us(s.last_align_us_bits)
-                << " read_us=" << load_us(s.last_read_us_bits)
-                << " process_us=" << load_us(s.last_process_us_bits)
-                << " throttle_us=" << load_us(s.last_throttle_us_bits)
-                << " send_us=" << load_us(s.last_send_us_bits) << "\n";
+      const WorkerDiag& s = producer_diag[n];
+      std::cout << "event=cpu_stage_timings t=" << elapsed_s << " node=" << nodes[n].id
+                << " room_us=" << load_us(s.stage_us_bits[kProducerStageRoom])
+                << " align_us=" << load_us(s.stage_us_bits[kProducerStageAlign])
+                << " data_us=" << load_us(s.stage_us_bits[kProducerStageData])
+                << " read_us=" << load_us(s.stage_us_bits[kProducerStageRead])
+                << " process_us=" << load_us(s.stage_us_bits[kProducerStageProcess])
+                << " throttle_us=" << load_us(s.stage_us_bits[kProducerStageThrottle])
+                << " push_us=" << load_us(s.stage_us_bits[kProducerStagePush]) << "\n";
+    }
+    // Per-port REP worker timings from its last completed reply.
+    for (std::size_t d = 0; d != ports.size(); ++d) {
+      const WorkerDiag& r = rep_diag[d];
+      std::cout << "event=rep_stage_timings t=" << elapsed_s << " dev=" << ports[d]->config->id
+                << " wait_req_us=" << load_us(r.stage_us_bits[kRepStageWaitReq])
+                << " pop_us=" << load_us(r.stage_us_bits[kRepStagePop])
+                << " send_us=" << load_us(r.stage_us_bits[kRepStageSend]) << "\n";
     }
     std::cout.flush();
   };
@@ -787,12 +978,14 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
   // without the heartbeat trail.
   for (std::size_t d = 0; d != ports.size(); ++d) {
     const WorkerDiag& p = puller_diag[d];
-    const WorkerDiag& s = server_diag[ports[d]->node_index];
+    const WorkerDiag& s = producer_diag[ports[d]->node_index];
+    const WorkerDiag& r = rep_diag[d];
     std::cout << "event=worker_summary dev=" << ports[d]->config->id
               << " puller[pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
               << " room_stall=" << p.blocked_iters.load() << "]"
-              << " server[serves=" << s.progress.load() << " idle=" << s.idle_waits.load()
-              << " data_spin=" << s.blocked_iters.load() << "]\n";
+              << " producer[slots=" << s.progress.load() << " stall=" << s.blocked_iters.load() << "]"
+              << " rep[replies=" << r.progress.load() << " idle=" << r.idle_waits.load()
+              << " row_spin=" << r.blocked_iters.load() << "]\n";
   }
   std::cout.flush();
 
