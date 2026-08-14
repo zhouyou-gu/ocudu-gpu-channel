@@ -361,8 +361,67 @@ event=rep_stage_timings dev=gnb0 wait_req_us~105 pop_us~880-980 send_us~7
 
 Steady-state occupancy is **0 samples -> 0 us of added one-way delay**; the peak is one batch (1000 us), the run-ahead bound, touched only transiently at startup. `pop_us` sitting near a full slot is the direct evidence: the REP worker finds the ring *empty* when a request arrives, so the consumer is ahead of the producer and the buffer contributes no steady-state latency. That is why Msg3 survived.
 
+**Native multi-UE gate built; ue0 passes, ue1 blocked by a pre-existing limitation.**
+`scripts/native/run-ocudu-multi-ue.sh` (+ `-inner.sh`, `render-multi-ue-configs.py`,
+`verify-open5gs-subscribers-multi.py`, and two `examples/native/` fixtures) is the Docker-free
+counterpart of `scripts/remote/ocudu-multi-ue-smoke.sh`: one gNB, two srsUEs in two nested
+netns, Open5GS, and the broker built from this tree.
+
+Result: `ue0` passes fully (`rrc_connected=1 pdu_session_established=1 ping_ok=1`). `ue1` reaches
+`RRC Connected` and never gets a PDU session. Broker counters stay clean throughout
+(`tx_pulls` 600k+, `tx_queue_overflows=tx_sequence_gaps=zmq_errors=0`).
+
+**Mechanism, from the broker's own diagnostics.** With only `ue0`'s srsUE running:
+
+```
+event=heartbeat t=5 dev=gnb0 producer[state=wait_data slots=0]
+event=heartbeat t=5 dev=ue1  ring=0/2457600 puller[pulls=0]
+event=node_stall node=gnb0 phase=input_data waited_ms=2000
+```
+
+The gNB node's producer needs a window simultaneously available on *every* incoming lane. While
+`ue1` has not started, its TX ring is empty, so the gNB is deaf to `ue0` as well -- `ue0` hears
+the downlink and cell-searches, but its RACH never reaches the gNB. The instant `ue1` starts
+streaming, both UEs' uplinks are released together and both RACH on the same PRACH occasion; the
+gNB merges them onto one C-RNTI and `ue1` then decodes NAS built against `ue0`'s security context
+(`Integrity check failure` -> `Security Mode Reject` -> `K_amf requested before a valid NAS
+security context was established`).
+
+This makes the "hold ue1 until ue0 is RRC-connected" stagger that
+`scripts/remote/ocudu-multi-ue-smoke.sh` uses self-defeating here: `ue0` cannot connect while
+`ue1` is absent, so the wait always expires. Measured separation between the two
+`Random Access Complete` lines: **77 us**.
+
+**A/B against the pre-MIMO baseline -- this is NOT an M0 regression.** The same harness was run
+against `bc88865` in a git worktree (`OCUDU_NATIVE_CHANNEL_BUILD` was added to the gate so a
+second revision can be built into its own directory; CMake refuses to reuse a cache across source
+dirs):
+
+| | baseline `bc88865` | M0 |
+|---|---|---|
+| gNB while only ue0 runs | `server[state=wait_data serves=0]` | `producer[state=wait_data slots=0]` |
+| ue1 TX ring | `0/2457600`, `pulls=0` | `0/2457600`, `pulls=0` |
+| RACH separation | **81 us** | **77 us** |
+| ue0 | rrc+pdu+ping all 1 | rrc+pdu+ping all 1 |
+| ue1 | rrc=1, pdu=0, ping=0 | rrc=1, pdu=0, ping=0 |
+| strict counters | all 0 | all 0 |
+
+Identical on both revisions, so the limitation predates the producer rewrite. The published
+Docker gate passed on the RTX workstation with ~1.1 s of separation (`ue0` tti=334 C-RNTI 0x4601,
+`ue1` tti=1454 C-RNTI 0x4602, recorded above under B2.2/B2.3); that separation is not reproduced
+natively, where process startup is immediate.
+
+**Deliberately not done:** adding `tx_timing_offset_samples` to the multi-UE topology would very
+likely separate the two preambles and turn this gate green. It was not done, because tuning the
+fixture until the result is the desired one produces a pass that says nothing about M0. The gate
+is reported red with its cause characterised instead.
+
 Still outstanding:
-- `scripts/remote/ocudu-multi-ue-smoke.sh`, `scripts/remote/ocudu-multi-gnb-smoke.sh` -- Docker-only, still blocked here. No native equivalents exist; they would have to be written, or run on the RTX workstation.
+- `scripts/remote/ocudu-multi-ue-smoke.sh` equivalent -- the native harness exists and is
+  diagnostic, but `ue1` needs either the RACH-separation question resolved on its own merits, or
+  a run on the RTX workstation where the published Docker gate is known green.
+- `scripts/remote/ocudu-multi-gnb-smoke.sh` -- no native equivalent written. It would inherit the
+  same RACH-separation question, so it is not worth writing until that is settled.
 
 ### Native rootless attach harness (salvaged from the superseded attempt)
 
