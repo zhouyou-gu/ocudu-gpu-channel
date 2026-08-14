@@ -64,6 +64,16 @@ ue_ids=(ue0 ue1)
 ue_netns=(ue1 ue2)
 ue_ipv4=(10.45.1.2 10.45.1.3)
 ue_gateway="10.45.1.1"
+# Start the UEs together (0) or hold each until its predecessor is RRC-connected (1).
+#
+# Simultaneous is the DEFAULT, and deliberately so. Delaying a UE is what makes
+# the gNB deaf: its producer needs a window on every incoming lane, so while one
+# UE has not started, the gNB hears none of them -- and every UE is then released
+# to RACH at the same instant, which is the collision the delay was meant to
+# avoid. Starting together keeps the gNB fed from the first slot and lets the
+# per-UE near/far channel asymmetry set the sync times, which is where the
+# separation has to come from.
+stagger_ues="${OCUDU_NATIVE_MUE_STAGGER:-0}"
 
 mount_active=0
 root_tun=""
@@ -271,7 +281,7 @@ sleep 3
 declare -a srsue_pids=()
 for index in "${!ue_ids[@]}"; do
   id="${ue_ids[index]}"
-  if [[ "${index}" -gt 0 ]]; then
+  if [[ "${index}" -gt 0 && "${stagger_ues}" -eq 1 ]]; then
     previous="${ue_ids[index-1]}"
     # Observed on this host (broker.log event=node_stall + heartbeat): the gNB
     # node's producer needs a common window across EVERY incoming lane, so

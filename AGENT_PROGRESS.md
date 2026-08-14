@@ -416,12 +416,79 @@ likely separate the two preambles and turn this gate green. It was not done, bec
 fixture until the result is the desired one produces a pass that says nothing about M0. The gate
 is reported red with its cause characterised instead.
 
-Still outstanding:
-- `scripts/remote/ocudu-multi-ue-smoke.sh` equivalent -- the native harness exists and is
-  diagnostic, but `ue1` needs either the RACH-separation question resolved on its own merits, or
-  a run on the RTX workstation where the published Docker gate is known green.
-- `scripts/remote/ocudu-multi-gnb-smoke.sh` -- no native equivalent written. It would inherit the
-  same RACH-separation question, so it is not worth writing until that is settled.
+### Root cause of the multi-UE ue1 failure: lock-step virtual time has no jitter
+
+Three launch arrangements were measured; all three put the two RACH preambles in the same PRACH
+occasion:
+
+| arrangement | RACH separation | ue1 |
+|---|---|---|
+| ue0 first, ue1 held until ue0 is RRC-connected | 77 us | fails |
+| same, against baseline `bc88865` | 81 us | fails |
+| both started simultaneously | 203 us | fails |
+
+The two srsUEs share the broker's lock-step virtual time, so they advance deterministically in
+lock-step. Neither launch order nor the per-UE near/far channel asymmetry (SNR 30 vs 15 dB) moves
+their timers apart -- the real-world jitter that would break the tie does not exist in virtual
+time. The RTX workstation run passed because container startup leaked ~1.1 s of real jitter in;
+native execution has none.
+
+`tx_timing_offset_samples` is not a way out, and not only on principle. Moving a preamble to a
+different PRACH occasion needs hundreds of TTIs of delay, while the NR timing-advance window is
+~0.67 ms; an uplink that late falls outside the TA window and the gNB cannot decode it at all.
+
+### Docker is closed in this container -- proven, not assumed
+
+Bridged containers cannot start here under any combination tried:
+
+| | runc (snap docker 29.6.1) | runc (apt docker 29.1.3) | crun 1.14.1 | crun 1.29.1 |
+|---|---|---|---|---|
+| default bridge | fail | fail | OCI version too old | fail, same `open()` |
+| `--network host` | pass | pass | -- | -- |
+
+`/proc/self/uid_map` is `0 1000000 1000000000`: this is an **unprivileged LXC container**, so its
+root is a mapped uid and `/proc/sys/net` is not writable in a freshly created network namespace.
+crun 1.29.1 states it without runc's hardening wrapper: ``open
+`/proc/sys/net/ipv4/ip_unprivileged_port_start`: Permission denied``. `--privileged`, an explicit
+`--sysctl`, `--network none`, and setting the sysctl at the LXC level all fail the same way.
+Swapping the Docker packaging was tried and did **not** help -- the earlier guess that snap
+confinement was responsible was wrong.
+
+### M0 status: green except two environment-blocked gates
+
+| gate | status |
+|---|---|
+| `ctest` 8/8, CPU and CUDA trees | pass |
+| `gpu-test-sequence.sh` 7/7 | pass |
+| live 1x1 attach incl. Msg3 PUSCH | pass |
+| strict counters zero | pass |
+| RX-ring occupancy / added latency measured | pass (0 us steady state) |
+| `ocudu-multi-ue-smoke.sh` equivalent | **blocked** |
+| `ocudu-multi-gnb-smoke.sh` equivalent | **blocked** (not written) |
+
+**M0 is deliberately NOT declared complete.** The two blocked gates are environmental, not
+M0 defects -- the failure reproduces identically on the pre-MIMO baseline -- but they are real
+gates and this is tracked as debt, not dropped.
+
+What is already covered elsewhere: `gpu-test-sequence` [5/7] (3-node fan-in) and [6/7] (2-cell,
+4 nodes, 8 links) exercise the producer over multiple incoming lanes and match their analytic
+power expectations exactly; `scenario_multi_ue_lockstep` in `test_broker.cpp` covers the B2.2
+fan-in/fan-out deadlock; and the multi-UE topology did run live against the M0 broker, where
+`ue0` completed a full attach and ping through a gNB superposing two uplinks with 620k tx_pulls
+and every strict counter zero.
+
+What remains genuinely uncovered: **two UEs holding PDU sessions at the same time.** No synthetic
+test substitutes for it, and it gets *more* important at M1, where a RadioNode really does own
+several ports and the common-window-across-all-lanes property moves to the centre of the design.
+
+Ways to close it, for whoever picks this up:
+1. Run on the RTX workstation, where the published Docker gate is recorded green (B2.2/B2.3 above).
+2. Have the LXC host set `security.privileged` (or an unconfined AppArmor profile), which makes
+   bridged containers work and lets the published gate run unmodified.
+3. **Unverified candidate:** give each srsUE a different `[rf] freq_offset`. Real UEs have
+   different crystal offsets, so this is a deployment property rather than fixture tampering, and
+   it could separate the two sync times. This has NOT been tested -- it is recorded as a lead, not
+   a solution.
 
 ### Native rootless attach harness (salvaged from the superseded attempt)
 
