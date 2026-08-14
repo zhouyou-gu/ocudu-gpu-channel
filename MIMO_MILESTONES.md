@@ -157,6 +157,8 @@ wire payload에는 타임스탬프가 없다. `IqSample`은 `{float i, float q}`
 
 ### M1 — 차원 도입 + 고정 행렬
 
+> 상세 설계: [`docs/plans/m1-dimensions-and-fixed-matrix.md`](docs/plans/m1-dimensions-and-fixed-matrix.md)
+
 **범위**
 - `radio_nodes.tx_ports` / `rx_ports` 명시 블록 리스트. 작성 순서가 canonical matrix index. flow 리스트(`[p0, p1]`)는 거부.
 - `links.from/to`가 RadioNode ID를 가리킴. 방향마다 physical link 하나.
