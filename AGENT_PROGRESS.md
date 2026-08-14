@@ -544,9 +544,10 @@ M1은 M0의 두 라이브 게이트가 막힌 것과 무관하게 진행 가능�
 | M1.2 `radio_nodes` 스키마 + 파서 + validator | `310ab0f` | ✅ |
 | M1.3 브로커 lowering (선언 우선 / implicit fallback) | `00624c7` | ✅ |
 | M1.4 lane 전개 + 공유 resolver | `692dffc` | ✅ |
-| M1.5 백엔드가 lane 소비 + `fixed_mimo` + 행별 rx_model 키 | — | 다음 |
-| M1.6 CUDA `superpose_kernel` `grid.y = Nr` + `row_begin[]` | — | 대기 |
-| M1.7 marker 테스트 + 비대칭 차원 테스트 | — | 대기 |
+| M1.5a 백엔드가 lane 소비 + 행별 rx_model 키 | `e564fb4` | ✅ |
+| M1.5b `fixed_mimo` | `7b49e7d` | ✅ |
+| M1.6 CUDA `superpose_kernel` `grid.y = Nr` + `row_begin[]` | `cf1207c` | ✅ |
+| M1.7 비대칭 차원 + 1×1 bit-exact | `766034b` | ✅ |
 
 **M1.2** — `RadioNodeConfig`(id + `tx_ports`/`rx_ports`). 작성 순서가 canonical matrix index이고, 테스트는 gnb의 포트를 일부러 알파벳 역순으로 써서 정렬하거나 숫자 suffix를 파싱하는 구현을 잡는다. flow 리스트는 파서가 이미 전역 거부하므로 새 코드 없이 충족되며 테스트로 고정만 했다. validator 규칙: 미지의 device 참조 / 한 노드 내 포트 중복 / 한 device를 두 노드가 주장 / 노드 id와 device id 충돌 / sibling 간 `sample_rate_hz`·`tx_timing_offset_samples`·`rx_model` 불일치 / 포트 없는 노드 / `radio_nodes` 선언 시 device를 가리키는 링크. **선언은 all-or-nothing** — 부분 선언은 나머지를 implicit singleton으로 남겨 matrix index가 작성자가 아니라 파스 순서에 좌우되게 만든다.
 
@@ -562,7 +563,37 @@ M1은 M0의 두 라이브 게이트가 막힌 것과 무관하게 진행 가능�
 
 **M1.4 판정** — `ctest` 8/8 양쪽 트리, `gpu-test-sequence` 7/7, 그리고 결정론적 수치가 재작성 전과 일치: clean relay `1/1`, AWGN `1.25/1.24994`(6자리), 3-node `gnb0_rx=2.01473`, 2-cell `0.262`. 나머지 차이는 Jakes/AWGN 확률 성분이다.
 
-**M1.5 이후 남은 M0 유래 항목 두 개**: `cpu_backend.cpp`가 아직 모든 행에 `"<node>>rx"` 상태 키 하나를 쓰고, `cuda_backend.cu`가 `outputs.size() != 1`을 거부한다.
+**M1.5a** — CPU/CUDA가 각자 `config.links`/`config.devices`를 걷고 있었다. 즉 lane 집합을 세 곳이 독립 유도하던 것을 둘 다 `resolve_topology()`를 읽도록 바꿨다. CUDA에서 중요한 지점 하나: **source dedup 키를 소스 노드가 아니라 소스 device(포트)로** 잡았다. 같은 라디오라도 tx_port가 다르면 다른 IQ를 나르므로, 노드로 키를 잡으면 두 lane이 staged 버퍼를 공유하며 **모든 lane에 포트 0 신호를 먹인다** — 출력은 완벽히 건강해 보이고 답만 틀린다. M0이 남긴 행별 `rx_model` 키도 여기서 처리했다(`rx_state_key()`, `Nr=1` 예외 동일). 이 시점에 `Nt>1`이 열렸다.
+
+**M1.5b** — `fixed_mimo`. 계수를 **lane별 모델 클론의 tap gain/phase에 접는다.** tap이 이미 `a·e^{jφ}`라 새 runtime 필드도 백엔드 변경도 없다. 두 판단이 정확성을 좌우한다: (1) 단위 계수는 정확히 0 dB·0 rad를 더하므로 identity/permutation이 **bit-exact**다. (2) **계수 0인 lane은 생성하지 않는다** — dB로 정확한 0을 표현할 수 없어 접는 방식은 0에 근접할 뿐이다. lane을 빼는 게 정확히 0이고 더 싸다. tap 단위도 동일. 그래서 sparse가 문서가 말한 그대로다: 생략 lane은 0이지 1이 아니고, 암묵적 `1/sqrt(Nt)`도 없다.
+
+**M1.6** — `superpose_kernel`에 `grid.y = Nr`와 `row_begin[]`. 행 그룹화는 M1.4의 **안정 정렬**에서 나오고 그것이 합산 순서를 고정해 CPU↔CUDA parity의 근거가 된다. 수신 모델은 행마다 자기 상태로 적용(CFO 위상·AWGN 카운터 공유 금지). `process_superposition`이 브로커 lane이 `rx_port`로 그룹화돼 왔는지를 **가정하지 않고 검증**한다. 브로커의 `Nr>1` 거부 제거.
+
+**M1.7** — 2×1(두 TX가 한 행으로 fan-in), 1×2(한 TX가 서로 다른 계수로 두 행), 그리고 1×1 bit-exact(선언 노드 vs implicit lowering이 **비트 동일**, CFO 누산기가 넘어가도록 두 슬롯 실행).
+
+### 검증 방법에 관한 기록 — 통과는 검증의 증거가 아니다
+
+M1.6에서 새로 넣은 2×2 CUDA 테스트가 **가드 매크로 이름이 틀려 통째로 컴파일에서 빠진 채 통과**했다(`OCUDU_GPU_CHANNEL_WITH_CUDA` vs 이 파일이 쓰는 `_HAS_CUDA`). 뮤테이션 프로브로 잡았다 — CUDA row 0을 CPU row 1과 비교하면 **반드시 실패해야** 하는데 처음엔 실패하지 않았다.
+
+이후 M1.7의 세 테스트도 전부 프로브했다: 1×2 기대값 반전, 2×1 합을 단일 포트로 축소 → 각각 FAIL 확인. **새 테스트는 실패시켜 보기 전까지 아무것도 증명하지 않는다.**
+
+### M1 Exit 게이트 결과
+
+| 게이트 | 결과 |
+|---|---|
+| identity `H` → 입력 그대로 | ✅ tap **bit-identical** (단위 계수 = 정확히 0 dB/0 rad) |
+| swap `H` → 행 교환 | ✅ marker 테스트, CPU 해석값 + CUDA parity |
+| known `H` → 해석적 기대값 | ✅ `2+0j → +6.02 dB`, `0+1j → 0 dB, +π/2` |
+| marker 테스트 (§1.3) | ✅ 포트별 구별 마커가 지정 lane에서만 출현 |
+| CPU ↔ CUDA parity 1e-3 | ✅ 2×2 swap 양 행 |
+| 1×1 레거시 bit-exact | ✅ 선언 vs implicit, 2슬롯 |
+| 비대칭 차원 2×1 / 1×2 | ✅ |
+| `event=radio_node_resolved` `implicit=false` | ✅ |
+| `ctest` 8/8 CPU + CUDA | ✅ |
+| `gpu-test-sequence.sh` 7/7 | ✅ 결정론적 수치 M1 이전과 동일 |
+| 라이브 1×1 attach (회귀 확인) | ✅ `20260814T124533Z` `status=passed`, rrc/pdu/ping 전부 1, strict counter 0, RX ring 추가 지연 0 µs |
+
+**M1 완료.** 다음은 M2 — IID 확률적 페이딩(physical link 하나의 seed에서 lane별 Jakes 파라미터 파생, 절대시간은 physical link가 단일 소유).
 - Sequence and exit gates: `docs/plans/m0-single-engine-refactor.md` §8-§9.
 - Open user decisions blocking nothing but worth settling early: (a) which mission file governs, (b) whether `MIMO_MILESTONES.md` and `AGENT_GOAL.mimo.md` should also be removed from the pristine `ocudu-gpu-channel-pre-mimo` baseline tree, where duplicates of both currently exist and will drift.
 
