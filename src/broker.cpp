@@ -461,13 +461,17 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     node.batch = ports[representative]->batch;
     node_by_id.emplace(node.id, n);
 
-    // Lane expansion is real from M1.4, but the backends do not consume the
-    // resolved lane table until M1.5 (CPU, unlocks Nt > 1) and M1.6 (CUDA
-    // kernel rows, unlocks Nr > 1). Reject rather than relay a multi-port node
-    // through single-port state, which would look healthy and be wrong.
-    if (declared.tx_ports.size() > 1 || declared.rx_ports.size() > 1) {
+    // Nt > 1 is served from M1.5: both backends now key their per-lane state
+    // off the same resolved lane table, so every lane of a multi-TX-port radio
+    // has state of its own.
+    //
+    // Nr > 1 still needs the CUDA superposition kernel to produce rows
+    // (M1.6). The CUDA backend rejects it itself, but the check is repeated
+    // here so a CPU-backed run also fails loudly rather than quietly applying
+    // one receiver-model state to several rows.
+    if (declared.rx_ports.size() > 1) {
       throw std::runtime_error("radio node " + node.id +
-                               " is multi-port; backends serve multi-port nodes from M1.5/M1.6");
+                               " has Nr > 1; multi-row output lands in M1.6");
     }
   }
 

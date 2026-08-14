@@ -105,27 +105,43 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
 
 void CpuChannelProcessor::prepare(const TopologyConfig& config)
 {
-  for (const auto& link : config.links) {
-    const auto* destination = find_device(config, link.to);
-    const auto* model = find_model(config, link.model);
-    if (destination == nullptr || model == nullptr) {
-      continue;
-    }
-    const std::size_t count = resolve_batch_samples(config.runtime, destination->sample_rate_hz);
-    ensure_link_state(link_key(link), *model, count);
+  // State is keyed by the SAME resolved lane table the broker drives serves
+  // from, so a key can never be missing at serve time -- process_superposition
+  // must never insert into the map concurrently.
+  const ResolvedTopology resolved = resolve_topology(config);
+
+  std::map<std::string, const ResolvedNode*> node_by_id;
+  for (const auto& node : resolved.nodes) {
+    node_by_id.emplace(node.id, &node);
   }
-  // Receiver-model state, keyed "<node>>rx", so process_superposition can apply
-  // a node's noise floor without a concurrent map insert.
-  for (const auto& device : config.devices) {
-    if (device.rx_model.empty()) {
+
+  for (const auto& lane : resolved.lanes) {
+    const auto* model = find_model(config, lane.model_id);
+    auto destination = node_by_id.find(lane.dst_node);
+    if (model == nullptr || destination == node_by_id.end()) {
       continue;
     }
-    const auto* model = find_model(config, device.rx_model);
+    const std::size_t count =
+        resolve_batch_samples(config.runtime, destination->second->sample_rate_hz);
+    ensure_link_state(lane.key, *model, count);
+  }
+
+  // Receiver-model state, one entry per output ROW. Sibling rows must not share
+  // the receiver chain's CFO phase and delay line; at Nr = 1 rx_state_key still
+  // yields the pre-M1 "<node>>rx".
+  for (const auto& node : resolved.nodes) {
+    if (node.rx_model.empty()) {
+      continue;
+    }
+    const auto* model = find_model(config, node.rx_model);
     if (model == nullptr) {
       continue;
     }
-    const std::size_t count = resolve_batch_samples(config.runtime, device.sample_rate_hz);
-    ensure_link_state(device.id + ">rx", *model, count);
+    const std::size_t count = resolve_batch_samples(config.runtime, node.sample_rate_hz);
+    const int nr = static_cast<int>(node.rx_ports.size());
+    for (int r = 0; r != nr; ++r) {
+      ensure_link_state(rx_state_key(node.id, r, nr), *model, count);
+    }
   }
 }
 
@@ -417,16 +433,15 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
       row[s] += scratch[s];
     }
   }
-  // Receiver model (noise floor) applied once per row to that row's sum.
-  //
-  // M0 note: the state key stays "<node>>rx" for every row. With Nr = 1 --
-  // which is the only case M0 produces -- that is exactly the pre-MIMO
-  // behaviour. M1 gives each RX port its own key so that sibling rows do not
-  // share the receiver chain's CFO phase and delay-line state.
+  // Receiver model (noise floor) applied once per row to that row's sum, each
+  // row against its OWN state so sibling rows do not share the receiver chain's
+  // CFO phase and delay line. At Nr = 1 the key is the pre-M1 "<node>>rx".
   if (rx_model != nullptr) {
-    for (const auto& row : outputs) {
+    const int nr = static_cast<int>(outputs.size());
+    for (int r = 0; r != nr; ++r) {
+      const std::span<IqSample> row = outputs[static_cast<std::size_t>(r)];
       const std::span<const IqSample> summed(row.data(), row.size());
-      apply_chain_to_link(dst_key + ">rx", *rx_model, summed, row, sample_rate_hz);
+      apply_chain_to_link(rx_state_key(dst_key, r, nr), *rx_model, summed, row, sample_rate_hz);
     }
   }
 }

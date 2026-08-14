@@ -1052,6 +1052,14 @@ std::string lane_key(const std::string& base_link_key, int rx_port, int tx_port,
   return base_link_key + "#r" + std::to_string(rx_port) + "t" + std::to_string(tx_port);
 }
 
+std::string rx_state_key(const std::string& node_id, int rx_port, int nr)
+{
+  if (nr == 1) {
+    return node_id + ">rx";
+  }
+  return node_id + ">rx#r" + std::to_string(rx_port);
+}
+
 ResolvedTopology resolve_topology(const TopologyConfig& config)
 {
   ResolvedTopology resolved;

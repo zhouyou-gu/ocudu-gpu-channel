@@ -387,17 +387,26 @@ public:
     check(cudaSetDevice(config.runtime.gpu_device), "cudaSetDevice");
     device_ = config.runtime.gpu_device;
 
-    // Per-link model state (chain phase / AWGN counter / delay_line). One
-    // slot per link, looked up by link_key when packing the staged buffer.
-    for (const auto& link : config.links) {
-      const auto* destination = find_device(config, link.to);
-      const auto* model = find_model(config, link.model);
-      if (destination == nullptr || model == nullptr) {
+    // Same resolved lane table the broker serves from, so a lane key can never
+    // be missing when process_superposition looks it up.
+    const ResolvedTopology resolved = resolve_topology(config);
+    std::unordered_map<std::string, const ResolvedNode*> node_by_id;
+    for (const auto& node : resolved.nodes) {
+      node_by_id.emplace(node.id, &node);
+    }
+
+    // Per-lane model state (chain phase / AWGN counter / delay_line). One slot
+    // per lane, looked up by the lane key when packing the staged buffer.
+    for (const auto& lane : resolved.lanes) {
+      const auto* model = find_model(config, lane.model_id);
+      auto dst_it = node_by_id.find(lane.dst_node);
+      if (model == nullptr || dst_it == node_by_id.end()) {
         continue;
       }
-      auto& slot = link_slots_[link_key(link)];
-      init_model_state(slot.model, model->chain.size(), link_key(link));
-      configure_leading_propagation(slot.model, *model, link_key(link));
+      const ResolvedNode& destination_node = *dst_it->second;
+      auto& slot = link_slots_[lane.key];
+      init_model_state(slot.model, model->chain.size(), lane.key);
+      configure_leading_propagation(slot.model, *model, lane.key);
       // Phase 3 v1: populate runtime-mutable params from YAML. build_steps
       // (post-C2a) reads path_loss_db + cfo_hz from `live`. The control
       // plane (C3+) writes to `ctl.shadow` and bumps `ctl.seqno`;
@@ -405,7 +414,7 @@ public:
       // transitions per slot. Initialise shadow == live so the first serve's
       // snap is a no-op.
       slot.model.live = populate_mutable_params_from_yaml(
-          *model, /*reference_power=*/0.0, destination->sample_rate_hz);
+          *model, /*reference_power=*/0.0, destination_node.sample_rate_hz);
       init_broker_link_control(slot.model.ctl, slot.model.live);
       // v2.0-F3b: cache the eligibility flag for the snap path's
       // profile_swap check.
@@ -420,19 +429,20 @@ public:
             static_cast<int>(slot.model.delay_line.size());
       }
       slot.model.ctl.slot_count_hint =
-          static_cast<int>(resolve_batch_samples(config.runtime, destination->sample_rate_hz));
+          static_cast<int>(resolve_batch_samples(config.runtime, destination_node.sample_rate_hz));
     }
 
-    // Per-destination superposition state: one entry per node that is the
-    // target of at least one link.
-    for (const auto& device : config.devices) {
+    // Per-destination superposition state: one entry per radio node that is the
+    // target of at least one lane. Keyed by NODE id, which is what the broker
+    // passes as dst_key.
+    for (const auto& node : resolved.nodes) {
       std::size_t incoming = 0;
       std::size_t max_steps = 0;
-      for (const auto& link : config.links) {
-        if (link.to != device.id) {
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != node.id) {
           continue;
         }
-        const auto* model = find_model(config, link.model);
+        const auto* model = find_model(config, lane.model_id);
         if (model == nullptr) {
           continue;
         }
@@ -442,7 +452,7 @@ public:
       if (incoming == 0) {
         continue;
       }
-      const std::size_t capacity = resolve_batch_samples(config.runtime, device.sample_rate_hz);
+      const std::size_t capacity = resolve_batch_samples(config.runtime, node.sample_rate_hz);
       // Exception safety: if any of the ~12 sequential cudaHostAlloc /
       // cudaMalloc / cudaStreamCreate / cudaEventCreate / cudaMemcpy calls
       // below throws (via check()), the partially-allocated sp leaks until
@@ -451,7 +461,7 @@ public:
       // re-prepare from scratch stays well-defined, and a leaked processor
       // (caller forgets to destruct on failure) doesn't leak GPU memory.
       try {
-      auto& sp = superpose_states_[device.id];
+      auto& sp = superpose_states_[node.id];
       free_superpose_state(sp);
       sp.capacity = capacity;
       sp.max_links = incoming;
@@ -478,9 +488,13 @@ public:
       check(cudaEventCreate(&sp.d2h_done), "cudaEventCreate superpose d2h_done");
 
       // Optional receiver model (a thermal-noise floor) applied after the sum.
-      const auto* rx = device.rx_model.empty() ? nullptr : find_model(config, device.rx_model);
+      // One state here, which is correct while Nr = 1 -- and Nr > 1 is still
+      // rejected in process_superposition until M1.6 gives the kernel rows.
+      // M1.6 grows this to one state per row, keyed by rx_state_key().
+      const auto* rx = node.rx_model.empty() ? nullptr : find_model(config, node.rx_model);
       if (rx != nullptr) {
-        init_model_state(sp.rx_model, rx->chain.size(), device.id + ">rx");
+        init_model_state(sp.rx_model, rx->chain.size(),
+                         rx_state_key(node.id, 0, static_cast<int>(node.rx_ports.size())));
         check(cudaMalloc(reinterpret_cast<void**>(&sp.device_rx_steps),
                          std::max<std::size_t>(1, rx->chain.size()) * sizeof(GpuStep)),
               "cudaMalloc superpose rx steps");
@@ -499,18 +513,23 @@ public:
       // order, assigning each unique source a contiguous src_index. Edges
       // sharing a source share an index — kernel reads source_iq once per
       // source instead of once per edge.
+      //
+      // The dedup key is the source DEVICE (transport port), not the source
+      // node: two lanes off the same radio but different tx_ports carry
+      // different IQ, so keying on the node would make them share one staged
+      // buffer and silently feed every lane the port-0 signal.
       std::unordered_map<std::string, int> src_to_index;
       sp.source_first_edge.clear();
       std::vector<int> per_edge_src_index;
       per_edge_src_index.reserve(incoming);
-      for (const auto& link : config.links) {
-        if (link.to != device.id) continue;
-        const auto* model = find_model(config, link.model);
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != node.id) continue;
+        const auto* model = find_model(config, lane.model_id);
         if (model == nullptr) continue;
-        auto ls_it = link_slots_.find(link_key(link));
+        auto ls_it = link_slots_.find(lane.key);
         if (ls_it == link_slots_.end()) continue;
         auto [it, inserted] = src_to_index.try_emplace(
-            link.from, static_cast<int>(sp.source_first_edge.size()));
+            lane.src_device, static_cast<int>(sp.source_first_edge.size()));
         if (inserted) {
           sp.source_first_edge.push_back(static_cast<int>(per_edge_src_index.size()));
         }
@@ -534,15 +553,15 @@ public:
       // non-tdl-leading edge) fall back to host stage_link for the whole
       // destination.
       bool all_leading_tdl = (incoming > 0);
-      for (const auto& link : config.links) {
-        if (link.to != device.id) {
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != node.id) {
           continue;
         }
-        const auto* model = find_model(config, link.model);
+        const auto* model = find_model(config, lane.model_id);
         if (model == nullptr) {
           continue;
         }
-        auto ls_it = link_slots_.find(link_key(link));
+        auto ls_it = link_slots_.find(lane.key);
         if (ls_it == link_slots_.end()) {
           continue;
         }
@@ -580,7 +599,7 @@ public:
                        incoming * sizeof(DeviceLinkState), cudaMemcpyHostToDevice),
             "cudaMemcpy device_link_states H2D");
       } catch (...) {
-        auto it = superpose_states_.find(device.id);
+        auto it = superpose_states_.find(node.id);
         if (it != superpose_states_.end()) {
           free_superpose_state(it->second);
           superpose_states_.erase(it);

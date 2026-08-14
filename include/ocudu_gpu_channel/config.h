@@ -246,6 +246,14 @@ struct ResolvedTopology {
 // lives here and nowhere else.
 std::string lane_key(const std::string& base_link_key, int rx_port, int tx_port, int nt, int nr);
 
+// The receiver-model state key for one output row of a node.
+//
+// Carries the same Nr = 1 exception as `lane_key` and for the same reason: at
+// Nr = 1 it is exactly the pre-M1 `"<node>>rx"`. Sibling rows must not share
+// the receiver chain's CFO phase and delay line, so from Nr = 2 each row gets
+// its own key.
+std::string rx_state_key(const std::string& node_id, int rx_port, int nr);
+
 // Expands `config` into its resolved view. Assumes `validate_config` passed;
 // throws on a reference it still cannot resolve.
 ResolvedTopology resolve_topology(const TopologyConfig& config);
