@@ -188,6 +188,68 @@ struct TopologyConfig {
   std::map<std::string, ModelConfig> models;
 };
 
+// ---------------------------------------------------------------------------
+// Resolved view (M1)
+//
+// `TopologyConfig` is what the author wrote. `ResolvedTopology` is what the
+// emulator runs: radio nodes with their ports in canonical matrix order, and
+// links expanded into lanes.
+//
+// It exists because three consumers -- the broker, the CPU backend and the CUDA
+// backend -- must agree exactly on the lane set, the lane ordering and the
+// per-lane state keys. Deriving that separately in each place is how those
+// three drift apart, and a drift here is silent: the run still produces IQ, it
+// is just no longer the y = Hx the topology described.
+struct ResolvedNode {
+  std::string id;
+  // Device ids, in canonical matrix order. tx_ports[t] is t, rx_ports[r] is r.
+  std::vector<std::string> tx_ports;
+  std::vector<std::string> rx_ports;
+  std::uint64_t sample_rate_hz = 0;
+  std::string rx_model;
+  // True when the node was lowered from a bare Device rather than declared.
+  bool implicit = true;
+};
+
+// One lane: the (rx_port, tx_port) pair of one physical link. A scalar 1x1 link
+// is the single-lane case with both indices 0.
+struct LaneConfig {
+  // Per-lane channel-state key, shared verbatim by the broker and both
+  // backends. Built by `lane_key()`.
+  std::string key;
+  std::string src_node;
+  std::string dst_node;
+  // The transport ports this lane reads from and accumulates into.
+  std::string src_device;
+  std::string dst_device;
+  int tx_port = 0;
+  int rx_port = 0;
+  std::string model_id;
+  // Index of the originating entry in TopologyConfig::links.
+  std::size_t link_index = 0;
+};
+
+struct ResolvedTopology {
+  std::vector<ResolvedNode> nodes;
+  // Stable-sorted by (destination node, rx_port). Lanes of one row are
+  // therefore contiguous, which is what lets the CUDA superposition kernel take
+  // a row as a [row_begin[r], row_begin[r+1]) range. Stability keeps the
+  // float summation order fixed, which CPU/CUDA parity rests on.
+  std::vector<LaneConfig> lanes;
+};
+
+// The canonical per-lane state key.
+//
+// At Nt = Nr = 1 it is exactly `link_key(link)` -- no suffix. That exception is
+// deliberate and load-bearing: it is what makes a 1x1 topology produce output
+// bit-identical to the pre-M1 broker, which is M1's safety net. The condition
+// lives here and nowhere else.
+std::string lane_key(const std::string& base_link_key, int rx_port, int tx_port, int nt, int nr);
+
+// Expands `config` into its resolved view. Assumes `validate_config` passed;
+// throws on a reference it still cannot resolve.
+ResolvedTopology resolve_topology(const TopologyConfig& config);
+
 TopologyConfig load_config_file(const std::string& path);
 std::vector<std::string> validate_config(const TopologyConfig& config);
 

@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 
 namespace {
@@ -1791,6 +1792,157 @@ devices:
     rejected = true;
   }
   require(rejected, "flow-style port lists must be rejected");
+
+  // ---- resolve_topology (M1.4) --------------------------------------------
+  //
+  // One definition of the lane set, the lane order and the per-lane key, shared
+  // by the broker and both backends.
+  {
+    // 2x2: gnb(tx gnb_b,gnb_a) -> ue(rx ue_a,ue_b) is four lanes.
+    write_rn_config(two_port_devices, two_port_nodes, node_links);
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "2x2 radio_nodes topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.nodes.size() == 2, "resolve_topology keeps both declared nodes");
+    require(!res.nodes[0].implicit, "declared nodes are not marked implicit");
+    require(res.lanes.size() == 8, "two 2x2 links expand to 8 lanes");
+
+    // Lanes of one destination row must be contiguous, so the CUDA kernel can
+    // take a row as a [row_begin[r], row_begin[r+1]) range.
+    for (std::size_t i = 1; i < res.lanes.size(); ++i) {
+      const auto& prev = res.lanes[i - 1];
+      const auto& cur = res.lanes[i];
+      const bool ordered = prev.dst_node < cur.dst_node ||
+                           (prev.dst_node == cur.dst_node && prev.rx_port <= cur.rx_port);
+      require(ordered, "lanes are grouped by destination node then rx_port");
+    }
+
+    // Port identity must follow the WRITTEN order, not alphabetical order:
+    // gnb.tx_ports is [gnb_b, gnb_a], so t=0 is gnb_b.
+    std::size_t checked = 0;
+    for (const auto& lane : res.lanes) {
+      if (lane.src_node != "gnb" || lane.tx_port != 0) {
+        continue;
+      }
+      require(lane.src_device == "gnb_b", "tx_port 0 maps to the first WRITTEN port");
+      ++checked;
+    }
+    require(checked == 2, "expected two lanes out of gnb tx port 0");
+
+    // Every lane of a multi-port link needs its own state key.
+    std::set<std::string> keys;
+    for (const auto& lane : res.lanes) {
+      require(keys.insert(lane.key).second, "lane keys are unique");
+      require(lane.key.find("#r") != std::string::npos, "multi-port lanes carry a #r/t suffix");
+    }
+  }
+
+  {
+    // 1x1 must keep the pre-M1 key verbatim -- this is what makes legacy output
+    // bit-identical, so it is asserted rather than assumed.
+    write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+    rx_ports:
+      - gnb_b
+  - id: gnb2
+    tx_ports:
+      - gnb_a
+    rx_ports:
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+    rx_ports:
+      - ue_a
+  - id: ue2
+    tx_ports:
+      - ue_b
+    rx_ports:
+      - ue_b
+)yaml", R"yaml(  - from: gnb
+    to: ue
+    model: clean
+  - from: ue
+    to: gnb
+    model: clean
+  - from: gnb2
+    to: ue2
+    model: clean
+  - from: ue2
+    to: gnb2
+    model: clean
+)yaml");
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "1x1 declared topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 4, "1x1 links stay one lane each");
+    for (const auto& lane : res.lanes) {
+      require(lane.key.find('#') == std::string::npos,
+              "a 1x1 lane key carries no suffix, so it equals the pre-M1 link key");
+      require(lane.rx_port == 0 && lane.tx_port == 0, "1x1 lane indices are both zero");
+    }
+    require(res.lanes[0].key == "gnb>ue:clean" || res.lanes[0].key.rfind("gnb>ue:", 0) == 0 ||
+                res.lanes[0].key.rfind("ue>gnb:", 0) == 0 ||
+                res.lanes[0].key.rfind("gnb2>ue2:", 0) == 0 ||
+                res.lanes[0].key.rfind("ue2>gnb2:", 0) == 0,
+            "1x1 lane key is the plain from>to:model form");
+  }
+
+  {
+    // Asymmetric node: 2 TX, 1 RX. Nt != Nr must expand to Nt x Nr, not to a
+    // square.
+    write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links);
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "asymmetric radio_nodes topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    std::size_t downlink = 0;
+    std::size_t uplink = 0;
+    for (const auto& lane : res.lanes) {
+      (lane.src_node == "gnb" ? downlink : uplink)++;
+    }
+    require(downlink == 4, "gnb(Nt=2) -> ue(Nr=2) expands to 4 lanes");
+    require(uplink == 1, "ue(Nt=1) -> gnb(Nr=1) expands to 1 lane");
+  }
+
+  // Without radio_nodes every device lowers to a singleton node, unchanged.
+  {
+    write_rn_config(two_port_devices, nullptr, R"yaml(  - from: gnb_b
+    to: ue_a
+    model: clean
+  - from: ue_a
+    to: gnb_b
+    model: clean
+  - from: gnb_a
+    to: ue_b
+    model: clean
+  - from: ue_b
+    to: gnb_a
+    model: clean
+)yaml");
+    const auto cfg = ocg::load_config_file(rn_path);
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.nodes.size() == 4, "implicit lowering yields one node per device");
+    require(res.nodes[0].implicit, "implicitly lowered nodes are marked implicit");
+    require(res.lanes.size() == 4, "implicit lowering keeps one lane per link");
+    for (const auto& lane : res.lanes) {
+      require(lane.key.find('#') == std::string::npos, "implicit lane keys carry no suffix");
+      require(lane.src_node == lane.src_device && lane.dst_node == lane.dst_device,
+              "an implicit node IS its port");
+    }
+  }
 
   std::remove(rn_path);
   std::remove(rx_ring_path);

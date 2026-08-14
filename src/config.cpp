@@ -1044,6 +1044,107 @@ const DeviceConfig* find_device(const TopologyConfig& config, const std::string&
   return it == config.devices.end() ? nullptr : &*it;
 }
 
+std::string lane_key(const std::string& base_link_key, int rx_port, int tx_port, int nt, int nr)
+{
+  if (nt == 1 && nr == 1) {
+    return base_link_key;
+  }
+  return base_link_key + "#r" + std::to_string(rx_port) + "t" + std::to_string(tx_port);
+}
+
+ResolvedTopology resolve_topology(const TopologyConfig& config)
+{
+  ResolvedTopology resolved;
+
+  if (config.radio_nodes.empty()) {
+    // Implicit lowering: one singleton node per Device, node id == device id.
+    resolved.nodes.reserve(config.devices.size());
+    for (const auto& device : config.devices) {
+      ResolvedNode node;
+      node.id = device.id;
+      node.tx_ports.push_back(device.id);
+      node.rx_ports.push_back(device.id);
+      node.sample_rate_hz = device.sample_rate_hz;
+      node.rx_model = device.rx_model;
+      node.implicit = true;
+      resolved.nodes.push_back(std::move(node));
+    }
+  } else {
+    resolved.nodes.reserve(config.radio_nodes.size());
+    for (const auto& declared : config.radio_nodes) {
+      ResolvedNode node;
+      node.id = declared.id;
+      node.tx_ports = declared.tx_ports;
+      node.rx_ports = declared.rx_ports;
+      node.implicit = false;
+      // Any port is representative: validate_config rejects a node whose ports
+      // disagree on sample rate or rx_model.
+      const std::string* representative =
+          !declared.tx_ports.empty() ? &declared.tx_ports.front()
+          : !declared.rx_ports.empty() ? &declared.rx_ports.front()
+                                       : nullptr;
+      if (representative != nullptr) {
+        if (const auto* device = find_device(config, *representative)) {
+          node.sample_rate_hz = device->sample_rate_hz;
+          node.rx_model = device->rx_model;
+        }
+      }
+      resolved.nodes.push_back(std::move(node));
+    }
+  }
+
+  std::map<std::string, const ResolvedNode*> by_id;
+  for (const auto& node : resolved.nodes) {
+    by_id.emplace(node.id, &node);
+  }
+
+  // Expand every link into its Nt x Nr lanes, emitting in lane = r * Nt + t
+  // order so a row's lanes are already adjacent before the sort below.
+  for (std::size_t i = 0; i != config.links.size(); ++i) {
+    const auto& link = config.links[i];
+    auto src_it = by_id.find(link.from);
+    auto dst_it = by_id.find(link.to);
+    if (src_it == by_id.end() || dst_it == by_id.end()) {
+      throw std::runtime_error("link endpoint resolves to no radio node: " + link_key(link));
+    }
+    const ResolvedNode& src = *src_it->second;
+    const ResolvedNode& dst = *dst_it->second;
+    const int nt = static_cast<int>(src.tx_ports.size());
+    const int nr = static_cast<int>(dst.rx_ports.size());
+    if (nt == 0 || nr == 0) {
+      throw std::runtime_error("link " + link_key(link) +
+                               " needs a TX port on its source and an RX port on its destination");
+    }
+    const std::string base = link_key(link);
+    for (int r = 0; r != nr; ++r) {
+      for (int t = 0; t != nt; ++t) {
+        LaneConfig lane;
+        lane.key = lane_key(base, r, t, nt, nr);
+        lane.src_node = src.id;
+        lane.dst_node = dst.id;
+        lane.src_device = src.tx_ports[static_cast<std::size_t>(t)];
+        lane.dst_device = dst.rx_ports[static_cast<std::size_t>(r)];
+        lane.tx_port = t;
+        lane.rx_port = r;
+        lane.model_id = link.model;
+        lane.link_index = i;
+        resolved.lanes.push_back(std::move(lane));
+      }
+    }
+  }
+
+  // Group a destination node's lanes by row. Stable, so within a row the lanes
+  // keep link order (and within a link, t order) -- a fixed summation order.
+  std::stable_sort(resolved.lanes.begin(), resolved.lanes.end(),
+                   [](const LaneConfig& a, const LaneConfig& b) {
+                     if (a.dst_node != b.dst_node) {
+                       return a.dst_node < b.dst_node;
+                     }
+                     return a.rx_port < b.rx_port;
+                   });
+  return resolved;
+}
+
 const RadioNodeConfig* find_radio_node(const TopologyConfig& config, const std::string& id)
 {
   auto it = std::find_if(config.radio_nodes.begin(), config.radio_nodes.end(),
