@@ -7,6 +7,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 
 namespace ocg {
@@ -147,6 +148,24 @@ void apply_device(DeviceConfig& device, const std::string& key, const std::strin
     device.tx_timing_offset_samples = parse_double(value, key);
   } else {
     throw std::runtime_error("unknown device key: " + key);
+  }
+}
+
+void apply_mimo_coefficient(MimoCoefficient& coefficient, const std::string& key,
+                            const std::string& value)
+{
+  if (key == "tap") {
+    coefficient.tap = static_cast<int>(parse_u64(value, key));
+  } else if (key == "rx") {
+    coefficient.rx = static_cast<int>(parse_u64(value, key));
+  } else if (key == "tx") {
+    coefficient.tx = static_cast<int>(parse_u64(value, key));
+  } else if (key == "real") {
+    coefficient.real = parse_double(value, key);
+  } else if (key == "imag") {
+    coefficient.imag = parse_double(value, key);
+  } else {
+    throw std::runtime_error("unknown fixed_mimo coefficient key: " + key);
   }
 }
 
@@ -294,6 +313,11 @@ TopologyConfig load_config_file(const std::string& path)
   // `fading:` block and the `taps:` block are siblings under a chain step and
   // are mutually exclusive at any one moment in the parse.
   bool current_step_in_fading = false;
+  // Set inside a model's `fixed_mimo:` block, and again inside its nested
+  // `coefficients:` list.
+  bool current_model_in_fixed_mimo = false;
+  bool current_model_in_coefficients = false;
+  MimoCoefficient* current_coefficient = nullptr;
 
   std::string raw_line;
   unsigned line_number = 0;
@@ -348,6 +372,9 @@ TopologyConfig load_config_file(const std::string& path)
       current_step_in_taps = false;
       current_tap = nullptr;
       current_step_in_fading = false;
+      current_model_in_fixed_mimo = false;
+      current_model_in_coefficients = false;
+      current_coefficient = nullptr;
       if (line == "runtime:") {
         section = Section::Runtime;
       } else if (line == "devices:") {
@@ -460,11 +487,39 @@ TopologyConfig load_config_file(const std::string& path)
         current_step_in_taps = false;
         current_tap = nullptr;
         current_step_in_fading = false;
+        current_model_in_fixed_mimo = false;
+        current_model_in_coefficients = false;
+        current_coefficient = nullptr;
       } else if (current_model != nullptr && line == "chain:") {
         current_step = nullptr;
         current_step_in_taps = false;
         current_tap = nullptr;
         current_step_in_fading = false;
+        current_model_in_fixed_mimo = false;
+        current_model_in_coefficients = false;
+        current_coefficient = nullptr;
+      } else if (current_model != nullptr && indent == 4 && line == "fixed_mimo:") {
+        // Sibling of `chain:`. Marking it declared here lets the validator
+        // reject an empty block rather than silently treating the model as
+        // scalar.
+        current_model_in_fixed_mimo = true;
+        current_model_in_coefficients = false;
+        current_coefficient = nullptr;
+        current_step = nullptr;
+        current_step_in_taps = false;
+        current_step_in_fading = false;
+        current_model->fixed_mimo_declared = true;
+      } else if (current_model_in_fixed_mimo && indent == 6 && line == "coefficients:") {
+        current_model_in_coefficients = true;
+        current_coefficient = nullptr;
+      } else if (current_model_in_coefficients && indent == 8 && line.rfind("- ", 0) == 0) {
+        current_model->fixed_mimo.emplace_back();
+        current_coefficient = &current_model->fixed_mimo.back();
+        auto [key, value] = split_key_value(trim(line.substr(2)));
+        apply_mimo_coefficient(*current_coefficient, key, value);
+      } else if (current_coefficient != nullptr && current_model_in_coefficients && indent == 10) {
+        auto [key, value] = split_key_value(line);
+        apply_mimo_coefficient(*current_coefficient, key, value);
       } else if (current_model != nullptr && indent == 6 && line.rfind("- ", 0) == 0) {
         current_model->chain.emplace_back();
         current_step = &current_model->chain.back();
@@ -515,6 +570,9 @@ TopologyConfig load_config_file(const std::string& path)
   }
 
   fold_link_leading_delays(config);
+  // After the delay fold, so a fixed_mimo model that also carries a composed
+  // leading delay expands from the already-delayed clone.
+  expand_fixed_mimo_models(config);
 
   auto errors = validate_config(config);
   if (!errors.empty()) {
@@ -773,6 +831,79 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     }
   }
 
+  // ---- fixed_mimo (M1) ----------------------------------------------------
+  for (const auto& [model_id, model] : config.models) {
+    if (!model.fixed_mimo_declared) {
+      continue;
+    }
+    if (model.fixed_mimo.empty()) {
+      errors.emplace_back("model " + model_id + " declares fixed_mimo with no coefficients");
+      continue;
+    }
+    std::size_t tdl_index = model.chain.size();
+    for (std::size_t i = 0; i != model.chain.size(); ++i) {
+      if (model.chain[i].type == ModelStepType::Tdl) {
+        tdl_index = i;
+        break;
+      }
+    }
+    if (tdl_index >= model.chain.size()) {
+      errors.emplace_back("model " + model_id +
+                          " declares fixed_mimo but its chain has no tdl step to weight");
+      continue;
+    }
+    const std::size_t tap_count = model.chain[tdl_index].taps.size();
+    std::set<std::tuple<int, int, int>> seen;
+    bool any_nonzero = false;
+    for (const auto& c : model.fixed_mimo) {
+      if (c.tap < 0 || static_cast<std::size_t>(c.tap) >= tap_count) {
+        errors.emplace_back("model " + model_id + " fixed_mimo tap index " +
+                            std::to_string(c.tap) + " is outside its " +
+                            std::to_string(tap_count) + " tap(s)");
+      }
+      if (c.rx < 0 || c.tx < 0) {
+        errors.emplace_back("model " + model_id + " fixed_mimo rx/tx indices must be non-negative");
+      }
+      // Last-one-wins on a duplicate would make the matrix depend on write
+      // order rather than on what it says.
+      if (!seen.insert({c.tap, c.rx, c.tx}).second) {
+        errors.emplace_back("model " + model_id + " fixed_mimo has a duplicate entry for tap " +
+                            std::to_string(c.tap) + " rx " + std::to_string(c.rx) + " tx " +
+                            std::to_string(c.tx));
+      }
+      if (c.real != 0.0 || c.imag != 0.0) {
+        any_nonzero = true;
+      }
+    }
+    if (!any_nonzero) {
+      errors.emplace_back("model " + model_id +
+                          " fixed_mimo is entirely zero, so every lane using it would vanish");
+    }
+  }
+
+  // A fixed_mimo coefficient must address a lane the topology actually has.
+  if (!config.radio_nodes.empty()) {
+    for (const auto& link : config.links) {
+      const auto* model = find_model(config, link.model);
+      const auto* source = find_radio_node(config, link.from);
+      const auto* destination = find_radio_node(config, link.to);
+      if (model == nullptr || !model->fixed_mimo_declared || source == nullptr ||
+          destination == nullptr) {
+        continue;
+      }
+      const int nt = static_cast<int>(source->tx_ports.size());
+      const int nr = static_cast<int>(destination->rx_ports.size());
+      for (const auto& c : model->fixed_mimo) {
+        if (c.tx >= nt || c.rx >= nr) {
+          errors.emplace_back("link " + link.from + "->" + link.to + " is " + std::to_string(nr) +
+                              "x" + std::to_string(nt) + " but model " + link.model +
+                              " addresses rx " + std::to_string(c.rx) + " tx " +
+                              std::to_string(c.tx));
+        }
+      }
+    }
+  }
+
   for (const auto& [model_id, model] : config.models) {
     if (model.chain.empty()) {
       errors.emplace_back("model " + model_id + " must have at least one step");
@@ -889,6 +1020,100 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
   }
 
   return errors;
+}
+
+namespace {
+
+// Index of the chain step the coefficients apply to: the first `tdl`. Returns
+// chain.size() when the model has none.
+std::size_t fixed_mimo_step_index(const ModelConfig& model)
+{
+  for (std::size_t i = 0; i != model.chain.size(); ++i) {
+    if (model.chain[i].type == ModelStepType::Tdl) {
+      return i;
+    }
+  }
+  return model.chain.size();
+}
+
+// True when lane (rx, tx) has at least one non-zero coefficient. A lane whose
+// coefficients are all zero carries no signal, so it is dropped from the lane
+// table entirely rather than shaped and multiplied by zero -- that is exact,
+// and a tap gain of exactly zero is not expressible in dB.
+bool fixed_mimo_lane_is_live(const ModelConfig& model, int rx_port, int tx_port)
+{
+  for (const auto& c : model.fixed_mimo) {
+    if (c.rx == rx_port && c.tx == tx_port && (c.real != 0.0 || c.imag != 0.0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+} // namespace
+
+void expand_fixed_mimo_models(TopologyConfig& config)
+{
+  const bool any = std::any_of(config.models.begin(), config.models.end(),
+                               [](const auto& entry) { return entry.second.fixed_mimo_declared; });
+  if (!any) {
+    return;
+  }
+  // resolve_topology names the clone for each lane; it does not need the clone
+  // to exist. So enumerate the surviving lanes first, then materialize exactly
+  // those clones -- no lane gets a model that was never built, and no clone is
+  // built for a lane that was dropped as zero.
+  const ResolvedTopology resolved = resolve_topology(config);
+  for (const auto& lane : resolved.lanes) {
+    if (config.models.count(lane.model_id) != 0) {
+      continue;
+    }
+    const std::string& base_id = config.links[lane.link_index].model;
+    auto base_it = config.models.find(base_id);
+    if (base_it == config.models.end() || !base_it->second.fixed_mimo_declared) {
+      continue; // validate_config reports a missing base model
+    }
+    const ModelConfig& base = base_it->second;
+    const std::size_t step_index = fixed_mimo_step_index(base);
+    if (step_index >= base.chain.size()) {
+      continue; // validate_config reports fixed_mimo without a tdl step
+    }
+
+    ModelConfig clone = base;
+    clone.id = lane.model_id;
+    clone.fixed_mimo.clear();
+    clone.fixed_mimo_declared = false;
+
+    // Keep only the taps this lane actually carries, folding each one's
+    // coefficient into the tap it already owns: a tap is a.e^(j phi), so a
+    // complex weight is a gain in dB plus a phase in radians. A tap with no
+    // coefficient is dropped rather than given a very negative gain, because
+    // dropping it is exactly zero.
+    std::vector<TapSpec> taps;
+    const auto& source_taps = base.chain[step_index].taps;
+    for (std::size_t k = 0; k != source_taps.size(); ++k) {
+      const MimoCoefficient* found = nullptr;
+      for (const auto& c : base.fixed_mimo) {
+        if (c.tap == static_cast<int>(k) && c.rx == lane.rx_port && c.tx == lane.tx_port) {
+          found = &c;
+          break;
+        }
+      }
+      if (found == nullptr || (found->real == 0.0 && found->imag == 0.0)) {
+        continue;
+      }
+      TapSpec tap = source_taps[k];
+      const double magnitude = std::hypot(found->real, found->imag);
+      // A unit coefficient adds exactly 0 dB and 0 rad, so an identity or a
+      // permutation matrix leaves the taps bit-identical.
+      tap.gain_db += 20.0 * std::log10(magnitude);
+      tap.phase_rad += std::atan2(found->imag, found->real);
+      taps.push_back(tap);
+    }
+    clone.chain[step_index].taps = std::move(taps);
+    clone.chain[step_index].taps_declared = true;
+    config.models.emplace(clone.id, std::move(clone));
+  }
 }
 
 void fold_link_leading_delays(TopologyConfig& config)
@@ -1060,6 +1285,12 @@ std::string rx_state_key(const std::string& node_id, int rx_port, int nr)
   return node_id + ">rx#r" + std::to_string(rx_port);
 }
 
+std::string fixed_mimo_model_id(const std::string& base_model_id, int rx_port, int tx_port)
+{
+  return "__ocg_mimo__" + base_model_id + "__r" + std::to_string(rx_port) + "t" +
+         std::to_string(tx_port);
+}
+
 ResolvedTopology resolve_topology(const TopologyConfig& config)
 {
   ResolvedTopology resolved;
@@ -1123,9 +1354,17 @@ ResolvedTopology resolve_topology(const TopologyConfig& config)
       throw std::runtime_error("link " + link_key(link) +
                                " needs a TX port on its source and an RX port on its destination");
     }
+    const auto* base_model = find_model(config, link.model);
+    const bool has_fixed_mimo = base_model != nullptr && base_model->fixed_mimo_declared;
     const std::string base = link_key(link);
     for (int r = 0; r != nr; ++r) {
       for (int t = 0; t != nt; ++t) {
+        // A zero lane of a fixed matrix is simply absent: it contributes
+        // nothing to its row, and omitting it is exactly zero where a folded
+        // gain could only approach it.
+        if (has_fixed_mimo && !fixed_mimo_lane_is_live(*base_model, r, t)) {
+          continue;
+        }
         LaneConfig lane;
         lane.key = lane_key(base, r, t, nt, nr);
         lane.src_node = src.id;
@@ -1134,7 +1373,7 @@ ResolvedTopology resolve_topology(const TopologyConfig& config)
         lane.dst_device = dst.rx_ports[static_cast<std::size_t>(r)];
         lane.tx_port = t;
         lane.rx_port = r;
-        lane.model_id = link.model;
+        lane.model_id = has_fixed_mimo ? fixed_mimo_model_id(link.model, r, t) : link.model;
         lane.link_index = i;
         resolved.lanes.push_back(std::move(lane));
       }

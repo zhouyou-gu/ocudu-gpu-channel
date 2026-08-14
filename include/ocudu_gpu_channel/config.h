@@ -169,9 +169,32 @@ struct ModelStep {
   double fading_grid_us = 100.0;  // 100 us == 10 kHz; ~28x oversampling vs 350 Hz Jakes
 };
 
+// One entry of a `fixed_mimo` coefficient list: the complex weight applied to
+// tap `tap` on the lane (rx, tx).
+struct MimoCoefficient {
+  int tap = 0;
+  int rx = 0;
+  int tx = 0;
+  double real = 0.0;
+  double imag = 0.0;
+};
+
 struct ModelConfig {
   std::string id;
   std::vector<ModelStep> chain;
+  // Model-scope fixed channel matrix, M1. Sparse: a lane/tap with no entry has
+  // coefficient ZERO, not one -- a path nobody wrote down does not exist. There
+  // is no implicit 1/sqrt(Nt) normalisation either; write the scaling into the
+  // coefficients. Hidden scaling would make the analytic expectations that
+  // justify a *fixed* matrix impossible to check.
+  //
+  // The coefficients apply to the chain's first `tdl` step, whose taps carry
+  // the complex weight a_k. They need no new runtime field: a coefficient is
+  // folded into that tap's gain and phase at load time, since a tap already
+  // expresses a·e^(j phi).
+  std::vector<MimoCoefficient> fixed_mimo;
+  // Distinguishes "no fixed_mimo block" from "a block that declared nothing".
+  bool fixed_mimo_declared = false;
 };
 
 // The emulated network as a directed graph: `devices` are the nodes, `links`
@@ -257,6 +280,18 @@ std::string rx_state_key(const std::string& node_id, int rx_port, int nr);
 // Expands `config` into its resolved view. Assumes `validate_config` passed;
 // throws on a reference it still cannot resolve.
 ResolvedTopology resolve_topology(const TopologyConfig& config);
+
+// Name of the per-lane model clone synthesized for a `fixed_mimo` base model.
+// Deterministic and independent of whether the clone exists yet, so
+// resolve_topology can name it before expand_fixed_mimo_models creates it.
+std::string fixed_mimo_model_id(const std::string& base_model_id, int rx_port, int tx_port);
+
+// Materializes one model clone per surviving (fixed_mimo model, rx, tx) lane,
+// with the lane's coefficient folded into the taps. Called by
+// load_config_file after fold_link_leading_delays; programmatic builders of
+// TopologyConfig must call it themselves before handing the config to a
+// processor.
+void expand_fixed_mimo_models(TopologyConfig& config);
 
 TopologyConfig load_config_file(const std::string& path);
 std::vector<std::string> validate_config(const TopologyConfig& config);

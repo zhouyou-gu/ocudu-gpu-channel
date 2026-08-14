@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <cmath>
 #include <set>
 #include <stdexcept>
 
@@ -1944,6 +1945,214 @@ devices:
     }
   }
 
+  // ---- fixed_mimo (M1.5b) --------------------------------------------------
+  //
+  // Coefficients are folded into per-lane model clones, so the checks here are
+  // on the expansion: which lanes survive, and what weight each one carries.
+  const char* fm_path = "test_fixed_mimo_topology.yaml";
+  const auto write_fm_config = [&](const char* coefficients) {
+    std::ofstream f(fm_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+  - id: gnb_p0
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_p1
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_p0
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_p1
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+radio_nodes:
+  - id: gnb
+    tx_ports:
+      - gnb_p0
+      - gnb_p1
+    rx_ports:
+      - gnb_p0
+      - gnb_p1
+  - id: ue
+    tx_ports:
+      - ue_p0
+      - ue_p1
+    rx_ports:
+      - ue_p0
+      - ue_p1
+links:
+  - from: gnb
+    to: ue
+    model: h
+  - from: ue
+    to: gnb
+    model: h
+models:
+  h:
+    fixed_mimo:
+      coefficients:
+)yaml";
+    f << coefficients;
+    f << R"yaml(    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+)yaml";
+  };
+
+  // Identity H: lanes (0,0) and (1,1) survive, the cross lanes vanish, and a
+  // unit coefficient must leave the tap BIT-IDENTICAL -- 20*log10(1) is exactly
+  // 0 dB and atan2(0,1) is exactly 0 rad. That exactness is what makes the
+  // identity gate meaningful.
+  write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 1
+          real: 1.0
+          imag: 0.0
+)yaml");
+  {
+    const auto cfg = ocg::load_config_file(fm_path);
+    require(ocg::validate_config(cfg).empty(), "identity fixed_mimo validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 4, "identity H keeps 2 lanes per link, not 4");
+    for (const auto& lane : res.lanes) {
+      require(lane.rx_port == lane.tx_port, "identity H keeps only the diagonal lanes");
+      const auto* model = ocg::find_model(cfg, lane.model_id);
+      require(model != nullptr, "each surviving lane has its expanded model");
+      require(model->chain.at(0).taps.size() == 1, "the weighted tap survives");
+      const auto& tap = model->chain.at(0).taps.at(0);
+      require(tap.gain_db == 0.0 && tap.phase_rad == 0.0,
+              "a unit coefficient leaves the tap bit-identical");
+    }
+  }
+
+  // Swap H: only the off-diagonal lanes survive, so row r is fed by tx port
+  // 1 - r. This is the check that a port-order mistake cannot pass.
+  write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 1
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml");
+  {
+    const auto cfg = ocg::load_config_file(fm_path);
+    require(ocg::validate_config(cfg).empty(), "swap fixed_mimo validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 4, "swap H keeps 2 lanes per link");
+    for (const auto& lane : res.lanes) {
+      require(lane.rx_port != lane.tx_port, "swap H keeps only the off-diagonal lanes");
+    }
+  }
+
+  // Known H: a complex coefficient folds to a known gain and phase. 2 + 0j is
+  // +6.0206 dB at 0 rad; 0 + 1j is 0 dB at +pi/2.
+  write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 2.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 1
+          real: 0.0
+          imag: 1.0
+)yaml");
+  {
+    const auto cfg = ocg::load_config_file(fm_path);
+    require(ocg::validate_config(cfg).empty(), "known-H fixed_mimo validates");
+    const auto res = ocg::resolve_topology(cfg);
+    for (const auto& lane : res.lanes) {
+      const auto* model = ocg::find_model(cfg, lane.model_id);
+      require(model != nullptr, "known-H lane has its expanded model");
+      const auto& tap = model->chain.at(0).taps.at(0);
+      if (lane.rx_port == 0) {
+        require(std::abs(tap.gain_db - 20.0 * std::log10(2.0)) < 1e-12,
+                "coefficient 2+0j folds to +6.02 dB");
+        require(std::abs(tap.phase_rad) < 1e-12, "coefficient 2+0j adds no phase");
+      } else {
+        require(std::abs(tap.gain_db) < 1e-12, "coefficient 0+1j folds to 0 dB");
+        require(std::abs(tap.phase_rad - std::atan2(1.0, 0.0)) < 1e-12,
+                "coefficient 0+1j adds +pi/2");
+      }
+    }
+  }
+
+  // Rejections. Each is a way the matrix could silently mean something other
+  // than what it says.
+  const auto fm_rejects = [&](const char* coefficients, const char* what) {
+    write_fm_config(coefficients);
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(fm_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, what);
+  };
+
+  fm_rejects(R"yaml(        - tap: 1
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml", "a tap index outside the chain's taps must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 2
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml", "an rx index outside the destination's Nr must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 0
+          tx: 2
+          real: 1.0
+          imag: 0.0
+)yaml", "a tx index outside the source's Nt must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 2.0
+          imag: 0.0
+)yaml", "a duplicate {tap, rx, tx} entry must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.0
+          imag: 0.0
+)yaml", "an entirely zero matrix must be rejected");
+
+  std::remove(fm_path);
   std::remove(rn_path);
   std::remove(rx_ring_path);
   std::remove(los_k_zero_path);
