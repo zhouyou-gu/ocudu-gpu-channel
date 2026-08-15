@@ -21,7 +21,7 @@
 
 - Control files: `AGENT.md`, `AGENT_GOAL.md`, `AGENT_HARNESS.md`, `AGENT_PROGRESS.md`.
 - MIMO mission amendment: `AGENT_GOAL.mimo.md` is a duplicate of `AGENT_GOAL.md` carrying the user-instructed MIMO amendment (one Statement line changed, five bullets added across Scope / Non-Goals / Success Criteria / Constraints). `AGENT_GOAL.md` itself is unmodified. **Which of the two governs this workspace is an open user decision.**
-- MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and `docs/plans/m0-single-engine-refactor.md` (M0 code-level design).
+- MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and the per-milestone designs `docs/plans/m0-single-engine-refactor.md`, `m1-dimensions-and-fixed-matrix.md`, `m2-iid-stochastic-fading.md`, `m3-spatial-correlation-and-los.md`.
 - Local configuration: `.gitignore`, tracked `.config.example`, and ignored `.config`.
 - Application scaffold: `CMakeLists.txt`, `apps/`, `include/`, `src/`, `tests/`, `examples/`, and `docs/` exist locally as uncommitted implementation work.
 - Local implementation includes C++20/CMake build plumbing, optional CUDA detection, libzmq integration, CPU and CUDA MVP channel processing, broker/runtime CLIs, synthetic ZMQ tools, config examples, docs, and regression tests.
@@ -285,6 +285,7 @@ Progress entry template
 - [M2 clock] Added `PhysicalLinkClock` (`include/ocudu_gpu_channel/link_clock.h`) and removed `slot_start_samples` from `TdlFadingState`; `apply_tdl_step_fading` now takes the time and does not advance it. Each backend advances a touched clock once per slot per link. On the GPU `update_delay_line_kernel` assigns the host-supplied per-edge value instead of accumulating, so the device holds a copy of the link's time rather than a counter of its own; the channel kernel body is unchanged.
 - [M2 gates] Added the IID cross-correlation gate (two lockstep processors isolate the four lanes of a 2×2; worst pair 0.065 against a 0.15 gate), chunk invariance (2N in one call = N in two), a faded 2×2 CPU↔CUDA parity test, and a bit-exact check that a fading-free chain is seed-independent. Every gate mutation-probed, including on the CUDA tree.
 - [M2 validation] `ctest` 8/8 on both trees at every step, and `gpu-test-sequence.sh` 7/7 through the loopback runner with the deterministic figures unchanged from M1 (clean relay 1/1, AWGN 1.25/1.24994, 3-node 2.01473, 2-cell 0.262); [7/7] TDL-A moved to 3.33723/3.30066 inside its ±1.5 band, as a re-seeded fading realization should.
+- [M3 plan] Added `docs/plans/m3-spatial-correlation-and-los.md`: the five code facts M3 stands on (generator lives inside both convolution paths; a link's lanes are not contiguous in a node's lane array; `fixed_mimo` drops zero lanes; LOS phase is drawn per lane today; seed and time ownership already sit on the physical link), the generator/convolution split with `PhysicalLinkFadingState`, the `spatial_correlation` + `los_matrix` schema with an LDL^H factorisation that validates PSD and factors in one routine, the pinned Kronecker convention (`E[h h^H] = R_rx (x) R_tx`, `tx` used as declared), a seven-commit order that lands the split and the mixing separately, and exit gates whose tolerances are to be set from a measured noise floor rather than chosen.
 - [MIMO plan] Added `docs/plans/m0-single-engine-refactor.md`: broker ownership-transfer table, producer loop with the preserved pre-MIMO invariants annotated, `PortRepWorker` loop, RX ring sizing with an explicit added-latency budget and Msg3 exit condition, deadlock analysis, the multi-row `process_superposition` signature with a single-row convenience overload that keeps all seven existing call sites unchanged, and a six-commit work breakdown.
 
 ## Blockers and Risks
@@ -657,19 +658,21 @@ M1.6에서 새로 넣은 2×2 CUDA 테스트가 **가드 매크로 이름이 틀
 | M0 단일 엔진 리팩터 | 5개 게이트 green, **2개 환경 차단** (multi-UE / multi-gNB 라이브) |
 | M1 차원 + 고정 행렬 | **전 게이트 green** (라이브 1×1 attach 포함) |
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
-| M3 공간 상관 + coherent LOS | 미착수 (`MIMO_MILESTONES.md` M3에 범위만 있음, 상세 계획 문서 없음) |
+| M3 공간 상관 + coherent LOS | 계획 문서 작성 완료(M3.1), 구현 미착수 |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
 ### 다음 세션 재개 지점
 
-**M3 상세 계획부터 시작한다.** 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M3. M0/M1/M2가 각각 계획 문서를 먼저 쓰고 들어갔으므로 `docs/plans/m3-*.md`가 첫 커밋이 되는 것이 이 프로젝트의 순서다.
+**M3.2(스키마 + validator + LDL^H 인수분해)부터 시작한다.** 상세 설계는 [`docs/plans/m3-spatial-correlation-and-los.md`](docs/plans/m3-spatial-correlation-and-los.md), 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M3.
+
+**착수 전에 사용자 결정 3건**(계획 §7, 전부 뒤집기 쉬운 동안 열어 둔 것): (a) `fixed_mimo`와 `spatial_correlation` 동시 선언을 거부할지, (b) `kind: full`을 M3에서 구현할지 미룰지, (c) `los_matrix` 미선언 시 기본값을 전 lane 위상 0(rank-1)으로 둘지. 어느 쪽이든 M3.2의 스키마 표면이 달라진다.
 
 M2를 끝내며 **M3이 딛고 설 지점 세 가지**:
 
 1. **시드 소유권이 이미 물리 링크에 있다.** `physical_link_seed(base_link_key)` → `lane_fading_seed(link_seed, r, t, step)`. M3의 상관은 이 두 번째 함수를 "독립 파생"에서 "상관 파생"으로 바꾸는 자리이고, 첫 번째 함수(링크 정체성)는 건드릴 필요가 없다.
 2. **절대시간도 물리 링크가 단독 소유한다.** `PhysicalLinkClock`. lane들이 같은 시각을 본다는 것이 M3의 `L` 곱셈이 의미를 갖기 위한 전제인데, 그것이 이미 구조적으로 성립한다.
-3. **계획 §M3의 "생성기와 convolution 분리"는 아직 안 되어 있다.** 오늘 Jakes coarse grid는 `apply_channel_kernel`(디바이스) / `apply_tdl_step_fading`(호스트) **안에서** 만들어진다. M3은 grid를 별도 커널로 빼고 `L`을 곱한 뒤 convolution 커널이 읽기만 하게 해야 하며, 이때 **CPU 참조 경로도 같은 분리를 해야** parity가 유지된다.
+3. **"생성기와 convolution 분리"는 아직 안 되어 있다.** 오늘 Jakes coarse grid는 `apply_channel_kernel`(디바이스) / `apply_tdl_step_fading`(호스트) **안에서** 만들어진다. M3은 grid를 별도 커널로 빼고 `L`을 곱한 뒤 convolution 커널이 읽기만 하게 해야 하며, 이때 **CPU 참조 경로도 같은 분리를 해야** parity가 유지된다. 계획 §2.1이 이 분리를, §4가 "분리와 mixing을 한 커밋에 넣지 않는다"는 순서를 정해 두었다.
 
 M2의 IID 교차상관 게이트는 M3에서 **대체된다**(0이 아니라 선언한 `R`과 일치해야 한다). 지우지 말고 M3의 게이트로 바꿔 쓸 것.
 
