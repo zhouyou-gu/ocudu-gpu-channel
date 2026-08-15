@@ -282,6 +282,12 @@ struct WorkerDiag {
   std::atomic<std::uint64_t> idle_waits{0};    // ZMQ timeouts waiting on the peer
   std::atomic<std::uint64_t> blocked_iters{0}; // puller room stalls / server data spins
   std::atomic<std::uint64_t> last_samples{0};  // samples in the last pull / slot
+  // Cumulative samples this worker has moved. M5.4 needs it on the puller: a
+  // node's sibling TX ports are pulled by INDEPENDENT threads, so one can run
+  // ahead of the other, and `last_samples` (one batch) cannot show that. srsRAN
+  // aligns its ZMQ TX channels, so a drift here is the kind of thing that
+  // deadlocks a real multi-channel radio.
+  std::atomic<std::uint64_t> total_samples{0};
   // Per-stage CPU timings for this worker's last completed unit of work, in
   // microseconds. The slots are generic because the roles have different
   // stages: see kProducerStage* and kRepStage* below for the two vocabularies.
@@ -616,6 +622,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           if (pushed) {
             diag.state.store("push");
             diag.last_samples.store(pending);
+            diag.total_samples.fetch_add(pending);
             diag.progress.fetch_add(1);
             stats.tx_pulls.fetch_add(1);
             pending = 0;
@@ -1053,6 +1060,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
                 << " puller[state=" << p.state.load()
                 << " pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
                 << " room_stall=" << p.blocked_iters.load() << " last=" << p.last_samples.load()
+                << " acquired=" << p.total_samples.load()
                 << "] producer[state=" << s.state.load() << " slots=" << s.progress.load()
                 << " stall=" << s.blocked_iters.load() << " last=" << s.last_samples.load()
                 << "] rep[state=" << r.state.load() << " replies=" << r.progress.load()
@@ -1139,7 +1147,8 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     const WorkerDiag& r = rep_diag[d];
     std::cout << "event=worker_summary dev=" << ports[d]->config->id
               << " puller[pulls=" << p.progress.load() << " idle=" << p.idle_waits.load()
-              << " room_stall=" << p.blocked_iters.load() << "]"
+              << " room_stall=" << p.blocked_iters.load()
+              << " acquired=" << p.total_samples.load() << "]"
               << " producer[slots=" << s.progress.load() << " stall=" << s.blocked_iters.load() << "]"
               << " rep[replies=" << r.progress.load() << " idle=" << r.idle_waits.load()
               << " row_spin=" << r.blocked_iters.load() << "]\n";
