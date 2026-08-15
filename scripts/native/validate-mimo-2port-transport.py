@@ -151,7 +151,12 @@ def main() -> int:
     )
     require(
         topology_sha256
-        == "5bdf3ecada9c07d651bae3f52efc9bcffb2562de79b1025af92deb13d0be2a6e",
+        # M5.3: re-taken after adapting the audited file to the post-M1 schema
+        # (`role:` off radio_nodes, `rx_ports`/`tx_ports` off fixed_mimo --
+        # dimensions are stated once, in the node declaration). Coefficients,
+        # endpoints, antenna counts and port order are unchanged.
+        # previous: 5bdf3ecada9c07d651bae3f52efc9bcffb2562de79b1025af92deb13d0be2a6e
+        == "ced8f0250c0a724ec015f5a2c1c31164325f0dcbafeb9b556605ea044e0eb6f5",
         "channel topology is not the audited dense native two-port configuration",
     )
     fixture_text = args.gnb_fixture.read_text(encoding="utf-8")
@@ -260,10 +265,6 @@ def main() -> int:
         "tx_queue_overflows",
         "tx_sequence_gaps",
         "zmq_errors",
-        "group_prepares",
-        "group_commits",
-        "group_aborts",
-        "partial_group_aborts",
     ]
     counters: dict[str, int] = {}
     for name in counter_names:
@@ -306,64 +307,24 @@ def main() -> int:
         "tx_queue_overflows",
         "tx_sequence_gaps",
         "zmq_errors",
-        "partial_group_aborts",
     ]:
         require(counters.get(name, -1) == 0, f"broker {name} is not zero")
     require(counters.get("tx_pulls", 0) > 0, "broker performed no TX pulls")
     require(counters.get("rx_requests", 0) > 0, "broker served no RX requests")
-    require(counters.get("group_prepares", 0) > 0, "broker prepared no groups")
-    require(
-        counters.get("group_prepares")
-        == counters.get("group_commits", -1) + counters.get("group_aborts", -1),
-        "group prepare/commit/abort accounting differs",
-    )
-    require(
-        counters.get("rx_requests") == 2 * counters.get("group_commits", -1),
-        "two-port RX request/group commit accounting differs",
-    )
-
-    # An orderly signal stops new coordinator admission. Proactive preparation
-    # can leave at most one undispatched candidate per RadioNode; aborting that
-    # candidate is a rollback before any peer-visible row and is not a partial
-    # transport failure. Every escaped-row or non-shutdown abort remains fatal.
-    abort_pattern = re.compile(
-        r'^event=radio_group_abort id=([^ ]+) generation=([0-9]+) '
-        r'epoch_start=([0-9]+) count=([0-9]+) atomic_batch_version=([0-9]+) '
-        r'replies_dispatched=([0-9]+) replies_sent=([0-9]+) '
-        r'replies_required=([0-9]+) reason="([^"]*)"$',
-        re.MULTILINE,
-    )
-    aborts = abort_pattern.findall(broker_log)
-    require(
-        len(aborts) == counters.get("group_aborts", -1),
-        "group abort counter differs from diagnostic events",
-    )
-    require(len(aborts) <= 2, "more than one shutdown candidate per RadioNode aborted")
-    abort_nodes = [abort[0] for abort in aborts]
-    require(
-        len(abort_nodes) == len(set(abort_nodes)),
-        "a RadioNode emitted more than one shutdown rollback",
-    )
-    allowed_shutdown_reasons = {
-        "coordinator stopped before the all-reply commit barrier",
-        "coordinator stopped while the group epoch was being prepared",
-    }
-    for abort in aborts:
-        node, generation, epoch_start, count, atomic_version, dispatched, sent, required, reason = abort
-        require(node in {"gnb0", "peer0"}, "unknown RadioNode abort event")
-        require(int(generation) > 0, "shutdown abort generation is not positive")
-        require(
-            int(epoch_start) % 23040 == 0,
-            "shutdown abort epoch is not batch-aligned",
-        )
-        require(int(count) == 23040, "shutdown abort batch size mismatch")
-        require(int(atomic_version) == 0, "shutdown abort carried unexpected control batch tag")
-        require(int(dispatched) == 0 and int(sent) == 0, "peer-visible group was aborted")
-        require(int(required) == 2, "shutdown abort sibling cardinality mismatch")
-        require(
-            reason in allowed_shutdown_reasons,
-            "group abort was not an orderly undispatched shutdown rollback",
-        )
+    # M5.4: the group_prepares / group_commits / group_aborts accounting and the
+    # event=radio_group_abort diagnostics are gone, and are not replaced by
+    # equivalents, because the thing that emitted them is gone. They were
+    # RadioNodeCoordinator counters: a generation barrier that admitted a group,
+    # gathered every sibling reply, then committed or rolled back. M0 discarded
+    # that coordinator outright -- one producer thread per RadioNode now selects
+    # ONE window and writes every row from it, so a group that could be
+    # partially committed is not a state this design can reach.
+    #
+    # What replaced the barrier is checked below instead: the per-port worker
+    # summaries must show a node's sibling RX ports served the SAME number of
+    # times, and the global counters must equal the sum of the per-port ones.
+    # That is the same property the commit barrier existed to guarantee, read
+    # off the structure that now guarantees it rather than off a counter.
     if set(workers) == set(expected_devices):
         require(
             counters.get("tx_pulls") == sum(value["pulls"] for value in workers.values()),
@@ -380,11 +341,6 @@ def main() -> int:
         require(
             workers["peer0_p0"]["serves"] == workers["peer0_p1"]["serves"],
             "peer sibling RX transaction counts differ",
-        )
-        require(
-            counters.get("group_commits")
-            == workers["gnb0_p0"]["serves"] + workers["peer0_p0"]["serves"],
-            "group commits differ from destination-local generations",
         )
 
     require(peer.get("schema") == "ocudu-mimo-transport-peer/v1", "peer summary schema mismatch")

@@ -784,6 +784,58 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 
 ---
 
+## M5 — 라이브 통합 (진행 중: M5.1–M5.3 완료, M5.4 환경 차단)
+
+> 상세 설계: [`docs/plans/m5-live-integration.md`](docs/plans/m5-live-integration.md)
+
+| 단계 | 커밋 | 상태 |
+|---|---|---|
+| M5.1 계획 문서 | `c94ebf6` | ✅ |
+| M5.2 2-port peer 앱 복원 | (M5.2 커밋) | ✅ 셀프테스트 마커 24192회, 불일치 0 |
+| M5.3 fixture 복원 + 스키마 적응 + 핀 갱신 | `5bcf562` | ✅ 두 노드 `implicit=false`로 2포트 resolve |
+| M5.4 라이브 게이트 | — | ❌ **gNB 쪽 환경 차단** (아래) |
+
+### M5.4 — 게이트 실패, 그리고 원인은 우리가 아니다
+
+첫 실행이 실패했고, **격리 실험 두 번으로 책임 소재를 갈랐다.**
+
+**격리 A — 실제 peer + 합성 gNB 대역**: 같은 2포트 토폴로지에서 gNB만 합성 소스/싱크로 바꿔 10 s 구동.
+`tx_pulls=40208`, `rx_requests=39781`(≈1000 group/s = **실시간**), peer `status=passed` `rx_groups=10034` `sibling_size_mismatches=0`, strict counter 전부 0.
+→ **브로커와 2-port peer는 실시간을 감당한다.**
+
+**격리 B (대조) — 실제 2안테나 gNB, 브로커 없음**: gNB의 RX 엔드포인트에 합성 소스를, TX 바인드에 합성 싱크를 직결(우리 코드가 경로에 전혀 없음), 14 s.
+gNB 내부 로그 **overflow 307,970건**, 싱크가 받은 샘플 128,586,540 = **약 9.2 MS/s** (필요치 23.04 MS/s의 **40%**).
+→ **2안테나 gNB는 이 환경에서 브로커가 없어도 실시간을 못 낸다.**
+
+**결론**: M5.4의 실패 원인은 에뮬레이터 밖이다. 참고로 이 컨테이너는 한가하고(48코어, load 0.86) **1안테나는 같은 23.04 MS/s를 감당한다**(1×1 라이브 게이트가 계속 통과 중). 차이는 안테나 수뿐이다.
+
+**게이트 실행 시 관측된 정지 상태**(t=2부터 t=19까지 카운터가 한 자리도 안 움직임 — 느린 게 아니라 hard deadlock):
+
+```
+dev=gnb0_p0 ring=11776/2457600 rx_ring=23040/46080 puller[state=recv_reply] rep[state=wait_req replies=507]
+dev=gnb0_p1 ring=0/2457600     rx_ring=23040/46080 puller[state=recv_reply] rep[state=wait_req replies=507]
+event=node_stall node=gnb0 phase=output_room / node=peer0 phase=input_data
+```
+
+gNB가 RX 요청도 멈추고 TX 응답도 멈춘 상태다(우리 rx_ring에는 줄 데이터가 있고, 우리 puller는 요청해 놓고 대기 중). 두 TX 채널이 **11776 샘플만큼 어긋난 채** 멈춰 있다. srsRAN ZMQ TX는 채널 간 정렬을 하고(`radio_zmq_tx_channel::align` — 뒤처진 채널은 `transmit_alignment_mutex`를 쥔 채 타임아웃까지 대기 후 0을 채운다), 이 경로는 **다중 채널에서만** 동작한다.
+
+### M5.4에서 함께 고친 것 — validator의 coordinator 잔재
+
+`validate-mimo-2port-transport.py`가 `group_prepares` / `group_commits` / `group_aborts` / `partial_group_aborts`와 `event=radio_group_abort` 진단을 요구하고 있었다. 전부 **M0이 의도적으로 폐기한 `RadioNodeCoordinator`의 카운터**다(M0이 `verify-legacy-1x1-artifacts.py`에 한 것과 같은 상황). 프로듀서 모델에서는 "부분 커밋된 그룹"이 도달 불가능한 상태이므로 그 카운터는 만들 수도 없고 만들어서도 안 된다.
+
+같은 처리를 적용했다 — 삭제하고 **이유를 파일에 기록**했으며, 커밋 배리어가 보장하던 성질은 이미 있던 검사로 판정한다: **노드의 sibling RX 포트가 같은 횟수로 서비스되었는가**(worker summary), 그리고 전역 카운터가 포트별 합과 같은가. 토폴로지 SHA 핀도 M5.3의 스키마 적응에 맞춰 사유와 함께 재취득했다.
+
+수정 후 재실행하니 validator 잡음은 전부 사라지고 **gNB 정지에서 파생된 항목만** 남는다.
+
+### M5.4를 여는 선택지 (사용자 결정 필요)
+
+1. **RTX 워크스테이션에서 실행** — 이 스크립트들이 원래 쓰여진 기계.
+2. **fixture 대역폭을 낮춘다**(20 MHz → 10 MHz, 23.04 → 11.52 MS/s) — 2안테나가 이 환경에 들어갈 수 있다. 단 감사된 fixture를 바꾸는 것이므로 핀·사유 기록 필요.
+3. **gNB 스레드/어피니티 설정**(`expert_execution`)을 2안테나에 맞게 조정.
+4. **M0의 라이브 부채와 같이 "환경 차단"으로 기록하고 넘어간다** — 에뮬레이터 쪽 근거(격리 A)는 이미 확보돼 있다.
+
+---
+
 ## 세션 상태 (2026-08-15)
 
 **M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7, M4.1–M4.6 완료.** 베이스라인 `bc88865` 이후 40 커밋.
@@ -795,7 +847,7 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
 | M3 공간 상관 + coherent LOS | **전 게이트 green** (합성·단위 테스트 + perf 실측) |
 | M4 physical link 단위 runtime control | **전 게이트 green** (라이브 컨트롤 플레인 포함) |
-| M5 라이브 통합 | 계획 문서 작성 완료(M5.1), 구현 미착수. 1단계(1×1 라이브 회귀)는 이미 통과 |
+| M5 라이브 통합 | M5.1–M5.3 완료, **M5.4 gNB 쪽 환경 차단**. 1단계(1×1 라이브 회귀)는 통과 |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
