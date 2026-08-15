@@ -125,6 +125,11 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
           static_cast<int>(state.steps.front().delay_line.size());
     }
     state.link->control.slot_count_hint = static_cast<int>(sample_count);
+    // M4.4: the control thread validates a correlation swap's dimensions
+    // against these, and neither may change at runtime.
+    state.link->control.nt_hint = identity.nt;
+    state.link->control.nr_hint = identity.nr;
+    state.link->control.correlation_declared = model.spatial_correlation.declared;
   }
   return state;
 }

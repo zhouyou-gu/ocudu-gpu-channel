@@ -1,4 +1,5 @@
 #include "ocudu_gpu_channel/control_server.h"
+#include "ocudu_gpu_channel/correlation.h"
 
 #include <zmq.h>
 
@@ -602,6 +603,149 @@ std::string handle_scalar_update(
   return make_success_reply_v2(observed_seqno, *it_ctl->second);
 }
 
+// M4.4: replace a link's spatial correlation at a slot boundary.
+//
+// Its own message type rather than an extension of profile_swap, because the
+// two differ in a way that matters: a tap layout has cross-slot state (the
+// delay line) and needs a warmup window, while a correlation is a linear map
+// applied to freshly generated grids and needs none. Folding them together
+// would put a needless warmup on every R change and blur why one exists.
+//
+// The factorisation happens HERE, on the control thread, while the REQ is being
+// validated. The serve path only copies the factor. Non-PSD is rejected by the
+// same routine validate_config uses, so a matrix the loader would refuse cannot
+// enter through the control plane.
+std::string handle_correlation_swap(
+    HandlerContext& ctx,
+    const std::unordered_map<std::string, JsonValue>& fields)
+{
+  auto it_link = fields.find("link_id");
+  if (it_link == fields.end() || it_link->second.kind != JsonValue::Kind::String) {
+    return emit_rejection(ctx, "correlation_swap: missing or non-string link_id");
+  }
+  const std::string& link_id = it_link->second.s;
+  auto it_ctl = ctx.link_map.find(link_id);
+  if (it_ctl == ctx.link_map.end() || it_ctl->second == nullptr) {
+    return emit_rejection(ctx, "unknown link_id: " + link_id);
+  }
+  BrokerLinkControl& ctl = *it_ctl->second;
+
+  if (!ctl.correlation_declared) {
+    return emit_rejection(ctx,
+        "correlation_swap: link " + link_id +
+        " declared no spatial_correlation block, so it is not runtime-correlatable "
+        "(declare `spatial_correlation: {kind: iid}` to opt in)");
+  }
+
+  std::string kind = "kronecker";
+  try {
+    kind = get_string(fields, "kind", "kronecker");
+  } catch (const std::exception& e) {
+    return emit_rejection(ctx, e.what());
+  }
+  if (kind != "kronecker" && kind != "iid") {
+    return emit_rejection(ctx, "correlation_swap: kind must be 'iid' or 'kronecker'");
+  }
+
+  SpatialCorrelationConfig correlation;
+  correlation.declared = true;
+  correlation.kind = kind == "iid" ? SpatialCorrelationKind::Iid
+                                   : SpatialCorrelationKind::Kronecker;
+
+  const auto read_side = [&](const char* name, std::vector<CorrelationEntry>& out,
+                             int dim, std::string& error) {
+    auto it = fields.find(name);
+    if (it == fields.end()) {
+      return true; // omitted side means identity
+    }
+    if (it->second.kind != JsonValue::Kind::Array) {
+      error = std::string("correlation_swap: '") + name + "' must be an array";
+      return false;
+    }
+    for (const auto& entry : it->second.arr) {
+      if (entry.kind != JsonValue::Kind::Object) {
+        error = std::string("correlation_swap: '") + name + "' entries must be objects";
+        return false;
+      }
+      CorrelationEntry e;
+      try {
+        e.i = static_cast<int>(get_number(entry.obj, "i", -1.0));
+        e.j = static_cast<int>(get_number(entry.obj, "j", -1.0));
+        e.re = get_number(entry.obj, "re", 0.0);
+        e.im = get_number(entry.obj, "im", 0.0);
+      } catch (const std::exception& ex) {
+        error = std::string("correlation_swap: ") + name + ": " + ex.what();
+        return false;
+      }
+      // Same shape rule as the YAML: upper triangle only, so a non-Hermitian
+      // or non-unit-diagonal matrix cannot be expressed.
+      if (e.i < 0 || e.j <= e.i || e.j >= dim) {
+        error = std::string("correlation_swap: '") + name + "' entry (" +
+                std::to_string(e.i) + ", " + std::to_string(e.j) +
+                ") must satisfy 0 <= i < j < " + std::to_string(dim);
+        return false;
+      }
+      if (std::sqrt(e.re * e.re + e.im * e.im) > 1.0 + 1e-12) {
+        error = std::string("correlation_swap: '") + name +
+                "' entry magnitude above 1 is not a correlation";
+        return false;
+      }
+      out.push_back(e);
+    }
+    return true;
+  };
+
+  std::string error;
+  if (!read_side("rx", correlation.rx, ctl.nr_hint, error) ||
+      !read_side("tx", correlation.tx, ctl.nt_hint, error)) {
+    return emit_rejection(ctx, error);
+  }
+
+  CorrelationShadow staged;
+  if (correlation.kind == SpatialCorrelationKind::Iid) {
+    if (!correlation.rx.empty() || !correlation.tx.empty()) {
+      return emit_rejection(ctx, "correlation_swap: kind: iid takes no entries");
+    }
+    staged.lanes = 0; // back to independent lanes
+  } else {
+    std::vector<CplxD> mixing;
+    if (!lane_mixing_matrix(correlation, ctl.nt_hint, ctl.nr_hint, mixing, error)) {
+      return emit_rejection(ctx, "correlation_swap: " + error);
+    }
+    const int lanes = ctl.nt_hint * ctl.nr_hint;
+    if (lanes > kMaxCorrelatedLanes) {
+      return emit_rejection(ctx, "correlation_swap: link has more lanes than the cap");
+    }
+    staged.lanes = lanes;
+    for (std::size_t k = 0; k != mixing.size(); ++k) {
+      staged.mixing_re[k] = static_cast<float>(mixing[k].real());
+      staged.mixing_im[k] = static_cast<float>(mixing[k].imag());
+    }
+  }
+
+  std::uint64_t take_effect = 0;
+  try {
+    take_effect = static_cast<std::uint64_t>(get_number(fields, "take_effect_at_slot", 0.0));
+  } catch (const std::exception& e) {
+    return emit_rejection(ctx, e.what());
+  }
+
+  ctl.shadow_correlation = staged;
+  ctl.correlation_pending = true;
+  ctl.take_effect_at_slot = take_effect;
+  const std::uint32_t seqno = ctl.seqno.fetch_add(1, std::memory_order_release) + 1;
+
+  std::ostringstream o;
+  o << "event=control_update link_id=" << link_id << " param=correlation_swap kind=" << kind
+    << " lanes=" << staged.lanes << " seqno=" << seqno
+    << " take_effect_at_slot=" << take_effect << '\n';
+  ctx.logger(o.str());
+  ctx.updates_applied.fetch_add(1, std::memory_order_relaxed);
+  std::ostringstream reply;
+  reply << "{\"status\":\"ok\",\"seqno\":" << seqno << "}";
+  return reply.str();
+}
+
 std::string handle_profile_swap(
     HandlerContext& ctx,
     const std::unordered_map<std::string, JsonValue>& fields)
@@ -928,6 +1072,7 @@ std::string ControlServer::handle_message(const std::string& request_body)
 
   if (type_str == "scalar")       return handle_scalar_update(ctx, fields);
   if (type_str == "profile_swap") return handle_profile_swap (ctx, fields);
+  if (type_str == "correlation_swap") return handle_correlation_swap(ctx, fields);
   if (type_str == "batch_begin")  return handle_batch_begin  (ctx, fields);
   if (type_str == "batch_commit") return handle_batch_commit (ctx, fields);
   if (type_str == "batch_abort")  return handle_batch_abort  (ctx, fields);

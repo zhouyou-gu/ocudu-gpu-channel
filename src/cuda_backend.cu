@@ -324,6 +324,13 @@ struct CudaSuperposeState {
   // is correlated, and the mixing kernel then does not launch at all.
   DeviceCorrelationGroup* device_correlation_groups = nullptr;
   std::size_t n_correlation_groups = 0;
+  // M4.4: host mirror plus the link each group belongs to, so a runtime swap
+  // can rewrite ONE group and upload just that one.
+  std::vector<DeviceCorrelationGroup> host_correlation_groups;
+  // The link each group belongs to, by pointer: a lane key is not the link key
+  // (it carries the matrix suffix), and string-matching one against the other
+  // is exactly the kind of spelling dependence M2 and M4.2 removed.
+  std::vector<PhysicalLinkRuntime*> correlation_group_owner;
   std::size_t num_sources = 0;
   // Per-edge mapping built at prepare time: for each unique source slot s in
   // [0, num_sources), source_first_edge[s] is the index k of the FIRST edge
@@ -389,6 +396,10 @@ void free_superpose_state(CudaSuperposeState& state)
   state.max_steps = 0;
   state.num_sources = 0;
   state.n_correlation_groups = 0;
+  state.host_correlation_groups.clear();
+  state.host_correlation_groups.shrink_to_fit();
+  state.correlation_group_owner.clear();
+  state.correlation_group_owner.shrink_to_fit();
   state.use_device_channel = false;
   state.host_link_states.clear();
   state.host_link_states.shrink_to_fit();
@@ -476,6 +487,10 @@ public:
         slot.model.link->control.dl_size_samples_hint =
             static_cast<int>(slot.model.delay_line.size());
       }
+      // M4.4: dimensions the control thread validates a swap against.
+      slot.model.link->control.nt_hint = lane.nt;
+      slot.model.link->control.nr_hint = lane.nr;
+      slot.model.link->control.correlation_declared = model->spatial_correlation.declared;
       slot.model.link->control.slot_count_hint =
           static_cast<int>(resolve_batch_samples(config.runtime, destination_node.sample_rate_hz));
     }
@@ -713,8 +728,11 @@ public:
         for (std::size_t edge = 0; edge != per_edge_lane.size(); ++edge) {
           const LaneConfig& lane = *per_edge_lane[edge];
           const auto* model = find_model(config, lane.model_id);
-          if (model == nullptr || !model->spatial_correlation.declared ||
-              model->spatial_correlation.kind == SpatialCorrelationKind::Iid) {
+          // M4.4: a link that DECLARED the block gets a group even when it is
+          // iid today -- the declaration is the opt-in that makes it
+          // runtime-correlatable, and a swap needs somewhere to land. A link
+          // that never declared one keeps the untouched pre-M3 path.
+          if (model == nullptr || !model->spatial_correlation.declared) {
             continue;
           }
           // A correlated link cannot be served by the host fallback: the
@@ -738,6 +756,7 @@ public:
             if (!lane_mixing_matrix(model->spatial_correlation, lane.nt, lane.nr, mixing, error)) {
               throw std::runtime_error("link " + lane.physical_link_key + ": " + error);
             }
+            sp.correlation_group_owner.push_back(&links_[lane.physical_link_key]);
             const int n = group.n_lanes;
             for (int r0 = 0; r0 != n; ++r0) {
               for (int c0 = 0; c0 != n; ++c0) {
@@ -763,6 +782,7 @@ public:
         }
       }
       sp.n_correlation_groups = groups.size();
+      sp.host_correlation_groups = groups;
       if (!groups.empty()) {
         check(cudaMalloc(reinterpret_cast<void**>(&sp.device_correlation_groups),
                          groups.size() * sizeof(DeviceCorrelationGroup)),
@@ -969,6 +989,34 @@ public:
                               cudaMemcpyHostToDevice, sp.stream),
               "snap-refresh H2D");
       }
+      // M4.4: a correlation swap landed for this link, so its device group has
+      // to carry the new factor before this slot's mixing kernel runs.
+      if (outcome.correlation_changed) {
+        for (std::size_t g = 0; g != sp.correlation_group_owner.size(); ++g) {
+          if (sp.correlation_group_owner[g] != &link) {
+            continue;
+          }
+          DeviceCorrelationGroup& host_group = sp.host_correlation_groups[g];
+          const auto& mixing = link.fading.mixing;
+          const int n = host_group.n_lanes;
+          for (int r0 = 0; r0 != n; ++r0) {
+            for (int c0 = 0; c0 != n; ++c0) {
+              const std::size_t idx = static_cast<std::size_t>(r0) * n + c0;
+              const std::complex<float> value =
+                  idx < mixing.size() ? mixing[idx]
+                                      : std::complex<float>{r0 == c0 ? 1.0F : 0.0F, 0.0F};
+              host_group.mixing_re[r0][c0] = value.real();
+              host_group.mixing_im[r0][c0] = value.imag();
+            }
+          }
+          check(cudaMemcpyAsync(sp.device_correlation_groups + g, &host_group,
+                                sizeof(DeviceCorrelationGroup), cudaMemcpyHostToDevice,
+                                sp.stream),
+                "correlation-swap group H2D");
+          break;
+        }
+      }
+
       // Host-fallback path keeps its own ring, zeroed on the same slot.
       if (outcome.profile_activated && !sp.use_device_channel) {
         std::fill(lms_for_snap.delay_line.begin(), lms_for_snap.delay_line.end(), IqSample{});

@@ -72,6 +72,20 @@ struct ProfileShadow {
 // in prepare() to mirror the per-link YAML state; the seqno starts at 0 so
 // the first server-thread snap on the first slot is a no-op (live already
 // matches shadow, both already match YAML).
+// M4.4: a staged spatial-correlation swap.
+//
+// It holds the FACTOR, not the correlation matrix. The LDL^H runs on the
+// control thread while it is validating the REQ -- the same routine
+// validate_config uses, so load time and runtime cannot come to disagree about
+// which matrices are acceptable -- and the serve path only ever copies. That is
+// the promise M3 made when it put the factorisation in prepare(): never on the
+// hot path.
+struct CorrelationShadow {
+  int lanes = 0;  // 0 means "no correlation": the link goes back to iid
+  float mixing_re[kMaxCorrelatedLanes * kMaxCorrelatedLanes] = {};
+  float mixing_im[kMaxCorrelatedLanes * kMaxCorrelatedLanes] = {};
+};
+
 struct BrokerLinkControl {
   // v1 scalar shadow (unchanged accessor surface for back-compat).
   MutableParams              shadow;
@@ -82,6 +96,23 @@ struct BrokerLinkControl {
   // seqno's release-store.
   ProfileShadow              shadow_profile;
   bool                       profile_pending = false;
+
+  // M4.4 correlation-swap shadow, gated by the same seqno and slot rules as
+  // the scalar and profile shadows.
+  CorrelationShadow          shadow_correlation;
+  bool                       correlation_pending = false;
+
+  // Set at prepare() so the control thread can check a swap's dimensions
+  // without reaching into the topology: a correlation is Nr x Nr and Nt x Nt,
+  // and neither may change at runtime.
+  int                        nt_hint = 1;
+  int                        nr_hint = 1;
+  // Whether the link's model declared a spatial_correlation block at load.
+  // Declaring it -- even as `kind: iid` -- is the opt-in that makes the link
+  // runtime-correlatable; a link that never declared one keeps the untouched
+  // pre-M3 path, and a swap REQ against it is rejected rather than silently
+  // enabling machinery its topology never asked for.
+  bool                       correlation_declared = false;
 
   // v2 deterministic-timing knob. 0 = "apply at next slot boundary"
   // (v1 semantics, preserved when omitted from the REQ).

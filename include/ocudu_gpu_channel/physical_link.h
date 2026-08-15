@@ -187,6 +187,9 @@ struct PhysicalLinkRuntime {
 struct LinkSnapOutcome {
   bool values_changed = false;
   bool profile_activated = false;
+  // M4.4: the link's mixing matrix was replaced this slot, so a backend that
+  // keeps a device-side copy has to upload it before the slot's kernels run.
+  bool correlation_changed = false;
 };
 
 // Moves a pending control update into the link's `live` at a slot boundary.
@@ -224,6 +227,26 @@ inline LinkSnapOutcome snap_physical_link(PhysicalLinkRuntime& link,
     }
   }
 
+  // M4.4: swap the mixing factor in. No warmup: correlation is a linear map
+  // applied to the grids after they are generated, so it carries no cross-slot
+  // state -- unlike a tap layout, whose delay line has to be cleared. Treating
+  // the two the same would put a needless warmup window on every R change.
+  bool correlation_changed = false;
+  if (values_changed && link.control.correlation_pending) {
+    const auto& staged = link.control.shadow_correlation;
+    if (staged.lanes <= 0) {
+      link.fading.mixing.clear(); // back to iid
+    } else {
+      const auto n = static_cast<std::size_t>(staged.lanes);
+      link.fading.mixing.assign(n * n, std::complex<float>{0.0F, 0.0F});
+      for (std::size_t k = 0; k != n * n; ++k) {
+        link.fading.mixing[k] = std::complex<float>(staged.mixing_re[k], staged.mixing_im[k]);
+      }
+    }
+    link.control.correlation_pending = false;
+    correlation_changed = true;
+  }
+
   if (profile_activated) {
     // v2.2 W1: size the warmup window from the leading tdl's ring length. The
     // rings are zeroed by the caller, one per lane.
@@ -255,7 +278,8 @@ inline LinkSnapOutcome snap_physical_link(PhysicalLinkRuntime& link,
     publish_telemetry_snapshot(link.control, ts);
   }
   return LinkSnapOutcome{.values_changed = values_changed,
-                         .profile_activated = profile_activated};
+                         .profile_activated = profile_activated,
+                         .correlation_changed = correlation_changed};
 }
 
 } // namespace ocg

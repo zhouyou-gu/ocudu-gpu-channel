@@ -2321,6 +2321,151 @@ int main()
     }
   }
 
+  // ---- M4.4: a runtime correlation swap changes the measured covariance ----
+  //
+  // M3 fixed R at prepare. M4 lets the control plane replace it at a slot
+  // boundary, with the factorisation done on the control thread. The check that
+  // matters is not that the call succeeds -- it is that the lanes' covariance
+  // afterwards is the NEW declared value and was the old one before.
+  //
+  // Measured in two windows of the same run, so nothing but R changes between
+  // them: same processors, same seeds, same absolute time carrying on.
+  {
+    constexpr std::uint64_t sample_rate_hz = 100000;
+    constexpr std::size_t batch = 2000;
+    constexpr std::size_t window_slots = 150;  // 3 s => ~300 fading cycles each
+
+    ocg::ModelConfig m;
+    m.id = "tdl_runtime_corr";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 100.0;
+    step.fading_grid_us = 100.0;
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+    // Declared iid: the block's presence is the opt-in that makes the link
+    // runtime-correlatable at all.
+    m.spatial_correlation.declared = true;
+    m.spatial_correlation.kind = ocg::SpatialCorrelationKind::Iid;
+
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = batch;
+    cfg.runtime.queue_samples = batch * 8;
+    int port = 8900;
+    for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = sample_rate_hz;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    }
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    gnb.tx_ports = {"gnb_p0", "gnb_p1"};
+    gnb.rx_ports = {"gnb_p0", "gnb_p1"};
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    ue.tx_ports = {"ue_p0", "ue_p1"};
+    ue.rx_ports = {"ue_p0", "ue_p1"};
+    cfg.radio_nodes = {gnb, ue};
+    cfg.links = {{.from = "gnb", .to = "ue", .model = m.id},
+                 {.from = "ue", .to = "gnb", .model = m.id}};
+    cfg.models.emplace(m.id, m);
+    require(ocg::validate_config(cfg).empty(), "runtime-correlation topology validates");
+    const auto resolved = ocg::resolve_topology(cfg);
+
+    const ocg::IqBuffer dc(batch, ocg::IqSample{1.0F, 0.0F});
+    const ocg::IqBuffer silent(batch, ocg::IqSample{0.0F, 0.0F});
+    const auto build_lanes = [&](int live_tx) {
+      std::vector<ocg::SuperpositionInput> lanes;
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != "ue") continue;
+        lanes.push_back({.link_key = lane.key,
+                         .model = ocg::find_model(cfg, lane.model_id),
+                         .samples = lane.tx_port == live_tx
+                                        ? std::span<const ocg::IqSample>(dc)
+                                        : std::span<const ocg::IqSample>(silent),
+                         .rx_port = lane.rx_port,
+                         .tx_port = lane.tx_port});
+      }
+      return lanes;
+    };
+    const auto lanes_tx0 = build_lanes(0);
+    const auto lanes_tx1 = build_lanes(1);
+
+    ocg::CpuChannelProcessor proc_tx0;
+    ocg::CpuChannelProcessor proc_tx1;
+    proc_tx0.prepare(cfg);
+    proc_tx1.prepare(cfg);
+
+    std::vector<ocg::IqBuffer> rows_a(2, ocg::IqBuffer(batch));
+    std::vector<ocg::IqBuffer> rows_b(2, ocg::IqBuffer(batch));
+    // Correlation between lane (r0,t0) and lane (r1,t0): both live in the tx0
+    // processor's two rows, which is the pair an RX-side R acts on.
+    const auto measure_window = [&](std::size_t slots) {
+      double power0 = 0.0, power1 = 0.0, cross_re = 0.0, cross_im = 0.0;
+      for (std::size_t s = 0; s != slots; ++s) {
+        std::span<ocg::IqSample> a[2] = {rows_a[0], rows_a[1]};
+        std::span<ocg::IqSample> b[2] = {rows_b[0], rows_b[1]};
+        proc_tx0.process_superposition("ue", lanes_tx0, nullptr, sample_rate_hz,
+                                       std::span<std::span<ocg::IqSample>>(a));
+        proc_tx1.process_superposition("ue", lanes_tx1, nullptr, sample_rate_hz,
+                                       std::span<std::span<ocg::IqSample>>(b));
+        for (std::size_t n = 0; n != batch; ++n) {
+          const ocg::IqSample g0 = rows_a[0][n];
+          const ocg::IqSample g1 = rows_a[1][n];
+          power0 += static_cast<double>(g0.i) * g0.i + static_cast<double>(g0.q) * g0.q;
+          power1 += static_cast<double>(g1.i) * g1.i + static_cast<double>(g1.q) * g1.q;
+          cross_re += static_cast<double>(g0.i) * g1.i + static_cast<double>(g0.q) * g1.q;
+          cross_im += static_cast<double>(g0.q) * g1.i - static_cast<double>(g0.i) * g1.q;
+        }
+      }
+      return std::sqrt(cross_re * cross_re + cross_im * cross_im) / std::sqrt(power0 * power1);
+    };
+
+    const double before = measure_window(window_slots);
+    require(before < 0.15, "before the swap the lanes are independent, as declared");
+
+    // The swap, staged exactly as the control thread stages it: the FACTOR is
+    // computed here, off the serve path, and only copied at the slot boundary.
+    constexpr double declared = 0.8;
+    ocg::SpatialCorrelationConfig swapped;
+    swapped.declared = true;
+    swapped.kind = ocg::SpatialCorrelationKind::Kronecker;
+    swapped.rx = {{.i = 0, .j = 1, .re = declared, .im = 0.0}};
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::lane_mixing_matrix(swapped, 2, 2, mixing, error),
+            "the swapped correlation factorises");
+    const std::string link_id =
+        ocg::link_key({.from = "gnb", .to = "ue", .model = m.id});
+    for (auto* proc : {&proc_tx0, &proc_tx1}) {
+      auto map = proc->collect_control_links();
+      auto it = map.find(link_id);
+      require(it != map.end(), "the link is addressable by its own key");
+      ocg::BrokerLinkControl* ctl = it->second;
+      ocg::CorrelationShadow staged;
+      staged.lanes = 4;
+      for (std::size_t k = 0; k != mixing.size(); ++k) {
+        staged.mixing_re[k] = static_cast<float>(mixing[k].real());
+        staged.mixing_im[k] = static_cast<float>(mixing[k].imag());
+      }
+      ctl->shadow_correlation = staged;
+      ctl->correlation_pending = true;
+      ctl->seqno.fetch_add(1, std::memory_order_release);
+    }
+
+    const double after = measure_window(window_slots);
+    require(std::fabs(after - declared) < 0.15,
+            "after the swap the lanes carry the newly declared correlation");
+  }
+
   // ---- M3.5: the LOS phase relationship is the declared one ----------------
   //
   // A line-of-sight path is ONE ray reaching every antenna pair, so the phases
