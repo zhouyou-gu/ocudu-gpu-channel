@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (C) 2021-2026 Software Radio Systems Limited
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# Native, Docker-free OCUDU Split-8/ZMQ two-port transport fixture. Both core
+# planes use OCUDU's pinned no-core implementations, so this fixture needs no
+# Open5GS, MongoDB, TUN device, network namespace, or Linux network capability.
+# It proves actual-OCUDU two-port IQ transport only. It is not a UE-decode,
+# rank-2, spatial-multiplexing, or user-plane acceptance fixture.
+#
+# OCUDU a1916edc collects tx_port*/rx_port* tokens in comma order. Keep the
+# indexed tokens below in ascending logical order; the suffixes document the
+# intended mapping but do not replace that ordering contract.
+
+cu_cp:
+  amf:
+    no_core: true
+    bind_addrs: 127.0.0.1
+    supported_tracking_areas:
+      - tac: 7
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+
+cu_up:
+  ngu:
+    no_core: true
+
+ru_sdr:
+  device_driver: zmq
+  device_args: tx_port0=tcp://127.0.0.1:2000,tx_port1=tcp://127.0.0.1:2002,rx_port0=tcp://127.0.0.1:2001,rx_port1=tcp://127.0.0.1:2003,base_srate=23.04e6
+  clock: default
+  srate: 23.04
+  tx_gain: 0
+  rx_gain: 0
+
+cell_cfg:
+  nof_antennas_dl: 2
+  nof_antennas_ul: 2
+  dl_arfcn: 368500
+  band: 3
+  channel_bandwidth_MHz: 20
+  common_scs: 15
+  plmn: "00101"
+  tac: 7
+  pdcch:
+    dedicated:
+      ss2_type: ue_dedicated
+      dci_format_0_1_and_1_1: true
+    common:
+      ss0_index: 0
+      coreset0_index: 12
+  prach:
+    prach_config_index: 1
+  pdsch:
+    mcs_table: qam64
+  pusch:
+    mcs_table: qam64
+
+log:
+  filename: /tmp/ocudu-native-2port-gnb.log
+  all_level: info
+
+pcap:
+  mac_enable: disable
+  ngap_enable: disable

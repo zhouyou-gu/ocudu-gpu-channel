@@ -12,8 +12,20 @@ duration_seconds="${OCUDU_NATIVE_2PORT_DURATION_SECONDS:-20}"
 physical_gpu="${OCUDU_NATIVE_GPU_DEVICE:-0}"
 cuda_compiler="${CUDACXX:-/opt/conda/envs/cuda128/bin/nvcc}"
 audited_ocudu_commit="a1916edcdbcd70ba6e0af47ee87be061dad5a4e4"
+# M5.3: only the TOPOLOGY pin moved. The gNB fixture is an OCUDU config, needed
+# no adaptation, and still hashes to the audited value -- so the pin below is
+# the same one the superseded attempt ran against.
+#
+# The topology was adapted to the post-M1 schema. The pin exists so a run cannot
+# silently use a different mapping than the audited one, so what changed is
+# recorded rather than just re-hashed: `role:` removed from the radio_nodes
+# entries (a node is an id and its ordered port lists), and `rx_ports`/
+# `tx_ports` removed from the fixed_mimo blocks (dimensions are stated once, in
+# the node declaration). Coefficients, endpoints, antenna counts and port order
+# are unchanged.
+#   previous topology pin: 5bdf3ecada9c07d651bae3f52efc9bcffb2562de79b1025af92deb13d0be2a6e
 audited_gnb_fixture_sha256="6e0378b9969c3e12a3105ed58726b9aaa92236b2d8ce8247d9e25df9536c80b9"
-audited_topology_sha256="5bdf3ecada9c07d651bae3f52efc9bcffb2562de79b1025af92deb13d0be2a6e"
+audited_topology_sha256="ced8f0250c0a724ec015f5a2c1c31164325f0dcbafeb9b556605ea044e0eb6f5"
 
 usage_error()
 {
