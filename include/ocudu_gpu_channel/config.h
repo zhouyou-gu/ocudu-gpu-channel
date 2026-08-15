@@ -307,6 +307,11 @@ struct LaneConfig {
   std::string dst_device;
   int tx_port = 0;
   int rx_port = 0;
+  // The matrix this lane is a component of. Carried per lane so a consumer can
+  // derive the lane's seed, its index l = r*Nt + t, and its link's lane count
+  // without a second lookup.
+  int nt = 1;
+  int nr = 1;
   std::string model_id;
   // Index of the originating entry in TopologyConfig::links.
   std::size_t link_index = 0;
@@ -320,6 +325,22 @@ struct LaneConfig {
   std::string physical_link_key;
 };
 
+// The lanes of one physical link, in canonical matrix order l = r*Nt + t.
+//
+// It is a second view of the same lane set, and it is built HERE rather than in
+// each backend for the reason ResolvedTopology exists at all: consumers that
+// derive a lane view separately drift apart, and the drift is silent. M3's
+// cross-lane mixing needs a link's lanes together, so this is where that
+// grouping comes from.
+struct LinkLaneGroup {
+  std::string physical_link_key;
+  int nt = 1;
+  int nr = 1;
+  // Position in ResolvedTopology::lanes, or -1 when the lane is absent -- a
+  // zero coefficient of a fixed_mimo matrix produces no lane at all.
+  std::vector<int> lane_index;
+};
+
 struct ResolvedTopology {
   std::vector<ResolvedNode> nodes;
   // Stable-sorted by (destination node, rx_port). Lanes of one row are
@@ -327,6 +348,8 @@ struct ResolvedTopology {
   // a row as a [row_begin[r], row_begin[r+1]) range. Stability keeps the
   // float summation order fixed, which CPU/CUDA parity rests on.
   std::vector<LaneConfig> lanes;
+  // One entry per physical link that produced at least one lane, in link order.
+  std::vector<LinkLaneGroup> link_groups;
 };
 
 // The canonical per-lane state key.
@@ -344,6 +367,20 @@ std::string lane_key(const std::string& base_link_key, int rx_port, int tx_port,
 // the receiver chain's CFO phase and delay line, so from Nr = 2 each row gets
 // its own key.
 std::string rx_state_key(const std::string& node_id, int rx_port, int nr);
+
+// Where a lane sits in its physical link. Everything a backend needs to derive
+// the lane's stochastic state: which link owns it, and its position in that
+// link's matrix.
+struct LaneIdentity {
+  std::string physical_link_key;
+  int rx_port = 0;
+  int tx_port = 0;
+  int nt = 1;
+  int nr = 1;
+
+  int lane_index() const { return rx_port * nt + tx_port; }
+  int lane_count() const { return nt * nr; }
+};
 
 // Expands `config` into its resolved view. Assumes `validate_config` passed;
 // throws on a reference it still cannot resolve.

@@ -19,7 +19,7 @@
 //     during a run.
 //   - The cross-slot delay_line is updated by the kernel each serve.
 //   - slot_start_samples is NOT accumulated on the device: it is written each
-//     serve from the physical link's host-side clock (link_clock.h), so lanes
+//     serve from the physical link's host-side clock (physical_link.h), so lanes
 //     of one link cannot drift into different instants of the same channel.
 //   - The kernel mirrors per-link state into shared memory for the duration
 //     of one slot's worth of work, then writes the cross-slot updates back.
@@ -200,9 +200,29 @@ void refresh_all_taps_from_live(DeviceLinkState& s,
 // `sample_rate_hz` is required for the fading time math (slot_start_t,
 // grid_dt, LOS step_angle). The static path ignores it but the parameter
 // stays in the unified signature so the caller doesn't need to branch.
+// M3.3: builds every edge's Jakes coarse grid into `grid`, a device buffer of
+// `n_links * kDeviceMaxTaps * kDeviceMaxGridPoints` float2 (passed as float* so
+// this header stays includable without the CUDA toolchain). Edge k, tap kt,
+// point gp lives at (k * kDeviceMaxTaps + kt) * kDeviceMaxGridPoints + gp.
+//
+// It runs before apply_channel_kernel on the same stream. The grid used to be
+// built inside that kernel, once per sample block, and with only one lane in
+// view -- correlation (M3.4) is a map ACROSS the lanes of a link, so the grid
+// has to exist as data between the two steps.
+//
+// Launch: dim3(n_links), dim3(kDeviceMaxTaps) -- one thread per tap.
+void launch_generate_fading_grid_kernel(
+    const DeviceLinkState* states,
+    float* grid,
+    int n_links,
+    int count,
+    float sample_rate_hz,
+    void* stream);
+
 void launch_apply_channel_kernel_static(
     const DeviceLinkState* states,
     const IqSample* source_iq,
+    const float* fading_grid,
     IqSample* out_buffer,
     int n_links,
     int count,

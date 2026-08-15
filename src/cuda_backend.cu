@@ -2,7 +2,7 @@
 #include "ocudu_gpu_channel/cuda_backend.h"
 #include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/device_channel.h"
-#include "ocudu_gpu_channel/link_clock.h"
+#include "ocudu_gpu_channel/physical_link.h"
 #include "ocudu_gpu_channel/mutable_params.h"
 #include "ocudu_gpu_channel/processing.h"
 #include "ocudu_gpu_channel/runtime_control.h"
@@ -106,6 +106,9 @@ struct LinkModelState {
   // next slot clear.
   std::uint64_t warmup_until_slot = 0;
 
+  // M3.3: scratch grid for the HOST fallback path (stage_link). The device
+  // path gets its grids from generate_fading_grid_kernel instead.
+  FadingGrid fallback_grid;
   // M2.3: borrowed from the processor's clock table. The absolute time the
   // lane's channel evolves against belongs to its physical link, on the host,
   // on both dispatch paths -- the device copy in DeviceLinkState is written
@@ -260,7 +263,7 @@ void configure_leading_propagation(LinkModelState& state, const ModelConfig& mod
 // copy when the link's chain has no leading propagation. The device kernel
 // then runs the rest of the chain per-sample.
 // `slot_start_samples` is the physical link's clock value for this slot, read
-// by the caller (link_clock.h). stage_link neither owns nor advances it.
+// by the caller (physical_link.h). stage_link neither owns nor advances it.
 void stage_link(LinkModelState& state, const IqSample* in, IqSample* out,
                 std::size_t count, std::uint64_t sample_rate_hz,
                 std::uint64_t slot_start_samples)
@@ -271,10 +274,12 @@ void stage_link(LinkModelState& state, const IqSample* in, IqSample* out,
     // fading) or apply_tdl_step_fading (when the leading tdl has a fading
     // sub-config) from delay.h.
     if (state.tdl_fading.enabled) {
+      generate_fading_grid(state.tdl_fading, state.tdl_taps->size(), count, sample_rate_hz,
+                           slot_start_samples, state.fallback_grid);
       apply_tdl_step_fading(in, out, count, *state.tdl_taps,
                              state.tdl_polyphase, state.delay_line,
                              state.tdl_fading, sample_rate_hz,
-                             slot_start_samples);
+                             slot_start_samples, state.fallback_grid);
     } else {
       apply_tdl_step(in, out, count, *state.tdl_taps, state.tdl_polyphase,
                      state.delay_line);
@@ -327,6 +332,9 @@ struct CudaSuperposeState {
   // update_delay_line_kernel can assign it. Sized by edge count.
   unsigned long long* host_next_slot_start = nullptr;
   unsigned long long* device_next_slot_start = nullptr;
+  // M3.3: this slot's Jakes grids for every incoming edge, written by
+  // generate_fading_grid_kernel and read by apply_channel_kernel.
+  float* device_fading_grid = nullptr;
   std::size_t num_sources = 0;
   // Per-edge mapping built at prepare time: for each unique source slot s in
   // [0, num_sources), source_first_edge[s] is the index k of the FIRST edge
@@ -371,6 +379,7 @@ void free_superpose_state(CudaSuperposeState& state)
   if (state.h2d_done != nullptr)       { cudaEventDestroy(state.h2d_done);       state.h2d_done = nullptr; }
   if (state.h2d_start != nullptr)      { cudaEventDestroy(state.h2d_start);      state.h2d_start = nullptr; }
   if (state.stream != nullptr)         { cudaStreamDestroy(state.stream);        state.stream = nullptr; }
+  if (state.device_fading_grid != nullptr)     { cudaFree(state.device_fading_grid);         state.device_fading_grid = nullptr; }
   if (state.device_next_slot_start != nullptr) { cudaFree(state.device_next_slot_start);     state.device_next_slot_start = nullptr; }
   if (state.host_next_slot_start != nullptr)   { cudaFreeHost(state.host_next_slot_start);    state.host_next_slot_start = nullptr; }
   if (state.device_source_iq != nullptr)   { cudaFree(state.device_source_iq);    state.device_source_iq = nullptr; }
@@ -631,6 +640,11 @@ public:
       check(cudaMalloc(reinterpret_cast<void**>(&sp.device_next_slot_start),
                        slot_start_bytes),
             "cudaMalloc superpose next_slot_start");
+      // One grid per edge: kDeviceMaxTaps x kDeviceMaxGridPoints complex, ~8 KB
+      // per edge, so a 16-edge node costs ~128 KB of device memory.
+      check(cudaMalloc(reinterpret_cast<void**>(&sp.device_fading_grid),
+                       incoming * kDeviceMaxTaps * kDeviceMaxGridPoints * 2 * sizeof(float)),
+            "cudaMalloc superpose fading_grid");
       std::size_t k_idx = 0;
       // Dispatch gate: every incoming edge must have a leading tdl step
       // (fading-enabled tdl included -- the device kernel handles both
@@ -1041,8 +1055,18 @@ public:
     // apply_tdl_step's host post-loop ring update). Launched on sp.stream
     // so it serialises before superpose_kernel naturally.
     if (sp.use_device_channel) {
+      // M3.3: generate, then convolve. Same stream, so the ordering is the
+      // dependency -- and M3.4's mixing goes between these two launches.
+      launch_generate_fading_grid_kernel(sp.device_link_states,
+                                         sp.device_fading_grid,
+                                         link_count,
+                                         static_cast<int>(count),
+                                         static_cast<float>(sample_rate_hz),
+                                         sp.stream);
+      check(cudaGetLastError(), "generate_fading_grid_kernel launch");
       launch_apply_channel_kernel_static(sp.device_link_states,
                                           sp.device_source_iq,
+                                          sp.device_fading_grid,
                                           sp.device_staged,
                                           link_count,
                                           static_cast<int>(count),

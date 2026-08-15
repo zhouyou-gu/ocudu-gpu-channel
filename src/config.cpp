@@ -1724,6 +1724,8 @@ ResolvedTopology resolve_topology(const TopologyConfig& config)
         lane.dst_device = dst.rx_ports[static_cast<std::size_t>(r)];
         lane.tx_port = t;
         lane.rx_port = r;
+        lane.nt = nt;
+        lane.nr = nr;
         lane.model_id = has_fixed_mimo ? fixed_mimo_model_id(link.model, r, t) : link.model;
         lane.link_index = i;
         // The physical link, not the lane: `base` carries the author's model
@@ -1744,6 +1746,28 @@ ResolvedTopology resolve_topology(const TopologyConfig& config)
                      }
                      return a.rx_port < b.rx_port;
                    });
+
+  // Per-link grouping, built AFTER the sort so the recorded positions are the
+  // final ones. Row-major ordering leaves a link's lanes scattered through the
+  // array whenever a node has more than one incoming link, and M3's cross-lane
+  // mixing needs them together -- deriving this in each backend instead is the
+  // silent-drift failure ResolvedTopology exists to prevent.
+  std::map<std::string, std::size_t> group_of;
+  for (std::size_t position = 0; position != resolved.lanes.size(); ++position) {
+    const LaneConfig& lane = resolved.lanes[position];
+    auto [it, inserted] = group_of.try_emplace(lane.physical_link_key, resolved.link_groups.size());
+    if (inserted) {
+      LinkLaneGroup group;
+      group.physical_link_key = lane.physical_link_key;
+      group.nt = lane.nt;
+      group.nr = lane.nr;
+      group.lane_index.assign(static_cast<std::size_t>(lane.nt) * lane.nr, -1);
+      resolved.link_groups.push_back(std::move(group));
+    }
+    LinkLaneGroup& group = resolved.link_groups[it->second];
+    group.lane_index[static_cast<std::size_t>(lane.rx_port) * lane.nt + lane.tx_port] =
+        static_cast<int>(position);
+  }
   return resolved;
 }
 

@@ -3,7 +3,7 @@
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/iq.h"
-#include "ocudu_gpu_channel/link_clock.h"
+#include "ocudu_gpu_channel/physical_link.h"
 #include "ocudu_gpu_channel/mutable_params.h"
 #include "ocudu_gpu_channel/processing.h"
 #include "ocudu_gpu_channel/runtime_control.h"
@@ -112,6 +112,13 @@ private:
     // clock, and none of them advances it -- process_superposition does, once
     // per slot per link.
     PhysicalLinkClock* clock = nullptr;
+
+    // M3.3: the same link owns this slot's fading grids for ALL of its lanes.
+    // This state writes into row `lane_index` and reads back the same row; the
+    // rows exist together so that M3.4 can mix across them.
+    PhysicalLinkFading* fading = nullptr;
+    int lane_index = 0;
+    int lane_count = 1;
   };
 
   // `physical_link_key` / `rx_port` / `tx_port` name the lane's position in
@@ -122,9 +129,13 @@ private:
   LinkState& ensure_link_state(const std::string& link_key,
                                const ModelConfig& model,
                                std::size_t sample_count,
-                               const std::string& physical_link_key,
-                               int rx_port,
-                               int tx_port);
+                               const LaneIdentity& identity);
+
+  // Builds this slot's fading grids for one lane, into the row its physical
+  // link owns. Runs for every lane of the slot BEFORE any lane is shaped, so
+  // the cross-lane step M3.4 adds has every row to work with.
+  static void refresh_lane_grids(LinkState& state, const ModelConfig& model,
+                                 std::size_t count, std::uint64_t sample_rate_hz);
 
   // One-shot setup for a Tdl step's per-link runtime state. Called from
   // ensure_link_state whenever a step in the chain is a Tdl step. Static
@@ -151,6 +162,8 @@ private:
   // Keyed by physical link identity (LaneConfig::physical_link_key). Node-based
   // storage, so a LinkState may hold a pointer into it across insertions.
   std::unordered_map<std::string, PhysicalLinkClock> clocks_;
+  // Same keying and the same node-based storage rule as `clocks_`.
+  std::unordered_map<std::string, PhysicalLinkFading> link_fadings_;
 };
 
 } // namespace ocg

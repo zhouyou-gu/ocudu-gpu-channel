@@ -189,7 +189,7 @@ constexpr int kTdlFadingSinusoids = 20;
 // regardless of which taps are LOS).
 //
 // Note what is NOT here: the absolute time. Time belongs to the physical link
-// (PhysicalLinkClock in link_clock.h) and is passed in per call, so a lane
+// (PhysicalLinkClock in physical_link.h) and is passed in per call, so a lane
 // cannot hold a clock of its own and drift from its siblings.
 struct TdlFadingState {
   bool enabled = false;
@@ -244,6 +244,94 @@ inline void prepare_tdl_fading_state(const ModelStep& step,
   }
 }
 
+// The coarse-grid Jakes process of ONE lane, for one tdl step and one slot.
+//
+// M3 splits this out of the convolution. Correlation across the lanes of a link
+// is a linear map applied to these grids -- it needs every lane's grid at the
+// same tap and the same grid point simultaneously, which is impossible while
+// each lane's grid is a local inside its own convolution. The convolution now
+// reads a grid it did not build, and (per MIMO_MILESTONES M3) is not expected
+// to change again for channel-model work: a new model changes the generator.
+//
+// `values` is tap-major: tap k occupies [k * points, (k + 1) * points).
+struct FadingGrid {
+  std::size_t stride = 1; // samples between grid points
+  std::size_t points = 0; // grid points covering the slot, plus the endpoint
+  std::size_t taps = 0;
+  std::vector<std::complex<float>> values;
+
+  std::complex<float>* tap(std::size_t k) { return values.data() + k * points; }
+  const std::complex<float>* tap(std::size_t k) const { return values.data() + k * points; }
+};
+
+// Builds one lane's Rayleigh grid for the slot starting at `slot_start_samples`.
+//
+// Each tap's process is the sum of M sub-rays, accumulated by phase rotation so
+// a grid point costs one complex multiply per sub-ray rather than a sin/cos.
+// The LOS specular is NOT here: it is a per-sample phase accumulation, and M3.5
+// gives it a per-lane coefficient rather than a grid.
+inline void generate_fading_grid(const TdlFadingState& fading,
+                                 std::size_t n_taps,
+                                 std::size_t count,
+                                 std::uint64_t sample_rate_hz,
+                                 std::uint64_t slot_start_samples,
+                                 FadingGrid& out)
+{
+  using complex_f = std::complex<float>;
+  if (!fading.enabled) {
+    out.taps = 0;
+    out.points = 0;
+    out.values.clear();
+    return;
+  }
+  if (fading.spectrum != FadingSpectrum::Jakes) {
+    throw std::runtime_error(
+        "tdl fading spectrum other than 'jakes' is not implemented yet "
+        "(Phase 1.4b ships Jakes; gaussian/flat reserved for a later phase)");
+  }
+  const double sr = static_cast<double>(sample_rate_hz);
+  const double two_pi = 2.0 * std::numbers::pi;
+  const double inv_sqrt_M =
+      1.0 / std::sqrt(static_cast<double>(kTdlFadingSinusoids));
+
+  // Minimum stride 1 sample so a degenerate `grid_us` (or an extremely high
+  // sample rate) still produces a valid grid.
+  out.stride = std::max<std::size_t>(
+      1, static_cast<std::size_t>(std::round(fading.grid_us * 1.0e-6 * sr)));
+  out.points = (count + out.stride - 1) / out.stride + 1;
+  out.taps = n_taps;
+  out.values.assign(n_taps * out.points, complex_f{0.0F, 0.0F});
+
+  const double slot_start_t = static_cast<double>(slot_start_samples) / sr;
+  const double grid_dt = static_cast<double>(out.stride) / sr;
+  for (std::size_t k = 0; k != n_taps; ++k) {
+    complex_f* row = out.tap(k);
+    for (int m = 0; m < kTdlFadingSinusoids; ++m) {
+      const double omega_m =
+          two_pi * fading.f_d_max_hz * std::cos(fading.tap_alpha[k][m]);
+      // angle0 grows linearly with slot_start_t. Reduce mod 2*pi in double
+      // before casting to float so the bit-equivalent device path (which uses
+      // __sincosf, whose internal range-reduction loses precision for large
+      // angles) sees the same pre-reduced phase. Without this both backends
+      // would drift after minutes of runtime in opposite ways and the
+      // CPU<->CUDA parity invariant would silently fail.
+      const double angle0_d = omega_m * slot_start_t + fading.tap_phi[k][m];
+      const float angle0 = static_cast<float>(std::fmod(angle0_d, two_pi));
+      complex_f current{std::cos(angle0), std::sin(angle0)};
+      const double step_angle = omega_m * grid_dt;
+      const complex_f step_mul{static_cast<float>(std::cos(step_angle)),
+                               static_cast<float>(std::sin(step_angle))};
+      for (std::size_t g = 0; g != out.points; ++g) {
+        row[g] += current;
+        current *= step_mul;
+      }
+    }
+    for (std::size_t g = 0; g != out.points; ++g) {
+      row[g] *= static_cast<float>(inv_sqrt_M);
+    }
+  }
+}
+
 // Multi-tap convolution with Doppler-spread fading. The non-fading variant
 // (apply_tdl_step above) handles the static case; this one is called when the
 // link's tdl step has `fading_enabled = true`. The shared math is the same
@@ -254,10 +342,9 @@ inline void prepare_tdl_fading_state(const ModelStep& step,
 //   g_k(t) = (1 / sqrt(M)) * sum_{m=1..M} exp(j(2*pi * f_d_max * cos(alpha_{k,m}) * t
 //                                              + phi_{k,m}))
 //
-// g_k(t) is computed on a coarse grid (stride = grid_us * sample_rate) with
-// phase accumulation so per-sub-ray cost is one complex multiply per grid
-// step, not a sin/cos. The per-sample g_k(t_n) is recovered by linear
-// interpolation between adjacent grid points. For LOS taps (is_los = true),
+// g_k(t) comes in as a FadingGrid built by generate_fading_grid (M3): this
+// function interpolates it, it does not build it. The per-sample g_k(t_n) is a
+// linear interpolation between adjacent grid points. For LOS taps (is_los = true),
 // the Rician composition is:
 //
 //   g_k(t) = sqrt(K/(K+1)) * exp(j(2*pi * f_d_max * cos(los_angle_rad) * t
@@ -269,7 +356,7 @@ inline void prepare_tdl_fading_state(const ModelStep& step,
 //
 // Sample-rate-relative time comes in as `slot_start_samples`: the sample index
 // of this slot's first sample, counted from the start of the run. It is read
-// from the physical link's clock (link_clock.h) by the caller, which advances
+// from the physical link's clock (physical_link.h) by the caller, which advances
 // that clock once per slot after every lane of the link has been shaped -- so
 // the lanes of one link all evaluate the channel at the same instant, and this
 // function holds no time of its own between calls.
@@ -285,65 +372,24 @@ inline void apply_tdl_step_fading(const IqSample* in,
                                   std::vector<IqSample>& delay_line,
                                   const TdlFadingState& fading,
                                   std::uint64_t sample_rate_hz,
-                                  std::uint64_t slot_start_samples)
+                                  std::uint64_t slot_start_samples,
+                                  const FadingGrid& grid)
 {
   if (!fading.enabled) {
     apply_tdl_step(in, out, count, taps, polyphase, delay_line);
     return;
   }
-  if (fading.spectrum != FadingSpectrum::Jakes) {
-    throw std::runtime_error(
-        "tdl fading spectrum other than 'jakes' is not implemented yet "
-        "(Phase 1.4b ships Jakes; gaussian/flat reserved for a later phase)");
-  }
   using complex_f = std::complex<float>;
   const std::size_t n_taps = taps.size();
   const double sr = static_cast<double>(sample_rate_hz);
   const double two_pi = 2.0 * std::numbers::pi;
-  const double inv_sqrt_M =
-      1.0 / std::sqrt(static_cast<double>(kTdlFadingSinusoids));
-
-  // Coarse-grid sizing: stride in samples, count of grid points covering the
-  // slot plus a +1 endpoint for the last interpolation interval. Minimum
-  // stride 1 sample so a degenerate `grid_us` (or extremely high sample rate)
-  // still produces a valid grid.
-  const std::size_t grid_stride = std::max<std::size_t>(
-      1, static_cast<std::size_t>(std::round(fading.grid_us * 1.0e-6 * sr)));
-  const std::size_t grid_count = (count + grid_stride - 1) / grid_stride + 1;
-
-  // Per-tap g_k_rayleigh(t) sampled on the coarse grid. Built via phase
-  // accumulation so trig cost is O(M * n_taps) per slot, not O(M * grid_count
-  // * n_taps).
-  std::vector<std::vector<complex_f>> g_grid(n_taps,
-                                             std::vector<complex_f>(grid_count));
-  const double slot_start_t = static_cast<double>(slot_start_samples) / sr;
-  const double grid_dt = static_cast<double>(grid_stride) / sr;
-  for (std::size_t k = 0; k != n_taps; ++k) {
-    for (int m = 0; m < kTdlFadingSinusoids; ++m) {
-      const double omega_m =
-          two_pi * fading.f_d_max_hz * std::cos(fading.tap_alpha[k][m]);
-      // angle0 grows linearly with slot_start_t. Reduce mod 2*pi in double
-      // before casting to float so the bit-equivalent device path (which uses
-      // __sincosf, whose internal range-reduction loses precision for large
-      // angles) sees the same pre-reduced phase. Without this both backends
-      // would drift after minutes of runtime in opposite ways and the
-      // CPU<->CUDA parity invariant would silently fail.
-      const double angle0_d =
-          omega_m * slot_start_t + fading.tap_phi[k][m];
-      const float angle0 = static_cast<float>(std::fmod(angle0_d, two_pi));
-      complex_f current{std::cos(angle0), std::sin(angle0)};
-      const double step_angle = omega_m * grid_dt;
-      const complex_f step_mul{static_cast<float>(std::cos(step_angle)),
-                               static_cast<float>(std::sin(step_angle))};
-      for (std::size_t g = 0; g != grid_count; ++g) {
-        g_grid[k][g] += current;
-        current *= step_mul;
-      }
-    }
-    for (auto& v : g_grid[k]) {
-      v *= static_cast<float>(inv_sqrt_M);
-    }
+  if (grid.taps != n_taps || grid.points == 0) {
+    throw std::runtime_error("tdl fading grid does not match the step's tap count");
   }
+  const std::size_t grid_stride = grid.stride;
+  const std::size_t grid_count = grid.points;
+
+  const double slot_start_t = static_cast<double>(slot_start_samples) / sr;
 
   // Per-sample LOS specular phase accumulators (only for LOS taps). For
   // non-LOS taps these stay at their default {1, 0} / {0, 0} and are not read.
@@ -397,8 +443,8 @@ inline void apply_tdl_step_fading(const IqSample* in,
     IqSample acc{0.0F, 0.0F};
     for (std::size_t k = 0; k != n_taps; ++k) {
       // g_k(t_n) -- Rayleigh component interpolated from the grid.
-      const complex_f g_rayleigh =
-          g_grid[k][g_floor] * (1.0F - frac) + g_grid[k][g_ceil_idx] * frac;
+      const complex_f* row = grid.tap(k);
+      const complex_f g_rayleigh = row[g_floor] * (1.0F - frac) + row[g_ceil_idx] * frac;
       complex_f g_k = g_rayleigh;
       if (taps[k].is_los) {
         g_k = los_factor[k] * los_current[k] +

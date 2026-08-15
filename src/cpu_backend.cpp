@@ -47,9 +47,7 @@ void CpuChannelProcessor::prepare_tdl_step(StepState& state, const ModelStep& st
 CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std::string& key,
                                                                        const ModelConfig& model,
                                                                        std::size_t sample_count,
-                                                                       const std::string& physical_link_key,
-                                                                       int rx_port,
-                                                                       int tx_port)
+                                                                       const LaneIdentity& identity)
 {
   auto it = states_.find(key);
   if (it == states_.end()) {
@@ -65,7 +63,10 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     // Bound once, when the state is created. A later call cannot rebind it: a
     // lane belongs to the link it was prepared under, and re-pointing a clock
     // mid-run is exactly the drift this design removes.
-    state.clock = &clocks_[physical_link_key];
+    state.clock = &clocks_[identity.physical_link_key];
+    state.fading = &link_fadings_[identity.physical_link_key];
+    state.lane_index = identity.lane_index();
+    state.lane_count = identity.lane_count();
   }
   if (state.scratch_a.size() < sample_count) {
     state.scratch_a.resize(sample_count);
@@ -77,14 +78,14 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     // derived once here, and each lane's realisation is derived from it and
     // the lane's (rx_port, tx_port) position -- so two lanes of one link are
     // independent draws of the same link, not two unrelated links.
-    const std::uint64_t link_seed = physical_link_seed(physical_link_key);
+    const std::uint64_t link_seed = physical_link_seed(identity.physical_link_key);
     for (std::size_t i = 0; i != state.steps.size(); ++i) {
       state.steps[i].rng.seed(static_cast<unsigned>(std::hash<std::string>{}(key + ":" + std::to_string(i))));
       if (model.chain[i].type == ModelStepType::Tdl) {
         // The CUDA backend derives the seed through the same two functions,
         // so both backends draw the same Jakes sub-ray angles for a lane.
         prepare_tdl_step(state.steps[i], model.chain[i],
-                         lane_fading_seed(link_seed, rx_port, tx_port,
+                         lane_fading_seed(link_seed, identity.rx_port, identity.tx_port,
                                           static_cast<int>(i)));
       }
     }
@@ -117,6 +118,22 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
   return state;
 }
 
+void CpuChannelProcessor::refresh_lane_grids(LinkState& state, const ModelConfig& model,
+                                             std::size_t count, std::uint64_t sample_rate_hz)
+{
+  state.fading->reshape(
+      static_cast<std::size_t>(std::max(state.lane_count, state.lane_index + 1)),
+      model.chain.size());
+  auto& per_step = state.fading->lane_grids[static_cast<std::size_t>(state.lane_index)];
+  for (std::size_t i = 0; i != model.chain.size(); ++i) {
+    // Time comes from the link's clock, so every lane of the link builds its
+    // grid against the same origin -- the property M2.3 made structural, now
+    // relied on by a step that reads several lanes at once.
+    generate_fading_grid(state.steps[i].tdl_fading, model.chain[i].taps.size(), count,
+                         sample_rate_hz, state.clock->slot_start_samples, per_step[i]);
+  }
+}
+
 void CpuChannelProcessor::prepare(const TopologyConfig& config)
 {
   // State is keyed by the SAME resolved lane table the broker drives serves
@@ -137,8 +154,12 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
     }
     const std::size_t count =
         resolve_batch_samples(config.runtime, destination->second->sample_rate_hz);
-    ensure_link_state(lane.key, *model, count, lane.physical_link_key,
-                      lane.rx_port, lane.tx_port);
+    ensure_link_state(lane.key, *model, count,
+                      LaneIdentity{.physical_link_key = lane.physical_link_key,
+                                   .rx_port = lane.rx_port,
+                                   .tx_port = lane.tx_port,
+                                   .nt = lane.nt,
+                                   .nr = lane.nr});
   }
 
   // Receiver-model state, one entry per output ROW. Sibling rows must not share
@@ -159,7 +180,10 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
       // key is its stochastic identity, and the row index is its position:
       // sibling rows draw independently, as they must.
       const std::string key = rx_state_key(node.id, r, nr);
-      ensure_link_state(key, *model, count, key, r, /*tx_port=*/0);
+      // Each row's key already separates it from its siblings, so the row is a
+      // single-lane link of its own. Passing r as a lane index here would point
+      // at a row this link does not have.
+      ensure_link_state(key, *model, count, LaneIdentity{.physical_link_key = key});
     }
   }
 }
@@ -182,7 +206,7 @@ ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::stri
   // for a caller that skipped prepare() (single-shot use): such a state is its
   // own physical link at matrix position (0, 0).
   LinkState& state = ensure_link_state(link_key_value, model, input.size(),
-                                       link_key_value, /*rx_port=*/0, /*tx_port=*/0);
+                                       LaneIdentity{.physical_link_key = link_key_value});
 
   // Phase 3 C2b: snap any pending shadow update from the control plane into
   // `live` before the chain reads it. No-op when seqno hasn't advanced
@@ -399,7 +423,9 @@ ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::stri
                                 effective_taps, effective_polyphase,
                                 step_state.delay_line, step_state.tdl_fading,
                                 sample_rate_hz,
-                                state.clock->slot_start_samples);
+                                state.clock->slot_start_samples,
+                                state.fading->lane_grids[static_cast<std::size_t>(state.lane_index)]
+                                                        [step_index]);
         } else {
           apply_tdl_step(current.data(), next.data(), current.size(),
                          effective_taps, effective_polyphase,
@@ -446,6 +472,20 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
     scratch.resize(count);
   }
   const std::span<IqSample> shaped(scratch.data(), count);
+
+  // M3.3 -- generation pass. Every lane's fading grid for this slot is built
+  // here, before any lane is shaped, because the cross-lane step M3.4 inserts
+  // between the two loops needs all of a link's rows at once. Nothing in this
+  // loop looks at another lane yet, so the output is exactly what M2 produced.
+  for (const auto& lane : inputs) {
+    if (lane.model == nullptr) {
+      throw std::runtime_error("CPU superposition input is malformed");
+    }
+    LinkState& state = ensure_link_state(lane.link_key, *lane.model, count,
+                                         LaneIdentity{.physical_link_key = lane.link_key});
+    refresh_lane_grids(state, *lane.model, count, sample_rate_hz);
+  }
+
   // Clocks touched by this slot, each advanced once at the end. Reused across
   // calls on this thread; a physical link has one destination node, so no other
   // thread can be advancing the same clock.
@@ -486,8 +526,11 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
     for (int r = 0; r != nr; ++r) {
       const std::span<IqSample> row = outputs[static_cast<std::size_t>(r)];
       const std::span<const IqSample> summed(row.data(), row.size());
-      touch(apply_chain_to_link(rx_state_key(dst_key, r, nr), *rx_model, summed, row,
-                                sample_rate_hz));
+      const std::string key = rx_state_key(dst_key, r, nr);
+      LinkState& rx_state = ensure_link_state(key, *rx_model, count,
+                                              LaneIdentity{.physical_link_key = key});
+      refresh_lane_grids(rx_state, *rx_model, count, sample_rate_hz);
+      touch(apply_chain_to_link(key, *rx_model, summed, row, sample_rate_hz));
     }
   }
   // The slot is complete: every lane of a link has now been shaped against the
