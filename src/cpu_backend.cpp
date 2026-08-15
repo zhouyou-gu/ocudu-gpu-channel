@@ -46,7 +46,10 @@ void CpuChannelProcessor::prepare_tdl_step(StepState& state, const ModelStep& st
 
 CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std::string& key,
                                                                        const ModelConfig& model,
-                                                                       std::size_t sample_count)
+                                                                       std::size_t sample_count,
+                                                                       const std::string& physical_link_key,
+                                                                       int rx_port,
+                                                                       int tx_port)
 {
   auto it = states_.find(key);
   if (it == states_.end()) {
@@ -64,14 +67,19 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
   }
   if (state.steps.size() != model.chain.size()) {
     state.steps.assign(model.chain.size(), StepState{});
+    // M2: the stochastic channel belongs to the physical link. Its seed is
+    // derived once here, and each lane's realisation is derived from it and
+    // the lane's (rx_port, tx_port) position -- so two lanes of one link are
+    // independent draws of the same link, not two unrelated links.
+    const std::uint64_t link_seed = physical_link_seed(physical_link_key);
     for (std::size_t i = 0; i != state.steps.size(); ++i) {
       state.steps[i].rng.seed(static_cast<unsigned>(std::hash<std::string>{}(key + ":" + std::to_string(i))));
       if (model.chain[i].type == ModelStepType::Tdl) {
-        // Per-link, per-step fading seed -- the CUDA backend computes the
-        // same hash so both backends draw the same Jakes sub-ray angles.
-        const std::uint64_t fading_seed = static_cast<std::uint64_t>(
-            std::hash<std::string>{}(key + ":fading:" + std::to_string(i)));
-        prepare_tdl_step(state.steps[i], model.chain[i], fading_seed);
+        // The CUDA backend derives the seed through the same two functions,
+        // so both backends draw the same Jakes sub-ray angles for a lane.
+        prepare_tdl_step(state.steps[i], model.chain[i],
+                         lane_fading_seed(link_seed, rx_port, tx_port,
+                                          static_cast<int>(i)));
       }
     }
     // Phase 3 v1: populate runtime-mutable params from YAML. apply_chain_to_link
@@ -123,7 +131,8 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
     }
     const std::size_t count =
         resolve_batch_samples(config.runtime, destination->second->sample_rate_hz);
-    ensure_link_state(lane.key, *model, count);
+    ensure_link_state(lane.key, *model, count, lane.physical_link_key,
+                      lane.rx_port, lane.tx_port);
   }
 
   // Receiver-model state, one entry per output ROW. Sibling rows must not share
@@ -140,7 +149,11 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
     const std::size_t count = resolve_batch_samples(config.runtime, node.sample_rate_hz);
     const int nr = static_cast<int>(node.rx_ports.size());
     for (int r = 0; r != nr; ++r) {
-      ensure_link_state(rx_state_key(node.id, r, nr), *model, count);
+      // A receiver model is not carried by any link, so the row's own state
+      // key is its stochastic identity, and the row index is its position:
+      // sibling rows draw independently, as they must.
+      const std::string key = rx_state_key(node.id, r, nr);
+      ensure_link_state(key, *model, count, key, r, /*tx_port=*/0);
     }
   }
 }
@@ -158,7 +171,12 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
     return;
   }
 
-  LinkState& state = ensure_link_state(link_key_value, model, input.size());
+  // prepare() has already created every state the broker serves, so this
+  // lookup finds one and the identity arguments are not read. They matter only
+  // for a caller that skipped prepare() (single-shot use): such a state is its
+  // own physical link at matrix position (0, 0).
+  LinkState& state = ensure_link_state(link_key_value, model, input.size(),
+                                       link_key_value, /*rx_port=*/0, /*tx_port=*/0);
 
   // Phase 3 C2b: snap any pending shadow update from the control plane into
   // `live` before the chain reads it. No-op when seqno hasn't advanced

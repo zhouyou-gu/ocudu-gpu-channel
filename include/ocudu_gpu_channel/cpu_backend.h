@@ -106,9 +106,17 @@ private:
     std::uint64_t warmup_until_slot = 0;
   };
 
+  // `physical_link_key` / `rx_port` / `tx_port` name the lane's position in
+  // its physical link. They are only read when the state is created, and only
+  // to derive the stochastic channel's seed (M2): a lane's realisation follows
+  // from the link's identity and the lane's matrix position, never from the
+  // spelling of `link_key`.
   LinkState& ensure_link_state(const std::string& link_key,
                                const ModelConfig& model,
-                               std::size_t sample_count);
+                               std::size_t sample_count,
+                               const std::string& physical_link_key,
+                               int rx_port,
+                               int tx_port);
 
   // One-shot setup for a Tdl step's per-link runtime state. Called from
   // ensure_link_state whenever a step in the chain is a Tdl step. Static

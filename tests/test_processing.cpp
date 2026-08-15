@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <numbers>
 #include <unordered_map>
 
 namespace {
@@ -1497,18 +1498,39 @@ int main()
     }
   }
 
-  // (d) Jakes' autocorrelation matches the Bessel curve.
-  // For a single-tap Rayleigh-Jakes process g(t), the theoretical temporal
-  // autocorrelation is R_g(tau) = J_0(2*pi * f_d_max * tau) -- the classical
-  // result for an isotropic-scatterer Doppler spectrum. Feed DC into a unit-
-  // gain single-tap fading step so the output is y(n) = g(t_n) directly,
-  // then compare the empirical autocorrelation at a few lags against J_0.
+  // (d) Jakes' autocorrelation matches the Bessel curve -- judged over an
+  // ENSEMBLE of lanes, not over one.
   //
-  // Sizing: 100 kHz sample rate, 100 Hz Doppler => fading cycle ~10 ms =
-  // 1000 samples; 800k samples = 8 s of data = ~800 fading cycles -- plenty
-  // to average out the M = 20 sub-ray draw noise. The tolerance 0.15 is well
-  // above the expected std dev (~0.03) at this sample count.
+  // For a Rayleigh-Jakes process g(t) with isotropic scatterers the temporal
+  // autocorrelation is R_g(tau) = J_0(2*pi * f_d_max * tau). That is an
+  // ensemble statement: it is what the sub-ray angles average to. A single
+  // realisation with M = 20 sub-rays follows its OWN curve,
+  //     R(tau) = (1/M) * sum_m cos(2*pi * f_d_max * cos(alpha_m) * tau),
+  // exactly -- and that curve sits far from J_0. Measured across 16 lanes at
+  // tau = 5 ms the per-lane error spans -0.32 .. +0.51, while the 16-lane mean
+  // lands at 0.02. So a single-lane J_0 gate at +/- 0.15 grades which angles
+  // were drawn rather than whether the generator is right; the pre-M2 version
+  // of this test passed on the luck of its seed, and re-seeding in M2.2 (a
+  // change that cannot touch the generator) was enough to fail it.
+  //
+  // M2 makes the honest form cheap: the lanes of one physical link are
+  // independent realisations of the same channel, so the ensemble to average
+  // over is right there. This runs a 1 x 16 link and drives the single TX port
+  // with DC, so each of the 16 output rows IS one lane's g(t), and asserts:
+  //   1. per lane, the empirical autocorrelation matches THAT lane's own
+  //      sum-of-sinusoids prediction. This is the tight check, and it also
+  //      pins the seed derivation: the prediction is computed from the angles
+  //      lane_fading_seed(physical_link_seed(link), r, t, step) draws, so a
+  //      backend that seeded a lane any other way fails here.
+  //   2. over the 16 lanes, the mean matches J_0 within +/- 0.15 -- the
+  //      distributional property the milestone gate names.
   {
+    constexpr int n_rx = 16;
+    constexpr std::uint64_t sample_rate_hz = 100000;
+    constexpr std::size_t batch = 2000;   // 20 ms per slot
+    constexpr std::size_t n_slots = 600;  // 12 s per lane => 1200 fading cycles
+    constexpr std::size_t max_lag = 500;
+
     ocg::ModelConfig m;
     m.id = "tdl_fading_autocorr";
     ocg::ModelStep step;
@@ -1522,54 +1544,147 @@ int main()
     step.fading_spectrum = ocg::FadingSpectrum::Jakes;
     m.chain.push_back(step);
 
-    constexpr std::uint64_t sample_rate_hz = 100000;
-    constexpr std::size_t batch = 4000;     // 40 ms per slot
-    constexpr std::size_t n_slots = 200;    // 8 s total => 800 fading cycles
-    auto proc = build_fading_processor(m, batch, sample_rate_hz);
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = batch;
+    cfg.runtime.queue_samples = batch * 8;
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    int port = 7000;
+    const auto add_device = [&](const std::string& id) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = sample_rate_hz;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    };
+    add_device("gnb_p0");
+    gnb.tx_ports = {"gnb_p0"};
+    gnb.rx_ports = {"gnb_p0"};
+    for (int r = 0; r != n_rx; ++r) {
+      const std::string id = "ue_p" + std::to_string(r);
+      add_device(id);
+      ue.rx_ports.push_back(id);
+      ue.tx_ports.push_back(id); // every device must be reachable both ways
+    }
+    cfg.radio_nodes = {gnb, ue};
+    cfg.links = {{.from = "gnb", .to = "ue", .model = m.id},
+                 {.from = "ue", .to = "gnb", .model = m.id}};
+    cfg.models.emplace(m.id, m);
+    require(ocg::validate_config(cfg).empty(),
+            "Bessel ensemble: 1 x 16 topology validates");
+
+    const auto resolved = ocg::resolve_topology(cfg);
+    std::vector<ocg::SuperpositionInput> lanes;
     ocg::IqBuffer dc_in(batch, ocg::IqSample{1.0F, 0.0F});
-    std::vector<float> series_i(batch * n_slots);
-    std::vector<float> series_q(batch * n_slots);
-    const std::string link = ocg::link_key({.from = "gnb0", .to = "ue0", .model = m.id});
-    for (std::size_t s = 0; s < n_slots; ++s) {
-      ocg::IqBuffer slot_out(batch);
-      shape_link(*proc, "ue0", link, m, dc_in, slot_out, sample_rate_hz);
-      for (std::size_t n = 0; n < batch; ++n) {
-        series_i[s * batch + n] = slot_out[n].i;
-        series_q[s * batch + n] = slot_out[n].q;
+    for (const auto& lane : resolved.lanes) {
+      if (lane.dst_node != "ue") {
+        continue;
+      }
+      lanes.push_back({.link_key = lane.key,
+                       .model = ocg::find_model(cfg, lane.model_id),
+                       .samples = std::span<const ocg::IqSample>(dc_in),
+                       .rx_port = lane.rx_port,
+                       .tx_port = lane.tx_port});
+    }
+    require(lanes.size() == n_rx, "Bessel ensemble: one lane per RX port");
+
+    ocg::CpuChannelProcessor proc;
+    proc.prepare(cfg);
+
+    // Streamed autocorrelation: keep only the previous slot's last `max_lag`
+    // samples per lane instead of the whole 4 s series, and accumulate the
+    // lag products slot by slot. Pairs are counted once, when the LATER of the
+    // two samples falls in the slot being processed.
+    const std::size_t lag_list[] = {0, 100, 300, 500};
+    constexpr std::size_t n_lags = 4;
+    std::vector<std::array<double, n_lags>> sums(n_rx, std::array<double, n_lags>{});
+    std::vector<std::array<double, n_lags>> pairs(n_rx, std::array<double, n_lags>{});
+    std::vector<ocg::IqBuffer> tails(n_rx);
+    std::vector<ocg::IqBuffer> rows_buf(n_rx, ocg::IqBuffer(batch));
+    std::vector<std::span<ocg::IqSample>> rows;
+    for (auto& row : rows_buf) {
+      rows.emplace_back(row.data(), row.size());
+    }
+    ocg::IqBuffer work(max_lag + batch);
+    for (std::size_t s = 0; s != n_slots; ++s) {
+      proc.process_superposition("ue", lanes, nullptr, sample_rate_hz,
+                                 std::span<std::span<ocg::IqSample>>(rows));
+      for (int r = 0; r != n_rx; ++r) {
+        const std::size_t tail_len = tails[r].size();
+        std::copy(tails[r].begin(), tails[r].end(), work.begin());
+        std::copy(rows_buf[r].begin(), rows_buf[r].end(),
+                  work.begin() + static_cast<std::ptrdiff_t>(tail_len));
+        for (std::size_t li = 0; li != n_lags; ++li) {
+          const std::size_t lag = lag_list[li];
+          for (std::size_t j = 0; j != batch; ++j) {
+            const std::size_t later = tail_len + j;
+            if (later < lag) {
+              continue; // no earlier sample retained for this pair yet
+            }
+            const ocg::IqSample& a = work[later - lag];
+            const ocg::IqSample& b = work[later];
+            sums[r][li] += static_cast<double>(a.i) * b.i +
+                           static_cast<double>(a.q) * b.q;
+            pairs[r][li] += 1.0;
+          }
+        }
+        tails[r].assign(rows_buf[r].end() - static_cast<std::ptrdiff_t>(max_lag),
+                        rows_buf[r].end());
       }
     }
 
-    // Empirical complex autocorrelation R_y(lag) =
-    //   <y(n) * conj(y(n+lag))>_n = <ii + qq>_n  (real part; imag avg ~0).
-    // Normalized by R_y(0) so the curve compares directly to J_0.
-    auto autocorr = [&](std::size_t lag) -> double {
-      const std::size_t N = series_i.size() - lag;
-      double sum = 0.0;
-      for (std::size_t n = 0; n < N; ++n) {
-        sum += static_cast<double>(series_i[n]) * series_i[n + lag];
-        sum += static_cast<double>(series_q[n]) * series_q[n + lag];
-      }
-      return sum / static_cast<double>(N);
-    };
-    const double r0 = autocorr(0);
-    require(r0 > 0.7 && r0 < 1.3,
-            "Bessel J_0 test: R_y(0) (= mean tap power) must be ~ 1");
+    // J_0(2 pi f_d tau) at f_d = 100 Hz, for the three lags above:
+    //   tau = 1 ms -> arg = 0.628 -> J_0 =  0.904
+    //   tau = 3 ms -> arg = 1.885 -> J_0 =  0.305
+    //   tau = 5 ms -> arg = pi    -> J_0 = -0.304
+    const double bessel_expected[n_lags] = {1.0, 0.904, 0.305, -0.304};
+    const std::uint64_t link_seed = ocg::physical_link_seed(
+        ocg::link_key({.from = "gnb", .to = "ue", .model = m.id}));
+    std::array<double, n_lags> ensemble{};
+    for (int r = 0; r != n_rx; ++r) {
+      const double r0 = sums[r][0] / pairs[r][0];
+      require(r0 > 0.7 && r0 < 1.3,
+              "Bessel ensemble: each lane's R(0) (= mean tap power) must be ~ 1");
 
-    // Pick three lags spanning the J_0 curve down to its first zero.
-    // J_0(2 pi f_d tau) at f_d = 100 Hz:
-    //   tau =  1 ms -> arg = 0.628 -> J_0 =  0.904
-    //   tau =  3 ms -> arg = 1.885 -> J_0 =  0.305
-    //   tau =  5 ms -> arg = pi    -> J_0 = -0.304
-    struct { std::size_t lag_samples; double expected; } lags[] = {
-        {100,  0.904},
-        {300,  0.305},
-        {500, -0.304},
-    };
-    for (const auto& l : lags) {
-      const double r = autocorr(l.lag_samples) / r0;
-      const double err = std::fabs(r - l.expected);
-      require(err < 0.15,
-              "Bessel J_0 test: empirical autocorrelation must match J_0(2*pi*f_d*tau) within 0.15");
+      // This lane's own realisation, from the angles its documented seed draws.
+      ocg::TdlFadingState state;
+      ocg::prepare_tdl_fading_state(
+          m.chain.front(),
+          ocg::lane_fading_seed(link_seed, r, /*tx_port=*/0, /*step_index=*/0),
+          state);
+      require(state.tap_alpha.size() == 1,
+              "Bessel ensemble: single-tap fading state");
+      for (std::size_t li = 1; li != n_lags; ++li) {
+        const double tau = static_cast<double>(lag_list[li]) /
+                           static_cast<double>(sample_rate_hz);
+        double predicted = 0.0;
+        for (int mm = 0; mm != ocg::kTdlFadingSinusoids; ++mm) {
+          predicted += std::cos(2.0 * std::numbers::pi * step.fading_f_d_max_hz *
+                                std::cos(state.tap_alpha[0][mm]) * tau);
+        }
+        predicted /= static_cast<double>(ocg::kTdlFadingSinusoids);
+        const double measured = (sums[r][li] / pairs[r][li]) / r0;
+        // 0.10 is set by measurement, not taste: over these 16 lanes the
+        // worst deviation is 0.058, and it is finite-window noise from
+        // near-equal sub-ray pairs beating slowly (it falls off roughly as
+        // 1/sqrt(T), so 12 s of data is where the margin stops being cheap).
+        // The spread this must still discriminate is the per-lane departure
+        // from J_0, which reaches 0.3 -- so the gate keeps its teeth.
+        require(std::fabs(measured - predicted) < 0.10,
+                "Bessel ensemble: a lane's autocorrelation must match the "
+                "sum-of-sinusoids of the angles its seed draws");
+        ensemble[li] += measured / static_cast<double>(n_rx);
+      }
+    }
+    for (std::size_t li = 1; li != n_lags; ++li) {
+      require(std::fabs(ensemble[li] - bessel_expected[li]) < 0.15,
+              "Bessel ensemble: the lane-averaged autocorrelation must match "
+              "J_0(2*pi*f_d*tau) within 0.15");
     }
   }
 

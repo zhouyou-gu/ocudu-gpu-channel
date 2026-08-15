@@ -224,8 +224,12 @@ double param_or(const ModelStep& step, const std::string& name, double fallback)
 // multi-tap convolution) on the model state. validate_cuda_support() has
 // already guaranteed any such step is the chain's first step, so only
 // chain.front() can be one. At most one of has_delay / has_tdl ends true.
+// `fading_seed` is the lane's seed for chain step 0, derived by the caller
+// through physical_link_seed + lane_fading_seed -- the same two functions the
+// CPU backend uses, which is what makes a lane's Jakes realisation identical
+// on both backends.
 void configure_leading_propagation(LinkModelState& state, const ModelConfig& model,
-                                    const std::string& link_key_value)
+                                    std::uint64_t fading_seed)
 {
   state.has_tdl = false;
   state.tdl_taps = nullptr;
@@ -240,11 +244,6 @@ void configure_leading_propagation(LinkModelState& state, const ModelConfig& mod
     state.has_tdl = true;
     state.tdl_taps = &first.taps;  // borrow the live ModelConfig tap list -- not copied
     prepare_tdl_state(first.taps, state.tdl_polyphase, state.delay_line);
-    // Step index of the leading tdl is by construction 0; bake it into the
-    // fading seed the same way the CPU backend does so the two backends draw
-    // the same Jakes sub-ray angles.
-    const std::uint64_t fading_seed = static_cast<std::uint64_t>(
-        std::hash<std::string>{}(link_key_value + ":fading:0"));
     prepare_tdl_fading_state(first, fading_seed, state.tdl_fading);
   }
 }
@@ -425,7 +424,13 @@ public:
       const ResolvedNode& destination_node = *dst_it->second;
       auto& slot = link_slots_[lane.key];
       init_model_state(slot.model, model->chain.size(), lane.key);
-      configure_leading_propagation(slot.model, *model, lane.key);
+      // The leading tdl is chain step 0 by construction (validate_cuda_support
+      // rejects a non-leading one), so the lane's step-0 seed is the one this
+      // backend needs.
+      configure_leading_propagation(
+          slot.model, *model,
+          lane_fading_seed(physical_link_seed(lane.physical_link_key),
+                           lane.rx_port, lane.tx_port, /*step_index=*/0));
       // Phase 3 v1: populate runtime-mutable params from YAML. build_steps
       // (post-C2a) reads path_loss_db + cfo_hz from `live`. The control
       // plane (C3+) writes to `ctl.shadow` and bumps `ctl.seqno`;

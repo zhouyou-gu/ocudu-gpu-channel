@@ -1285,6 +1285,49 @@ std::string rx_state_key(const std::string& node_id, int rx_port, int nr)
   return node_id + ">rx#r" + std::to_string(rx_port);
 }
 
+namespace {
+
+// One round of the splitmix64 finalizer: a full-avalanche 64-bit mix, so two
+// seeds that differ in one bit share no structure.
+std::uint64_t seed_mix(std::uint64_t x)
+{
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+
+} // namespace
+
+std::uint64_t physical_link_seed(const std::string& base_link_key)
+{
+  // FNV-1a over the identity, then avalanche. Written out rather than taken
+  // from std::hash so the value is fixed by this source file and not by the
+  // standard library the binary happened to be built against.
+  std::uint64_t h = 1469598103934665603ULL;
+  for (const unsigned char c : base_link_key) {
+    h ^= static_cast<std::uint64_t>(c);
+    h *= 1099511628211ULL;
+  }
+  return seed_mix(h);
+}
+
+std::uint64_t lane_fading_seed(std::uint64_t link_seed, int rx_port, int tx_port,
+                               int step_index)
+{
+  // Integer mixing only: no string is built here, so no key-format change can
+  // reach a realisation. The three odd multipliers keep (r, t, step) from
+  // aliasing onto each other -- (1, 0, 0) and (0, 1, 0) must not collide.
+  std::uint64_t v = link_seed;
+  v = seed_mix(v ^ (0x9e3779b97f4a7c15ULL *
+                    (static_cast<std::uint64_t>(rx_port) + 1ULL)));
+  v = seed_mix(v ^ (0xc2b2ae3d27d4eb4fULL *
+                    (static_cast<std::uint64_t>(tx_port) + 1ULL)));
+  v = seed_mix(v ^ (0x165667b19e3779f9ULL *
+                    (static_cast<std::uint64_t>(step_index) + 1ULL)));
+  return v;
+}
+
 std::string fixed_mimo_model_id(const std::string& base_model_id, int rx_port, int tx_port)
 {
   return "__ocg_mimo__" + base_model_id + "__r" + std::to_string(rx_port) + "t" +
@@ -1375,6 +1418,10 @@ ResolvedTopology resolve_topology(const TopologyConfig& config)
         lane.rx_port = r;
         lane.model_id = has_fixed_mimo ? fixed_mimo_model_id(link.model, r, t) : link.model;
         lane.link_index = i;
+        // The physical link, not the lane: `base` carries the author's model
+        // id even when the lane runs a synthesized fixed_mimo clone, so the
+        // link's stochastic identity survives a matrix edit.
+        lane.physical_link_key = base;
         resolved.lanes.push_back(std::move(lane));
       }
     }

@@ -250,6 +250,14 @@ struct LaneConfig {
   std::string model_id;
   // Index of the originating entry in TopologyConfig::links.
   std::size_t link_index = 0;
+  // Identity of the PHYSICAL link this lane belongs to: `link_key()` of the
+  // originating entry, with no lane suffix. Every lane of one link carries the
+  // same value, and it does not change when the radios' port counts change.
+  //
+  // It is what the stochastic channel is owned by (M2): the fading seed is
+  // derived from this identity rather than from the lane key, and the absolute
+  // sample time is held once per physical link rather than once per lane.
+  std::string physical_link_key;
 };
 
 struct ResolvedTopology {
@@ -280,6 +288,33 @@ std::string rx_state_key(const std::string& node_id, int rx_port, int nr);
 // Expands `config` into its resolved view. Assumes `validate_config` passed;
 // throws on a reference it still cannot resolve.
 ResolvedTopology resolve_topology(const TopologyConfig& config);
+
+// ---------------------------------------------------------------------------
+// Stochastic-channel seeds (M2)
+//
+// The random channel of a physical link is owned by that link, and each of its
+// lanes takes an independent realisation derived from the one link seed. The
+// two steps are separate functions so M3 can replace the "independent" part
+// with a correlated draw without touching how a link is identified.
+//
+// Two properties this derivation is here to guarantee:
+//   - a lane realisation depends on the link's identity and the lane's matrix
+//     position as NUMBERS, never on how a lane key happens to be spelled, so
+//     changing the key format cannot change any realisation;
+//   - the mixing is written here rather than taken from std::hash, whose value
+//     is not specified across standard-library implementations -- a run is
+//     reproducible across toolchains, not merely across runs of one binary.
+//
+// Seed identity of a physical link. `base_link_key` is `link_key(link)` (i.e.
+// LaneConfig::physical_link_key), so the link keeps its identity when the
+// radios grow ports.
+std::uint64_t physical_link_seed(const std::string& base_link_key);
+
+// Per-lane, per-chain-step seed derived from the link seed and the lane's
+// position in the matrix. Both backends call this, so a lane's realisation is
+// the same on CPU and on GPU.
+std::uint64_t lane_fading_seed(std::uint64_t link_seed, int rx_port, int tx_port,
+                               int step_index);
 
 // Name of the per-lane model clone synthesized for a `fixed_mimo` base model.
 // Deterministic and independent of whether the clone exists yet, so

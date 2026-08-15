@@ -2152,6 +2152,96 @@ models:
           imag: 0.0
 )yaml", "an entirely zero matrix must be rejected");
 
+  // ---- physical-link identity and seeds (M2.2) -----------------------------
+  //
+  // The stochastic channel belongs to the physical link, and a lane takes its
+  // realisation from that link's seed plus its own matrix position. What these
+  // check is that the derivation is anchored to identities and indices, never
+  // to how a key is spelled.
+  {
+    // The identity a lane reports is the link's own key, with no lane suffix:
+    // growing the radios' ports changes the lanes, not the link.
+    write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_a
+      - gnb_b
+    rx_ports:
+      - gnb_a
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links);
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "2x2 topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 8, "2x2 in both directions is 8 lanes");
+    std::set<std::string> identities;
+    std::set<std::uint64_t> lane_seeds;
+    for (const auto& lane : res.lanes) {
+      require(lane.physical_link_key.find('#') == std::string::npos,
+              "a lane's physical link key carries no lane suffix");
+      require(lane.key.rfind(lane.physical_link_key, 0) == 0,
+              "a lane key extends its physical link key");
+      identities.insert(lane.physical_link_key);
+      lane_seeds.insert(ocg::lane_fading_seed(
+          ocg::physical_link_seed(lane.physical_link_key), lane.rx_port,
+          lane.tx_port, /*step_index=*/0));
+    }
+    require(identities.size() == 2,
+            "8 lanes belong to the 2 physical links that carry them");
+    require(lane_seeds.size() == 8,
+            "every lane of a link draws its own realisation");
+  }
+
+  {
+    // The same lane of the same link is the same realisation on every run and
+    // in every process -- reproducibility is the point of deriving it at all.
+    const std::uint64_t link = ocg::physical_link_seed("gnb>ue:clean");
+    require(ocg::lane_fading_seed(link, 1, 0, 0) == ocg::lane_fading_seed(link, 1, 0, 0),
+            "a lane seed is a function of its inputs");
+    require(ocg::physical_link_seed("gnb>ue:clean") == link,
+            "a link seed is a function of the link identity");
+    // (r, t) is an ordered pair and the step index is a third axis: none of
+    // the three may alias onto another, or two distinct lanes would share a
+    // realisation while looking independent.
+    require(ocg::lane_fading_seed(link, 1, 0, 0) != ocg::lane_fading_seed(link, 0, 1, 0),
+            "lane (1,0) and lane (0,1) are different lanes");
+    require(ocg::lane_fading_seed(link, 0, 0, 0) != ocg::lane_fading_seed(link, 0, 0, 1),
+            "two fading steps of one chain draw independently");
+    require(ocg::physical_link_seed("gnb>ue:clean") != ocg::physical_link_seed("ue>gnb:clean"),
+            "the two directions of a radio pair are different physical links");
+  }
+
+  {
+    // A fixed_mimo lane runs a synthesized model clone, but the link it
+    // belongs to is the one the author wrote: editing the matrix must not
+    // re-roll the channel's randomness.
+    write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 1
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml");
+    const auto cfg = ocg::load_config_file(fm_path);
+    const auto res = ocg::resolve_topology(cfg);
+    for (const auto& lane : res.lanes) {
+      require(lane.model_id != lane.physical_link_key,
+              "a fixed_mimo lane runs a clone model");
+      require(lane.physical_link_key.find("__ocg_mimo__") == std::string::npos,
+              "a lane's physical identity names the authored link, not its clone");
+    }
+  }
+
   std::remove(fm_path);
   std::remove(rn_path);
   std::remove(rx_ring_path);
