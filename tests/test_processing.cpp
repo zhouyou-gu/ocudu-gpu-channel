@@ -2263,6 +2263,106 @@ int main()
             "a unit-diagonal correlation must not change a lane's power");
   }
 
+  // ---- M3.5: the LOS phase relationship is the declared one ----------------
+  //
+  // A line-of-sight path is ONE ray reaching every antenna pair, so the phases
+  // it produces across the lanes are related. Before M3.5 each lane drew its
+  // specular phase from its own RNG, which is never right -- the relationship
+  // was random. Here the relationship is declared and this checks the output
+  // carries it.
+  //
+  // K = 30 dB makes the specular dominate (the Rayleigh part is ~3% of the
+  // amplitude), so the measured phase difference between two lanes is the
+  // declared one to within that residue. Doppler is zero so the specular does
+  // not rotate during the slot, which keeps the check about the relationship
+  // and not about time.
+  {
+    constexpr std::uint64_t sample_rate_hz = 100000;
+    constexpr std::size_t batch = 256;
+
+    ocg::ModelConfig m;
+    m.id = "tdl_coherent_los";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0,
+                              .is_los = true, .los_k_db = 30.0, .los_angle_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 0.0;
+    step.fading_grid_us = 100.0;
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+    // Row 1 is declared a quarter turn behind row 0 on TX port 0.
+    m.los_matrix.declared = true;
+    m.los_matrix.coefficients = {{.rx = 0, .tx = 0, .re = 1.0, .im = 0.0},
+                                 {.rx = 0, .tx = 1, .re = 1.0, .im = 0.0},
+                                 {.rx = 1, .tx = 0, .re = 0.0, .im = 1.0},
+                                 {.rx = 1, .tx = 1, .re = 0.0, .im = 1.0}};
+
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = batch;
+    cfg.runtime.queue_samples = batch * 8;
+    int port = 8700;
+    for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = sample_rate_hz;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    }
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    gnb.tx_ports = {"gnb_p0", "gnb_p1"};
+    gnb.rx_ports = {"gnb_p0", "gnb_p1"};
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    ue.tx_ports = {"ue_p0", "ue_p1"};
+    ue.rx_ports = {"ue_p0", "ue_p1"};
+    cfg.radio_nodes = {gnb, ue};
+    cfg.links = {{.from = "gnb", .to = "ue", .model = m.id},
+                 {.from = "ue", .to = "gnb", .model = m.id}};
+    cfg.models.emplace(m.id, m);
+    require(ocg::validate_config(cfg).empty(), "a fully declared LOS matrix validates");
+    const auto resolved = ocg::resolve_topology(cfg);
+
+    // Only TX port 0 carries signal, so row r is lane (r, 0) alone.
+    const ocg::IqBuffer dc(batch, ocg::IqSample{1.0F, 0.0F});
+    const ocg::IqBuffer silent(batch, ocg::IqSample{0.0F, 0.0F});
+    std::vector<ocg::SuperpositionInput> lanes;
+    for (const auto& lane : resolved.lanes) {
+      if (lane.dst_node != "ue") {
+        continue;
+      }
+      lanes.push_back({.link_key = lane.key,
+                       .model = ocg::find_model(cfg, lane.model_id),
+                       .samples = lane.tx_port == 0 ? std::span<const ocg::IqSample>(dc)
+                                                    : std::span<const ocg::IqSample>(silent),
+                       .rx_port = lane.rx_port,
+                       .tx_port = lane.tx_port});
+    }
+    ocg::CpuChannelProcessor proc;
+    proc.prepare(cfg);
+    ocg::IqBuffer row0(batch), row1(batch);
+    std::span<ocg::IqSample> rows[2] = {row0, row1};
+    proc.process_superposition("ue", lanes, nullptr, sample_rate_hz,
+                               std::span<std::span<ocg::IqSample>>(rows));
+
+    double sum_re = 0.0;
+    double sum_im = 0.0;
+    for (std::size_t n = 8; n != batch; ++n) {  // skip the delay-line transient
+      // row1 * conj(row0): its argument is the phase of lane 1 relative to lane 0.
+      sum_re += static_cast<double>(row1[n].i) * row0[n].i + static_cast<double>(row1[n].q) * row0[n].q;
+      sum_im += static_cast<double>(row1[n].q) * row0[n].i - static_cast<double>(row1[n].i) * row0[n].q;
+    }
+    const double measured = std::atan2(sum_im, sum_re);
+    const double declared = std::atan2(1.0, 0.0); // +pi/2, from the declared matrix
+    require(std::fabs(measured - declared) < 0.15,
+            "the phase between two lanes must be the one the LOS matrix declares");
+  }
+
   // ---- M2.4: a non-fading chain does not see the seed ---------------------
   //
   // M2 changed how the fading seed is derived, so the path that draws nothing

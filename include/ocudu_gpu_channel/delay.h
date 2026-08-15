@@ -373,7 +373,8 @@ inline void apply_tdl_step_fading(const IqSample* in,
                                   const TdlFadingState& fading,
                                   std::uint64_t sample_rate_hz,
                                   std::uint64_t slot_start_samples,
-                                  const FadingGrid& grid)
+                                  const FadingGrid& grid,
+                                  std::complex<float> los_coefficient = {1.0F, 0.0F})
 {
   if (!fading.enabled) {
     apply_tdl_step(in, out, count, taps, polyphase, delay_line);
@@ -406,9 +407,16 @@ inline void apply_tdl_step_fading(const IqSample* in,
     rayleigh_factor[k] = static_cast<float>(std::sqrt(1.0 / (K_lin + 1.0)));
     const double omega_los =
         two_pi * fading.f_d_max_hz * std::cos(taps[k].los_angle_rad);
+    // M3.5: the specular starts at the phase the LOS MATRIX gives this lane,
+    // not at a phase drawn from the lane's own RNG. A line-of-sight path is one
+    // ray seen by every antenna pair, so its phases across the lanes are
+    // related, not independent -- `fading.tap_phi_los` is still drawn (removing
+    // the draw would shift every subsequent random value and re-roll unrelated
+    // realisations) but is no longer read.
+    //
     // See angle0 reduction above (subray loop) for rationale -- LOS path has
     // the same drift profile so applies the same fmod-mod-2pi treatment.
-    const double angle0_d = omega_los * slot_start_t + fading.tap_phi_los[k];
+    const double angle0_d = omega_los * slot_start_t;
     const float angle0 = static_cast<float>(std::fmod(angle0_d, two_pi));
     los_current[k] = complex_f{std::cos(angle0), std::sin(angle0)};
     const double step_angle = omega_los / sr;
@@ -447,7 +455,7 @@ inline void apply_tdl_step_fading(const IqSample* in,
       const complex_f g_rayleigh = row[g_floor] * (1.0F - frac) + row[g_ceil_idx] * frac;
       complex_f g_k = g_rayleigh;
       if (taps[k].is_los) {
-        g_k = los_factor[k] * los_current[k] +
+        g_k = los_factor[k] * (los_coefficient * los_current[k]) +
               rayleigh_factor[k] * g_rayleigh;
       }
       // Polyphase convolution against the tap-modulated input. Read the 8 tap

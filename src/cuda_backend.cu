@@ -107,6 +107,9 @@ struct LinkModelState {
   // next slot clear.
   std::uint64_t warmup_until_slot = 0;
 
+  // M3.5: this lane's LOS-matrix entry, used by the host fallback. The device
+  // path carries its own copy in DeviceLinkState.
+  std::complex<float> los_coefficient{1.0F, 0.0F};
   // M3.3: scratch grid for the HOST fallback path (stage_link). The device
   // path gets its grids from generate_fading_grid_kernel instead.
   FadingGrid fallback_grid;
@@ -280,7 +283,8 @@ void stage_link(LinkModelState& state, const IqSample* in, IqSample* out,
       apply_tdl_step_fading(in, out, count, *state.tdl_taps,
                              state.tdl_polyphase, state.delay_line,
                              state.tdl_fading, sample_rate_hz,
-                             slot_start_samples, state.fallback_grid);
+                             slot_start_samples, state.fallback_grid,
+                             state.los_coefficient);
     } else {
       apply_tdl_step(in, out, count, *state.tdl_taps, state.tdl_polyphase,
                      state.delay_line);
@@ -704,6 +708,16 @@ public:
         // edge's DeviceLinkState so the device path's `live` matches the
         // host fallback's `live` on slot 0.
         sp.host_link_states[k_idx].live = lms.live;
+        // M3.5: this edge's LOS-matrix entry, on both paths.
+        {
+          const auto los = lane_los_coefficients(model->los_matrix, lane.nt, lane.nr);
+          const CplxD coefficient = los[static_cast<std::size_t>(lane.rx_port) * lane.nt + lane.tx_port];
+          sp.host_link_states[k_idx].los_coeff_re = static_cast<float>(coefficient.real());
+          sp.host_link_states[k_idx].los_coeff_im = static_cast<float>(coefficient.imag());
+          link_slots_[lane.key].model.los_coefficient =
+              std::complex<float>(static_cast<float>(coefficient.real()),
+                                  static_cast<float>(coefficient.imag()));
+        }
         ++k_idx;
       }
       sp.use_device_channel = all_leading_tdl;

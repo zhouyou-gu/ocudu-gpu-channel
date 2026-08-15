@@ -68,6 +68,10 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     state.fading = &link_fadings_[identity.physical_link_key];
     state.lane_index = identity.lane_index();
     state.lane_count = identity.lane_count();
+    const auto los = lane_los_coefficients(model.los_matrix, identity.nt, identity.nr);
+    const CplxD coefficient = los[static_cast<std::size_t>(state.lane_index)];
+    state.los_coefficient = std::complex<float>(static_cast<float>(coefficient.real()),
+                                                static_cast<float>(coefficient.imag()));
   }
   if (state.scratch_a.size() < sample_count) {
     state.scratch_a.resize(sample_count);
@@ -466,7 +470,8 @@ ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::stri
                                 sample_rate_hz,
                                 state.clock->slot_start_samples,
                                 state.fading->lane_grids[static_cast<std::size_t>(state.lane_index)]
-                                                        [step_index]);
+                                                        [step_index],
+                                state.los_coefficient);
         } else {
           apply_tdl_step(current.data(), next.data(), current.size(),
                          effective_taps, effective_polyphase,

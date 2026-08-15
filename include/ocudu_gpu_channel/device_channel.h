@@ -112,7 +112,11 @@ struct DeviceLinkState {
   // Storing the angle (small magnitude) instead of a precomputed omega keeps
   // bit-equivalent precision on both backends.
   float tap_los_angle_rad[kDeviceMaxTaps];                         // LOS arrival angle
-  float tap_phi_los[kDeviceMaxTaps];                               // LOS initial phase
+  float tap_phi_los[kDeviceMaxTaps];                               // LOS initial phase (M3.5: unused; see delay.h)
+  // M3.5: this edge's entry in its link's LOS matrix. The specular's phase
+  // relationship across lanes is declared, not drawn per lane.
+  float los_coeff_re;
+  float los_coeff_im;
 
   float tap_alpha[kDeviceMaxTaps][kDeviceMaxFadingSubrays];        // sub-ray angles (uniform [0, 2pi))
   float tap_phi[kDeviceMaxTaps][kDeviceMaxFadingSubrays];          // sub-ray initial phases

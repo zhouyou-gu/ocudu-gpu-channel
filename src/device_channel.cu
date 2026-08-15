@@ -271,8 +271,9 @@ __global__ void apply_channel_kernel(
         const double omega_los_d =
             kTwoPiD * (double)s->f_d_max_hz *
             cos((double)s->tap_los_angle_rad[kt]);
-        const double angle0_d =
-            omega_los_d * slot_start_t_d + (double)s->tap_phi_los[kt];
+        // M3.5: no per-lane random start -- the lane's phase comes from the
+        // LOS matrix, applied where the specular is composed below.
+        const double angle0_d = omega_los_d * slot_start_t_d;
         los_phase_start[kt] = (float)fmod(angle0_d, kTwoPiD);
         los_step_angle[kt] = (float)(omega_los_d / (double)sample_rate_hz);
       }
@@ -318,8 +319,13 @@ __global__ void apply_channel_kernel(
         __sincosf(los_angle, &los_s, &los_c);
         const float lf = s->tap_los_factor[kt];
         const float rf = s->tap_rayleigh_factor[kt];
-        g_i = lf * los_c + rf * g_ri;
-        g_q = lf * los_s + rf * g_rq;
+        // (coeff * phasor), matching the host's composition order.
+        const float cr = s->los_coeff_re;
+        const float ci = s->los_coeff_im;
+        const float spec_i = cr * los_c - ci * los_s;
+        const float spec_q = cr * los_s + ci * los_c;
+        g_i = lf * spec_i + rf * g_ri;
+        g_q = lf * spec_q + rf * g_rq;
       } else {
         g_i = g_ri;
         g_q = g_rq;
@@ -434,6 +440,10 @@ bool build_device_link_state(
 {
   std::memset(&out, 0, sizeof(out));
   out.src_index = src_index;
+  // Default LOS coefficient: 1 + 0j. The caller overwrites it from the model's
+  // los_matrix when one is declared.
+  out.los_coeff_re = 1.0F;
+  out.los_coeff_im = 0.0F;
 
   // Non-tdl links: caller falls back to the host path. We still zero-init the
   // state so a cudaMemcpy of the array doesn't carry uninitialised bytes.

@@ -8,6 +8,7 @@
 #include "ocudu_gpu_channel/processing.h"
 #include "ocudu_gpu_channel/runtime_control.h"
 #include <array>
+#include <complex>
 #include <random>
 #include <span>
 #include <string>
@@ -119,6 +120,10 @@ private:
     PhysicalLinkFading* fading = nullptr;
     int lane_index = 0;
     int lane_count = 1;
+    // M3.5: this lane's entry in the link's LOS matrix. 1 + 0j when the model
+    // declares none, which is the all-ones rank-1 LOS -- one specular path
+    // seen with the same phase by every antenna pair.
+    std::complex<float> los_coefficient{1.0F, 0.0F};
   };
 
   // `physical_link_key` / `rx_port` / `tx_port` name the lane's position in
