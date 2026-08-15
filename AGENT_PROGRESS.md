@@ -21,7 +21,7 @@
 
 - Control files: `AGENT.md`, `AGENT_GOAL.md`, `AGENT_HARNESS.md`, `AGENT_PROGRESS.md`.
 - MIMO mission amendment: `AGENT_GOAL.mimo.md` is a duplicate of `AGENT_GOAL.md` carrying the user-instructed MIMO amendment (one Statement line changed, five bullets added across Scope / Non-Goals / Success Criteria / Constraints). `AGENT_GOAL.md` itself is unmodified. **Which of the two governs this workspace is an open user decision.**
-- MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and the per-milestone designs `docs/plans/m0-single-engine-refactor.md`, `m1-dimensions-and-fixed-matrix.md`, `m2-iid-stochastic-fading.md`, `m3-spatial-correlation-and-los.md`.
+- MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and the per-milestone designs `docs/plans/m0-single-engine-refactor.md`, `m1-dimensions-and-fixed-matrix.md`, `m2-iid-stochastic-fading.md`, `m3-spatial-correlation-and-los.md`, `m4-physical-link-runtime-control.md`.
 - Local configuration: `.gitignore`, tracked `.config.example`, and ignored `.config`.
 - Application scaffold: `CMakeLists.txt`, `apps/`, `include/`, `src/`, `tests/`, `examples/`, and `docs/` exist locally as uncommitted implementation work.
 - Local implementation includes C++20/CMake build plumbing, optional CUDA detection, libzmq integration, CPU and CUDA MVP channel processing, broker/runtime CLIs, synthetic ZMQ tools, config examples, docs, and regression tests.
@@ -293,6 +293,7 @@ Progress entry template
 - [M3 gates] Covariance against a declared real R and against a complex R (phase included), LOS phase relationship, per-lane spectrum preservation, correlated CPU/CUDA parity, and iid bit-exactness. Thirteen mutation probes confirmed failing.
 - [M3 perf] Measured on 4x RTX 5090 / 23.04 MS/s / batch 23040 / CUDA / 3 s: the generator split cut TDL-A kernel p99 from 61.856 to 53.599 us (1x1) and from 90.655 to 69.536 us (16 edges); correlation costs +4.2 us p99 on a 2x2. Added `examples/topology.mimo-2x2-correlated.cuda.yaml`.
 - [M3 tooling] Fixed `ocudu_gpu_channel_bench`, which had keyed destinations by device id since M1 and therefore span millions of empty iterations reporting a zero kernel count on every multi-port topology -- measuring nothing while exiting green.
+- [M4 plan] Added `docs/plans/m4-physical-link-runtime-control.md`: the five code facts M4 stands on (control is addressed by LANE key, so a 2x2 link is four endpoints and the address carries the `#r1t0` suffix M2 removed from seeding; the snap runs per lane with a per-lane slot counter, so cross-lane atomicity is a discipline rather than an invariant; the two backends expose DIFFERENT control key sets -- the CPU includes receiver-model rows, CUDA does not, so the same REQ succeeds on one and is rejected on the other; M3's correlation is prepare-fixed; the warmup zero-fill is per-lane), the `PhysicalLinkRuntime` promotion that makes lane-wide atomicity structural, the base-link-key addressing that leaves 1x1 deployments byte-identical, runtime `R` swaps factorised on the control thread with a targeted device-group upload, the rejection list, and a six-commit order whose M4.2 gate is a fingerprint A/B like M3.3's.
 - [MIMO plan] Added `docs/plans/m0-single-engine-refactor.md`: broker ownership-transfer table, producer loop with the preserved pre-MIMO invariants annotated, `PortRepWorker` loop, RX ring sizing with an explicit added-latency budget and Msg3 exit condition, deadlock analysis, the multi-row `process_superposition` signature with a single-row convenience overload that keeps all seven existing call sites unchanged, and a six-commit work breakdown.
 
 ## Blockers and Risks
@@ -740,19 +741,17 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 | M1 차원 + 고정 행렬 | **전 게이트 green** (라이브 1×1 attach 포함) |
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
 | M3 공간 상관 + coherent LOS | **전 게이트 green** (합성·단위 테스트 + perf 실측) |
-| M4 physical link 단위 runtime control | 미착수 (`MIMO_MILESTONES.md` M4에 범위만 있음) |
+| M4 physical link 단위 runtime control | 계획 문서 작성 완료(M4.1), 구현 미착수 |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
 ### 다음 세션 재개 지점
 
-**M4 상세 계획부터 시작한다.** 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M4(physical link 단위 runtime control). M0~M3이 모두 계획 문서를 먼저 쓰고 들어갔다.
+**M4.2(`PhysicalLinkRuntime` 승격 + 링크당 1회 스냅 + base link key 주소)부터 시작한다.** 상세 설계는 [`docs/plans/m4-physical-link-runtime-control.md`](docs/plans/m4-physical-link-runtime-control.md).
 
-M3을 끝내며 **M4가 알아야 할 세 가지**:
+**착수 전에 사용자 결정 3건**(계획 §6): (a) `fixed_mimo` 모델에 tap 스코프 런타임 갱신을 거부할지(권고: 거부 — 허용하면 REQ 한 번이 고정 행렬을 지운다), (b) 수신 모델 `<node>>rx`를 컨트롤 표면에서 제외할지(권고: 제외, CUDA 쪽에 맞춤 — 어느 쪽으로 정하든 한 백엔드의 동작이 바뀐다), (c) `R` 교체를 새 메시지 타입으로 할지 `profile_swap` 확장으로 할지(권고: 신규 — `R` 교체는 warmup이 필요 없어서 구분이 흐려진다).
 
-1. **런타임으로 바꿀 대상이 하나 늘었다.** Phase 3 control plane은 per-link 스칼라와 tap 프로파일을 슬롯 경계에서 교체한다. M3의 `R`은 **prepare에서 고정**이고 mixing 행렬은 `PhysicalLinkFading::mixing`에 산다. 런타임 교체는 인수분해(LDLᴴ)를 컨트롤 스레드에서 돌리고 결과를 shadow로 넘기는 형태가 될 것이다 — hot path에서 재분해하지 않는다는 §2.2의 약속을 지키려면.
-2. **제어 단위가 lane이 아니라 physical link여야 한다.** 지금 `collect_control_links()`는 **lane 키**로 `BrokerLinkControl`을 노출한다(2×2면 링크 하나가 컨트롤 엔드포인트 4개로 보인다). M4의 이름 그대로 physical link 단위로 묶는 것이 첫 작업이다.
-3. **디바이스 상태 갱신 경로가 이미 있다.** `refresh_all_taps_from_live` + D2H/H2D 왕복이 tap 교체에 쓰인다. 상관 행렬은 `DeviceCorrelationGroup`에 있으므로 같은 방식으로 교체 가능하지만, 그 구조체는 노드별 배열이라 갱신 단위가 링크가 아니라 노드다.
+**M4.2의 게이트는 M3.3과 같은 형태다** — 소유권 이동은 동작을 바꾸지 않아야 하고, 그 증거는 이전 커밋과의 지문 A/B다(`ab_probe` 방식).
 
 ### 환경 관련 (다음 세션에서 필요할 수 있음)
 
