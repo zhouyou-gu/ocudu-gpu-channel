@@ -89,6 +89,11 @@ target_link_libraries(ocudu-zmq-source PRIVATE ocudu_gpu_channel_lib)
 add_executable(ocudu-zmq-sink apps/ocudu_zmq_sink.cpp)
 target_link_libraries(ocudu-zmq-sink PRIVATE ocudu_gpu_channel_lib)
 
+# M4.6: the control plane had no client outside the unit tests, so the wire path
+# itself had never been exercised end to end.
+add_executable(ocudu-control-req apps/ocudu_control_req.cpp)
+target_link_libraries(ocudu-control-req PRIVATE ocudu_gpu_channel_lib)
+
 # Microbench for the runtime-mutation cost M (the D2H + stream-sync + H2D the
 # current control path runs per dirty edge). CUDA-only; not a ctest -- runs on
 # the GPU workstation. See tests/bench_mutation_cost.cu.
