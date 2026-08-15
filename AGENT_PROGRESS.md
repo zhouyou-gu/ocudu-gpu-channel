@@ -280,6 +280,11 @@ Progress entry template
 - [MIMO plan] Added `MIMO_MILESTONES.md`: RadioNode overlay retained, `RadioNodeCoordinator` replaced by a per-RadioNode producer thread writing into per-RX-port output rings, single processing engine preserved by widening `process_superposition` to multiple output rows, and milestones M0-M5 with per-milestone exit gates.
 - [MIMO analysis] Verified the sibling-port cursor-alignment concern against `src/broker.cpp`. Initial co-initialisation is already common (`broker.cpp:483-492`), so the failure is not at startup; it is that each destination server samples availability at its own instant (`broker.cpp:512-539`), so two servers owning the rows of one radio can select different serve counts and drift permanently, with the recovery path (`broker.cpp:519-523`) then dropping samples on one row only. The producer model removes the second thread that could select a window, making alignment a structural invariant rather than an enforced protocol. Recorded as a mission-level constraint in `AGENT_GOAL.mimo.md`.
 - [MIMO analysis] Identified a residual risk no broker design can remove: the wire carries no timestamp (`IqSample` is 8 bytes; the broker only checks `nbytes % 8 == 0` at `broker.cpp:122-126`), so equal sequence indices on sibling TX ports representing the same PHY instant is a deployment precondition. Mitigations assigned to the M1 gate: equal sibling `tx_timing_offset_samples`, an `event=radio_node_resolved` startup line, and a marker test that injects a distinguishable pattern on one port only.
+- [M2 seeds] Replaced the fading seed's string derivation with `physical_link_seed(base_link_key)` + `lane_fading_seed(link_seed, rx_port, tx_port, step_index)` (`config.h` / `config.cpp`), and gave `LaneConfig` a `physical_link_key` carrying the authored link's identity (no lane suffix, and the base model even for a `fixed_mimo` clone). Both backends derive through the same two functions. AWGN seeds intentionally left string-derived, which is what keeps non-fading paths bit-identical to M1.
+- [M2 gate rebuild] Rebuilt the Jakes autocorrelation gate on an ensemble after re-seeding failed the single-lane version. Measured cause: a lane matches the sum-of-sinusoids of its OWN drawn angles to ~0.02, while J₀ is the ensemble average over those angles and one M=20 realization departs from it by up to 0.51 at τ=5 ms. New form runs a 1×16 link: per-lane vs its own predicted curve (±0.10, worst measured 0.058) plus the 16-lane mean vs J₀ (±0.15).
+- [M2 clock] Added `PhysicalLinkClock` (`include/ocudu_gpu_channel/link_clock.h`) and removed `slot_start_samples` from `TdlFadingState`; `apply_tdl_step_fading` now takes the time and does not advance it. Each backend advances a touched clock once per slot per link. On the GPU `update_delay_line_kernel` assigns the host-supplied per-edge value instead of accumulating, so the device holds a copy of the link's time rather than a counter of its own; the channel kernel body is unchanged.
+- [M2 gates] Added the IID cross-correlation gate (two lockstep processors isolate the four lanes of a 2×2; worst pair 0.065 against a 0.15 gate), chunk invariance (2N in one call = N in two), a faded 2×2 CPU↔CUDA parity test, and a bit-exact check that a fading-free chain is seed-independent. Every gate mutation-probed, including on the CUDA tree.
+- [M2 validation] `ctest` 8/8 on both trees at every step, and `gpu-test-sequence.sh` 7/7 through the loopback runner with the deterministic figures unchanged from M1 (clean relay 1/1, AWGN 1.25/1.24994, 3-node 2.01473, 2-cell 0.262); [7/7] TDL-A moved to 3.33723/3.30066 inside its ±1.5 band, as a re-seeded fading realization should.
 - [MIMO plan] Added `docs/plans/m0-single-engine-refactor.md`: broker ownership-transfer table, producer loop with the preserved pre-MIMO invariants annotated, `PortRepWorker` loop, RX ring sizing with an explicit added-latency budget and Msg3 exit condition, deadlock analysis, the multi-row `process_superposition` signature with a single-row convenience overload that keeps all seven existing call sites unchanged, and a six-commit work breakdown.
 
 ## Blockers and Risks
@@ -597,27 +602,76 @@ M1.6에서 새로 넣은 2×2 CUDA 테스트가 **가드 매크로 이름이 틀
 
 ---
 
-## 세션 종료 상태 (2026-08-14)
+## M2 — IID 확률적 페이딩 (완료)
 
-**M0.1–M0.6, M1.1–M1.7 완료.** 베이스라인 `bc88865` 이후 21 커밋.
+> 상세 설계: [`docs/plans/m2-iid-stochastic-fading.md`](docs/plans/m2-iid-stochastic-fading.md)
+
+| 단계 | 커밋 | 상태 |
+|---|---|---|
+| M2.1 계획 문서 | `7d8d558` | ✅ |
+| M2.2 `physical_link_seed` / `lane_fading_seed` | `2acd13b` | ✅ |
+| M2.3 `PhysicalLinkClock` — 절대시간 단일 소유 | `9f90c7e` | ✅ |
+| M2.4 IID / parity / 비페이딩 게이트 | `47b21de` | ✅ |
+
+**M2.2** — 시드가 `hash(lane_key + ":fading:" + i)`였다. lane별 독립은 성립했지만 그 근거가 **문자열 포맷**이었다. `LaneConfig::physical_link_key`(lane suffix 없는 link key)가 물리 링크의 정체성이고, `physical_link_seed` → `lane_fading_seed(link_seed, r, t, step)`가 그 위에서 lane realization을 **정수 연산으로만** 파생한다. 키 포맷을 바꿔도 realization은 불변이고, `fixed_mimo` lane은 clone이 아니라 작성자가 쓴 링크를 정체성으로 보고하므로 행렬을 고쳐도 난수가 다시 굴러가지 않는다. 혼합식을 `std::hash`가 아니라 직접 적었다 — `std::hash`는 표준 라이브러리마다 값이 다르므로, 이제 재현성이 툴체인을 넘어선다. AWGN 시드는 **의도적으로 문자열 유래 그대로** 두었다. M2의 대상이 아니고, 그대로 두는 것이 비페이딩 경로의 M1 bit-exact를 보존한다.
+
+**M2.2가 드러낸 것 — 기존 Bessel 게이트는 시드 운이었다.** 재시드만으로 단일 lane Bessel J₀ 테스트가 깨졌다. 원인을 측정으로 확인했다: lane의 경험적 자기상관은 **그 lane이 뽑은 각도들의** sum-of-sinusoids와 ~0.02로 일치한다(생성기는 정확하다). J₀는 그 각도에 대한 **앙상블 평균**이고, M = 20 단일 realization은 τ = 5 ms에서 J₀와 −0.32 ~ +0.51까지 벌어진다. 즉 ±0.15의 단일 lane 게이트는 생성기가 아니라 뽑힌 각도를 채점하고 있었다. M2가 앙상블을 싸게 만든다 — 한 물리 링크의 lane들이 같은 채널의 독립 realization이다. 1×16 링크로 재작성: (1) lane마다 **자기 시드가 뽑은 각도**의 예측 곡선과 ±0.10 일치(최악 실측 0.058) — 파생식까지 고정한다, (2) 16 lane 평균이 J₀와 ±0.15 일치.
+
+**M2.3** — `slot_start_samples`가 lane마다 있고 `apply_tdl_step_fading` 안에서 스스로 `+= count` 했다. 오늘 맞는 이유는 producer가 모든 lane에 같은 count를 주기 때문이지 모델의 불변식이 아니었다. `PhysicalLinkClock`(`include/ocudu_gpu_channel/link_clock.h`)이 물리 링크당 하나. **`TdlFadingState`에서 필드를 아예 삭제했고** `apply_tdl_step_fading`은 시간을 인자로 받고 전진시키지 않는다 — lane이 시계를 가질 수 없음을 규율이 아니라 컴파일러가 강제한다. 각 백엔드가 슬롯당 링크당 정확히 한 번 전진시킨다(물리 링크의 목적지 노드는 하나이므로 writer도 하나). GPU: 커널 본문 무수정, `DeviceLinkState::slot_start_samples`를 `update_delay_line_kernel`이 `+= count` 대신 **호스트가 넘긴 값으로 대입**한다(에지별 배열, early return 앞에서 대입).
+
+**M2.4 Exit 게이트**
+
+| 게이트 | 결과 |
+|---|---|
+| lane별 자기상관 = 자기 시드 각도의 sum-of-sinusoids (±0.10) | ✅ 16 lane 전부, 최악 0.058 |
+| 16 lane 평균 = `J₀(2π f_d τ)` (±0.15) | ✅ |
+| lane 간 교차상관 ≈ 0 | ✅ 최악 쌍 0.065 (게이트 0.15, 구분 대상은 1.0) |
+| chunk invariance (2N 1회 = N 2회) | ✅ 2×2, 4 lane이 한 시계를 공유 |
+| CPU ↔ CUDA parity, 페이딩 2×2 2슬롯 | ✅ 양 행 |
+| 비페이딩 경로가 시드에 무관 (bit-exact) | ✅ 서로 다른 정체성의 두 링크가 비트 동일 |
+| `ctest` 8/8 CPU + CUDA | ✅ |
+| `gpu-test-sequence.sh` 7/7 | ✅ 결정론적 수치 M1과 동일 |
+
+**뮤테이션 프로브 (전부 확인)** — lane 시드를 공유시키면 IID 게이트 FAIL / f_d 기대값을 2배로 하면 자기상관 게이트 FAIL / 백엔드에서 (r,t)를 뒤집으면 자기상관·parity 둘 다 FAIL / 시계를 `count+1`로 전진시키면 chunk invariance가 **정확히 절단 샘플에서** FAIL / lane마다 전진시키면 Bessel 게이트 FAIL(단 chunk invariance는 FAIL하지 **않는다** — 두 실행이 똑같이 초과 전진하므로. 게이트 둘이 서로 다른 실패를 잡는다) / CPU 행 0·1을 교차시키면 **CUDA 트리에서** parity FAIL(이것이 그 테스트가 컴파일에 포함되었다는 증거이기도 하다 — M1.6 함정) / 비페이딩 테스트에 페이딩을 켜면 bit-exact 게이트 FAIL.
+
+**`gpu-test-sequence.sh` 7/7 PASSED** (로컬 loopback 러너, sm_120). 비페이딩 결정론 수치가 M1과 동일한 것이 exit 게이트 5의 **동작 중인 시스템 쪽 증거**다:
+
+| step | 결과 | M1 대비 |
+|---|---|---|
+| [3/7] clean 0 dB relay | `avg_power=1/1` | 동일 |
+| [4/7] AWGN noise_power 0.25 | `1.25/1.24994` | 동일 |
+| [5/7] 3-node 간섭 그래프 | `gnb0=2.01473 ue0=0.511291 ue1=0.511299` | 동일(끝자리는 AWGN 확률 성분) |
+| [6/7] 2-cell multi-gNB | 네 노드 `0.262` | 동일 |
+| [7/7] TDL-A 23-tap Jakes | `3.33723/3.30066` (기대 3.468 ±1.5) | **변경**(페이딩이므로 새 realization이 예상된 결과) |
+
+**M2 완료.**
+
+---
+
+## 세션 상태 (2026-08-15)
+
+**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4 완료.** 베이스라인 `bc88865` 이후 24 커밋.
 
 | 마일스톤 | 상태 |
 |---|---|
 | M0 단일 엔진 리팩터 | 5개 게이트 green, **2개 환경 차단** (multi-UE / multi-gNB 라이브) |
 | M1 차원 + 고정 행렬 | **전 게이트 green** (라이브 1×1 attach 포함) |
-| M2 IID 확률적 페이딩 | 계획 문서 작성 완료, 구현 미착수 |
+| M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
+| M3 공간 상관 + coherent LOS | 미착수 (`MIMO_MILESTONES.md` M3에 범위만 있음, 상세 계획 문서 없음) |
+
+M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
 ### 다음 세션 재개 지점
 
-**M2.2부터 시작한다.** 상세 설계는 [`docs/plans/m2-iid-stochastic-fading.md`](docs/plans/m2-iid-stochastic-fading.md).
+**M3 상세 계획부터 시작한다.** 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M3. M0/M1/M2가 각각 계획 문서를 먼저 쓰고 들어갔으므로 `docs/plans/m3-*.md`가 첫 커밋이 되는 것이 이 프로젝트의 순서다.
 
-M2 계획을 세우며 **현재 코드에서 확인한 세 가지**를 먼저 읽을 것:
+M2를 끝내며 **M3이 딛고 설 지점 세 가지**:
 
-1. **lane별 독립 realization은 이미 성립하지만 우연이다.** 시드가 `hash(key + ":fading:" + i)`로 lane 키 문자열에서 나오므로, M1의 suffix(`#r1t0`) 덕에 lane마다 달라진다. 재현성이 **문자열 표기에 의존**한다.
-2. **physical link가 시드의 소유자가 아니다.** M3에서 lane 간 상관을 주려면 하나의 링크 시드에서 파생해야 하는데, 독립 해시 N개로는 상관 구조를 표현할 수 없다.
-3. **절대시간이 lane마다 따로 누적된다.** `slot_start_samples`가 lane별로 `+= count` 한다. 오늘은 producer가 모든 lane을 같은 count로 처리해 결과적으로 동기화되지만 **불변식이 아니라 부수효과다.** 어긋나는 순간 `y = Hx`가 하나의 `x`에 대한 것이 아니게 된다 — M0 §1.1이 커서에 대해 지적한 것과 같은 실패.
+1. **시드 소유권이 이미 물리 링크에 있다.** `physical_link_seed(base_link_key)` → `lane_fading_seed(link_seed, r, t, step)`. M3의 상관은 이 두 번째 함수를 "독립 파생"에서 "상관 파생"으로 바꾸는 자리이고, 첫 번째 함수(링크 정체성)는 건드릴 필요가 없다.
+2. **절대시간도 물리 링크가 단독 소유한다.** `PhysicalLinkClock`. lane들이 같은 시각을 본다는 것이 M3의 `L` 곱셈이 의미를 갖기 위한 전제인데, 그것이 이미 구조적으로 성립한다.
+3. **계획 §M3의 "생성기와 convolution 분리"는 아직 안 되어 있다.** 오늘 Jakes coarse grid는 `apply_channel_kernel`(디바이스) / `apply_tdl_step_fading`(호스트) **안에서** 만들어진다. M3은 grid를 별도 커널로 빼고 `L`을 곱한 뒤 convolution 커널이 읽기만 하게 해야 하며, 이때 **CPU 참조 경로도 같은 분리를 해야** parity가 유지된다.
 
-M2는 커널 본문을 건드리지 않는다(계획 §2.3). 통계 게이트가 실패하면 원인은 파생식이지 커널이 아니다.
+M2의 IID 교차상관 게이트는 M3에서 **대체된다**(0이 아니라 선언한 `R`과 일치해야 한다). 지우지 말고 M3의 게이트로 바꿔 쓸 것.
 
 ### 환경 관련 (다음 세션에서 필요할 수 있음)
 
@@ -628,7 +682,9 @@ M2는 커널 본문을 건드리지 않는다(계획 §2.3). 통계 게이트가
 
 ### 검증 규율 — 다음 세션도 유지할 것
 
-M1.6에서 새 CUDA 테스트가 **가드 매크로 이름이 틀려 컴파일에서 빠진 채 통과**했다. 이후 모든 신규 테스트를 뮤테이션 프로브로 확인했다. **새 테스트는 실패시켜 보기 전까지 아무것도 증명하지 않는다.** M2의 통계 테스트는 허용오차가 느슨하면 특히 이 함정에 빠지기 쉬우므로, 계획 §4에 프로브 3종을 명시해 두었다.
+M1.6에서 새 CUDA 테스트가 **가드 매크로 이름이 틀려 컴파일에서 빠진 채 통과**했다. 이후 모든 신규 테스트를 뮤테이션 프로브로 확인했다. **새 테스트는 실패시켜 보기 전까지 아무것도 증명하지 않는다.**
+
+M2가 그 다음 형태를 보여줬다: **통과하던 기존 테스트도 아무것도 검증하지 않고 있을 수 있다.** 단일 lane Bessel 게이트는 3개 마일스톤 동안 green이었지만 실제로는 시드 운을 채점하고 있었고, 커널을 건드리지 않은 재시드만으로 깨졌다. 실패했을 때 관측값과 **해석적 예측**을 비교한 것이 원인을 시드 운으로 특정하게 해줬다 — 허용오차를 넓혀 되살렸다면 게이트는 영원히 무의미해졌을 것이다. 확률 과정의 게이트는 realization 하나가 아니라 앙상블로 판정해야 한다(`AGENT_HARNESS.md`에 durable rule로 승격).
 - Sequence and exit gates: `docs/plans/m0-single-engine-refactor.md` §8-§9.
 - Open user decisions blocking nothing but worth settling early: (a) which mission file governs, (b) whether `MIMO_MILESTONES.md` and `AGENT_GOAL.mimo.md` should also be removed from the pristine `ocudu-gpu-channel-pre-mimo` baseline tree, where duplicates of both currently exist and will drift.
 

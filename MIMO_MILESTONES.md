@@ -187,7 +187,7 @@ wire payload에는 타임스탬프가 없다. `IqSample`은 `{float i, float q}`
 - 기존 `apply_channel_kernel` 페이딩 경로 무수정.
 
 **Exit 게이트**
-- lane별 자기상관이 `J_0(2π f_d τ)`와 일치 (기존 Bessel 테스트 방식 재사용, ±0.15)
+- lane별 자기상관이 자기 시드가 뽑은 각도의 sum-of-sinusoids와 일치 (±0.10), 그리고 **lane 앙상블 평균**이 `J_0(2π f_d τ)`와 일치 (±0.15). J_0는 앙상블 성질이므로 단일 realization으로는 판정할 수 없다 — 상세는 `docs/plans/m2-iid-stochastic-fading.md` §4
 - lane 간 교차상관 ≈ 0
 - 청크 크기를 바꿔도 동일 realization (chunk invariance)
 
