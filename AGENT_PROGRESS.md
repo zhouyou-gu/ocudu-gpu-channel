@@ -286,6 +286,13 @@ Progress entry template
 - [M2 gates] Added the IID cross-correlation gate (two lockstep processors isolate the four lanes of a 2×2; worst pair 0.065 against a 0.15 gate), chunk invariance (2N in one call = N in two), a faded 2×2 CPU↔CUDA parity test, and a bit-exact check that a fading-free chain is seed-independent. Every gate mutation-probed, including on the CUDA tree.
 - [M2 validation] `ctest` 8/8 on both trees at every step, and `gpu-test-sequence.sh` 7/7 through the loopback runner with the deterministic figures unchanged from M1 (clean relay 1/1, AWGN 1.25/1.24994, 3-node 2.01473, 2-cell 0.262); [7/7] TDL-A moved to 3.33723/3.30066 inside its ±1.5 band, as a re-seeded fading realization should.
 - [M3 plan] Added `docs/plans/m3-spatial-correlation-and-los.md`: the five code facts M3 stands on (generator lives inside both convolution paths; a link's lanes are not contiguous in a node's lane array; `fixed_mimo` drops zero lanes; LOS phase is drawn per lane today; seed and time ownership already sit on the physical link), the generator/convolution split with `PhysicalLinkFadingState`, the `spatial_correlation` + `los_matrix` schema with an LDL^H factorisation that validates PSD and factors in one routine, the pinned Kronecker convention (`E[h h^H] = R_rx (x) R_tx`, `tx` used as declared), a seven-commit order that lands the split and the mixing separately, and exit gates whose tolerances are to be set from a measured noise floor rather than chosen.
+- [M3 schema] Added `spatial_correlation` (`iid` / `kronecker`, upper-triangle entries only so a non-Hermitian or non-unit-diagonal matrix is unrepresentable) and `los_matrix` to `ModelConfig`, with an LDL^H factorisation (`correlation.h` / `correlation.cpp`) that decides positive semidefiniteness and produces the mixing factor in one routine. Validator rejects: entries under `kind: iid`, an empty `kronecker` block, `kind: full` (deferred, named as such), lower-triangle entries, duplicates, magnitude above 1, out-of-range indices, `fixed_mimo` alongside a non-iid correlation, a chain that does not lead with a fading tdl, a partially declared `los_matrix`, and a correlated link above the 16-lane cap.
+- [M3 generator split] Extracted `generate_fading_grid()` / `generate_fading_grid_kernel()` from both convolution paths; host grids live in `PhysicalLinkFading` (`link_clock.h` renamed `physical_link.h`), device grids in a per-node buffer. `ResolvedTopology` gained `LinkLaneGroup` so the per-link lane grouping is derived once. Verified bit-identical to `47b21de` across nine fingerprints (1x1 and 2x2, three slots, LOS + Rayleigh + CFO).
+- [M3 mixing] Applied `g = L w` per physical link between generation and shaping, on both backends; an iid link skips the step outright rather than multiplying by the identity. Nodes on the host-fallback path reject a correlated link instead of silently dropping the correlation.
+- [M3 coherent LOS] The specular's phase across lanes now comes from the declared LOS matrix instead of a per-lane RNG draw; an undeclared matrix is all-ones rank-1. Changes LOS-model output including at 1x1, by design; non-LOS output is bit-identical.
+- [M3 gates] Covariance against a declared real R and against a complex R (phase included), LOS phase relationship, per-lane spectrum preservation, correlated CPU/CUDA parity, and iid bit-exactness. Thirteen mutation probes confirmed failing.
+- [M3 perf] Measured on 4x RTX 5090 / 23.04 MS/s / batch 23040 / CUDA / 3 s: the generator split cut TDL-A kernel p99 from 61.856 to 53.599 us (1x1) and from 90.655 to 69.536 us (16 edges); correlation costs +4.2 us p99 on a 2x2. Added `examples/topology.mimo-2x2-correlated.cuda.yaml`.
+- [M3 tooling] Fixed `ocudu_gpu_channel_bench`, which had keyed destinations by device id since M1 and therefore span millions of empty iterations reporting a zero kernel count on every multi-port topology -- measuring nothing while exiting green.
 - [MIMO plan] Added `docs/plans/m0-single-engine-refactor.md`: broker ownership-transfer table, producer loop with the preserved pre-MIMO invariants annotated, `PortRepWorker` loop, RX ring sizing with an explicit added-latency budget and Msg3 exit condition, deadlock analysis, the multi-row `process_superposition` signature with a single-row convenience overload that keeps all seven existing call sites unchanged, and a six-commit work breakdown.
 
 ## Blockers and Risks
@@ -649,32 +656,87 @@ M1.6에서 새로 넣은 2×2 CUDA 테스트가 **가드 매크로 이름이 틀
 
 ---
 
+## M3 — 공간 상관 + coherent LOS (완료)
+
+> 상세 설계: [`docs/plans/m3-spatial-correlation-and-los.md`](docs/plans/m3-spatial-correlation-and-los.md)
+
+| 단계 | 커밋 | 상태 |
+|---|---|---|
+| M3.1 계획 문서 (+ resolver 소유권 보강) | `168ec0c`, `c5c6015` | ✅ |
+| M3.2 스키마 + validator + LDLᴴ 인수분해 | `7b375af` | ✅ |
+| M3.3 생성기 분리 (mixing 없음) | `408d500` | ✅ |
+| M3.4 mixing 적용 (CPU → CUDA) | `1df8db5` | ✅ |
+| M3.5 coherent LOS | `54db510` | ✅ |
+| M3.6 통계 게이트 (+ 후속 `bf6615c`) | `0288627` | ✅ |
+| M3.7 perf 실측 + 벤치 수리 | `a04823e` | ✅ |
+
+**사용자 결정 3건 확정** — (a) `fixed_mimo` + `spatial_correlation` 동시 선언 **거부**(`fixed_mimo` 자체는 그대로), (b) `kind: full` **M3에서 제외**(파서가 "deferred"라고 명시적으로 거부), (c) `los_matrix` 미선언 시 **전 lane 위상 0**(rank-1). 구현하며 (c)에 규칙 하나 추가: **선언한다면 전 lane을 선언해야 한다.**
+
+**M3.2** — 상관 행렬은 **상삼각만** 쓴다. 파서가 flow 스타일을 전역 거부하는 것도 이유지만, 더 중요한 건 대각 1 + 켤레 미러로 **비-Hermitian 행렬을 표현 불가능하게** 만든다는 점이다. 남는 검증은 PSD 하나. 인수분해는 **LDLᴴ**(Cholesky 아님) — 완전 상관(정확히 1.0)은 특이행렬이고 MIMO 테스트가 실제로 도달하고 싶은 극단인데 Cholesky는 거기서 실패한다. LDLᴴ은 PSD 판정과 인수분해를 **한 루틴에서** 내므로 validator와 백엔드가 서로 다른 기준을 가질 수 없다.
+
+**M3.3** — 생성기가 양쪽 convolution **안에** 있었다(호스트는 지역 변수, 디바이스는 shared memory에 블록마다 재생성 — 23040 샘플 슬롯이면 에지당 ~90회). lane 하나만 보는 구조라 상관을 넣을 자리가 없었다. `generate_fading_grid()` / `generate_fading_grid_kernel()`로 분리하고, 호스트 grid는 시계와 같은 소유자(`PhysicalLinkFading`, `link_clock.h` → `physical_link.h`)에 뒀다. `ResolvedTopology`에 `LinkLaneGroup` 추가 — 행 우선 정렬 때문에 한 링크의 lane이 배열에서 흩어져 있고, 그 그룹핑을 백엔드마다 유도하게 두면 M1.4가 막으려던 조용한 drift가 그대로 재현된다.
+
+**M3.3 게이트 — 아무것도 안 바뀌어야 하는 커밋의 증거.** 지문 프로브(1×1 / 2×2, 3슬롯, LOS+Rayleigh+CFO, hex float)로 `47b21de`(M2.4)와 A/B: **9개 지문 전부 비트 동일**.
+
+**M3.4** — mixing이 M3.3이 연 틈에 들어간다(호스트 `apply_mixing`, 디바이스 전용 커널). **iid는 곱하지 않고 건너뛴다** — 항등행렬을 곱하면 부동소수 연산 순서가 바뀌어 "M3이 비상관 토폴로지를 건드리지 않았다"는 가장 값싼 증거를 잃는다. 계획에 없던 규칙 둘: 상관 모델은 **체인 선두가 fading tdl**이어야 하고(그래야 "상관되는 스텝"과 "스텝 0"이 구성상 같아진다), **호스트 fallback 노드는 상관 링크를 거부**한다(fallback은 에지별로 staging해 cross-lane 단계가 없으므로 상관을 조용히 떨어뜨린다).
+
+**M3.5** — LOS 위상이 lane마다 난수였다. LOS는 모든 안테나 쌍이 보는 **하나의 광선**(rank-1)이므로 그건 나쁜 모델이 아니라 **모델의 부재**였다. 이제 선언된 행렬에서 온다(기하에서 유도하지 않는다 — 배열 기하는 미션 비목표). `tap_phi_los`는 계속 뽑되 읽지 않는다(draw를 빼면 이후 난수열이 밀려 무관한 realization이 전부 다시 굴러간다). **LOS 모델의 출력은 1×1에서도 바뀐다** — 의도된 정정이고, A/B가 그 두 주장을 동시에 확인한다(비-LOS 비트 동일 / LOS 변경).
+
+**M3 Exit 게이트**
+
+| 게이트 | 결과 |
+|---|---|
+| 경험적 공분산 = 선언한 `R` (실수) | ✅ 2×2, rx 0.7 / tx identity, 오차 < 0.15 |
+| 복소 `R`의 **위상**까지 일치 | ✅ 0.5+0.3i 실수부·허수부 각각 < 0.15 — 규약이 측정으로 고정됨 |
+| LOS 지배(K=30 dB)에서 포트 간 위상 = 선언값 | ✅ < 0.15 rad |
+| lane별 자기상관 보존 (unit-diagonal `R`) | ✅ 네 lane 모두 J₀(1 ms)=0.904와 < 0.15 |
+| CPU ↔ CUDA parity (상관 2×2, 2슬롯) | ✅ 1e-3 |
+| iid 경로가 M2와 bit-exact | ✅ A/B 9지문 (비-LOS) |
+| `ctest` 8/8 CPU + CUDA | ✅ |
+| `gpu-test-sequence.sh` 7/7 | ✅ 결정론 수치 불변 |
+
+**뮤테이션 프로브 (전부 FAIL 확인)** — Kronecker 좌우 교환(수학·CPU 양쪽) / 음수 pivot 허용 / 켤레 미러 제거 / `fixed_mimo`+상관 허용 / 생성기 커널 미실행 / 호스트 mixing 미실행 / 디바이스 mixing 미실행 / 디바이스 mixing 켤레 / 선언 LOS 위상 변경 / LOS 행렬 무시 / 선언 `R` 켤레(위상 게이트) / lane cap 제거 / LOS 전량선언 규칙 제거.
+
+**M3.7 실측** (4× RTX 5090, driver 570.211.01, CUDA 12.8.93, sm_120, 23.04 MS/s, batch 23040, CUDA, 각 3 s, 500 µs 슬롯 기준):
+
+| 항목 | 분리 전 (`47b21de`) | 분리 후 |
+|---|---|---|
+| TDL-A 1×1 `kernel_us` p99 | 61.856 µs | **53.599 µs** (−13%) |
+| TDL-A fan-in 8 (16 에지) p99 | 90.655 µs | **69.536 µs** (−23%) |
+
+mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예산의 1% 미만. `iid`는 커널을 띄우지 않으므로 0이다.
+
+**M3.7이 함께 고친 것** — `ocudu_gpu_channel_bench`가 M1 이후 device id로 노드를 찾고 있어서, 다중 포트 토폴로지에서 **커널 카운트 0으로 수천만 번 공회전하며 초록색으로 끝나고 있었다.** M1이 남긴 구멍이고 M3.7이 밟았다. 이제 resolved 노드를 돌고 RX 포트마다 행을 넘긴다.
+
+**M3 종료 재검토 (계획 §2.6이 요구한 것)** — `fixed_mimo`와 `los_matrix`를 통합하지 않기로 결론. 표기는 닮았지만 **없는 항목의 의미가 정반대**다(전자는 0, 후자는 에러). 통합하면 한쪽 의미를 망가뜨리는 거래가 된다.
+
+**M3 완료.**
+
+---
+
 ## 세션 상태 (2026-08-15)
 
-**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4 완료.** 베이스라인 `bc88865` 이후 24 커밋.
+**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7 완료.** 베이스라인 `bc88865` 이후 33 커밋.
 
 | 마일스톤 | 상태 |
 |---|---|
 | M0 단일 엔진 리팩터 | 5개 게이트 green, **2개 환경 차단** (multi-UE / multi-gNB 라이브) |
 | M1 차원 + 고정 행렬 | **전 게이트 green** (라이브 1×1 attach 포함) |
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
-| M3 공간 상관 + coherent LOS | 계획 문서 작성 완료(M3.1), 구현 미착수 |
+| M3 공간 상관 + coherent LOS | **전 게이트 green** (합성·단위 테스트 + perf 실측) |
+| M4 physical link 단위 runtime control | 미착수 (`MIMO_MILESTONES.md` M4에 범위만 있음) |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
 ### 다음 세션 재개 지점
 
-**M3.2(스키마 + validator + LDL^H 인수분해)부터 시작한다.** 상세 설계는 [`docs/plans/m3-spatial-correlation-and-los.md`](docs/plans/m3-spatial-correlation-and-los.md), 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M3.
+**M4 상세 계획부터 시작한다.** 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M4(physical link 단위 runtime control). M0~M3이 모두 계획 문서를 먼저 쓰고 들어갔다.
 
-**착수 전에 사용자 결정 3건**(계획 §7, 전부 뒤집기 쉬운 동안 열어 둔 것): (a) `fixed_mimo`와 `spatial_correlation` 동시 선언을 거부할지, (b) `kind: full`을 M3에서 구현할지 미룰지, (c) `los_matrix` 미선언 시 기본값을 전 lane 위상 0(rank-1)으로 둘지. 어느 쪽이든 M3.2의 스키마 표면이 달라진다.
+M3을 끝내며 **M4가 알아야 할 세 가지**:
 
-M2를 끝내며 **M3이 딛고 설 지점 세 가지**:
-
-1. **시드 소유권이 이미 물리 링크에 있다.** `physical_link_seed(base_link_key)` → `lane_fading_seed(link_seed, r, t, step)`. M3의 상관은 이 두 번째 함수를 "독립 파생"에서 "상관 파생"으로 바꾸는 자리이고, 첫 번째 함수(링크 정체성)는 건드릴 필요가 없다.
-2. **절대시간도 물리 링크가 단독 소유한다.** `PhysicalLinkClock`. lane들이 같은 시각을 본다는 것이 M3의 `L` 곱셈이 의미를 갖기 위한 전제인데, 그것이 이미 구조적으로 성립한다.
-3. **"생성기와 convolution 분리"는 아직 안 되어 있다.** 오늘 Jakes coarse grid는 `apply_channel_kernel`(디바이스) / `apply_tdl_step_fading`(호스트) **안에서** 만들어진다. M3은 grid를 별도 커널로 빼고 `L`을 곱한 뒤 convolution 커널이 읽기만 하게 해야 하며, 이때 **CPU 참조 경로도 같은 분리를 해야** parity가 유지된다. 계획 §2.1이 이 분리를, §4가 "분리와 mixing을 한 커밋에 넣지 않는다"는 순서를 정해 두었다.
-
-M2의 IID 교차상관 게이트는 M3에서 **대체된다**(0이 아니라 선언한 `R`과 일치해야 한다). 지우지 말고 M3의 게이트로 바꿔 쓸 것.
+1. **런타임으로 바꿀 대상이 하나 늘었다.** Phase 3 control plane은 per-link 스칼라와 tap 프로파일을 슬롯 경계에서 교체한다. M3의 `R`은 **prepare에서 고정**이고 mixing 행렬은 `PhysicalLinkFading::mixing`에 산다. 런타임 교체는 인수분해(LDLᴴ)를 컨트롤 스레드에서 돌리고 결과를 shadow로 넘기는 형태가 될 것이다 — hot path에서 재분해하지 않는다는 §2.2의 약속을 지키려면.
+2. **제어 단위가 lane이 아니라 physical link여야 한다.** 지금 `collect_control_links()`는 **lane 키**로 `BrokerLinkControl`을 노출한다(2×2면 링크 하나가 컨트롤 엔드포인트 4개로 보인다). M4의 이름 그대로 physical link 단위로 묶는 것이 첫 작업이다.
+3. **디바이스 상태 갱신 경로가 이미 있다.** `refresh_all_taps_from_live` + D2H/H2D 왕복이 tap 교체에 쓰인다. 상관 행렬은 `DeviceCorrelationGroup`에 있으므로 같은 방식으로 교체 가능하지만, 그 구조체는 노드별 배열이라 갱신 단위가 링크가 아니라 노드다.
 
 ### 환경 관련 (다음 세션에서 필요할 수 있음)
 
