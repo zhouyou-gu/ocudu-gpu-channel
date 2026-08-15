@@ -60,12 +60,11 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
   }
 
   LinkState& state = it->second;
-  if (state.clock == nullptr) {
+  if (state.link == nullptr) {
     // Bound once, when the state is created. A later call cannot rebind it: a
-    // lane belongs to the link it was prepared under, and re-pointing a clock
+    // lane belongs to the link it was prepared under, and re-pointing it
     // mid-run is exactly the drift this design removes.
-    state.clock = &clocks_[identity.physical_link_key];
-    state.fading = &link_fadings_[identity.physical_link_key];
+    state.link = &links_[identity.physical_link_key];
     state.lane_index = identity.lane_index();
     state.lane_count = identity.lane_count();
     const auto los = lane_los_coefficients(model.los_matrix, identity.nt, identity.nr);
@@ -99,26 +98,33 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     // (C3+) writes to `ctl.shadow` and bumps `ctl.seqno`; snap_mutable_params()
     // at the top of every serve picks up shadow → live transitions. Initialise
     // shadow == live so the first serve's snap is a no-op.
+    // Per-lane values from the lane's OWN model (a fixed_mimo lane runs a clone
+    // whose taps carry that lane's matrix coefficient).
     state.live = populate_mutable_params_from_yaml(model, /*reference_power=*/0.0,
                                                    /*sample_rate_hz=*/0);
-    init_broker_link_control(state.ctl, state.live);
+    // The link's shadow is initialised once, by the first lane to arrive.
+    if (state.link->control.seqno.load(std::memory_order_relaxed) == 0 &&
+        state.link->live_seqno == 0) {
+      state.link->live = state.live;
+      init_broker_link_control(state.link->control, state.link->live);
+    }
 
     // v2.0-F3: cache the eligibility flag — a profile_swap is only
     // honoured when the chain starts with a tdl step (or when force=true
     // on the swap REQ). Done at prepare so the per-slot snap doesn't
     // re-walk the chain.
-    state.chain_has_leading_tdl =
+    state.link->chain_has_leading_tdl =
         !model.chain.empty() && model.chain.front().type == ModelStepType::Tdl;
 
     // v2.2 follow-on: write per-link hints for the control plane's
     // warmup-cap check. dl_size_samples_hint is the leading tdl
     // step's delay_line size (0 if no leading tdl); slot_count_hint
     // is the per-slot sample count this link receives.
-    if (state.chain_has_leading_tdl && !state.steps.empty()) {
-      state.ctl.dl_size_samples_hint =
+    if (state.link->chain_has_leading_tdl && !state.steps.empty()) {
+      state.link->control.dl_size_samples_hint =
           static_cast<int>(state.steps.front().delay_line.size());
     }
-    state.ctl.slot_count_hint = static_cast<int>(sample_count);
+    state.link->control.slot_count_hint = static_cast<int>(sample_count);
   }
   return state;
 }
@@ -126,18 +132,18 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
 void CpuChannelProcessor::refresh_lane_grids(LinkState& state, const ModelConfig& model,
                                              std::size_t count, std::uint64_t sample_rate_hz)
 {
-  state.fading->reshape(
+  state.link->fading.reshape(
       static_cast<std::size_t>(std::max(state.lane_count, state.lane_index + 1)),
       model.chain.size());
-  auto& per_step = state.fading->lane_grids[static_cast<std::size_t>(state.lane_index)];
+  auto& per_step = state.link->fading.lane_grids[static_cast<std::size_t>(state.lane_index)];
   for (std::size_t i = 0; i != model.chain.size(); ++i) {
     // Time comes from the link's clock, so every lane of the link builds its
     // grid against the same origin -- the property M2.3 made structural, now
     // relied on by a step that reads several lanes at once.
     generate_fading_grid(state.steps[i].tdl_fading, model.chain[i].taps.size(), count,
-                         sample_rate_hz, state.clock->slot_start_samples, per_step[i]);
+                         sample_rate_hz, state.link->clock.slot_start_samples, per_step[i]);
   }
-  state.fading->lane_ready[static_cast<std::size_t>(state.lane_index)] = 1;
+  state.link->fading.lane_ready[static_cast<std::size_t>(state.lane_index)] = 1;
 }
 
 void CpuChannelProcessor::prepare(const TopologyConfig& config)
@@ -186,7 +192,7 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
     if (model == nullptr) {
       continue;
     }
-    auto& fading = link_fadings_[group.physical_link_key];
+    auto& fading = links_[group.physical_link_key].fading;
     fading.lanes = group.nt * group.nr;
     fading.mixing.clear();
     if (!model->spatial_correlation.declared ||
@@ -229,11 +235,12 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
       // single-lane link of its own. Passing r as a lane index here would point
       // at a row this link does not have.
       ensure_link_state(key, *model, count, LaneIdentity{.physical_link_key = key});
+      rx_model_keys_.insert(key);
     }
   }
 }
 
-ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
+ocg::PhysicalLinkRuntime* CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
                                               const ModelConfig& model,
                                               std::span<const IqSample> input,
                                               std::span<IqSample> output,
@@ -252,104 +259,6 @@ ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::stri
   // own physical link at matrix position (0, 0).
   LinkState& state = ensure_link_state(link_key_value, model, input.size(),
                                        LaneIdentity{.physical_link_key = link_key_value});
-
-  // Phase 3 C2b: snap any pending shadow update from the control plane into
-  // `live` before the chain reads it. No-op when seqno hasn't advanced
-  // (single relaxed-acquire load + early-return branch). In v1 with no
-  // control plane wired this is always a no-op; cost is negligible.
-  //
-  // v2.1: pass the link's per-link slot counter so the snap can honour
-  // ctl.take_effect_at_slot. Counter advances after the snap so each
-  // call's snap_idx matches "the slot we're about to compute".
-  const std::uint64_t snap_idx = state.next_slot;
-  const bool snap_changed = snap_mutable_params(state.live, state.live_seqno,
-                                                state.ctl, snap_idx);
-  state.next_slot = snap_idx + 1;
-
-  // v2.0-F3: profile-swap snap. Idempotent re-copy on every seqno bump
-  // (cheap — single ~1KB memcpy). Eligibility check is local: if the
-  // chain has no leading tdl AND force=false on the shadow, drop the
-  // pending profile silently this slot (control plane gets no feedback
-  // beyond the existing event=control_update line — F4 doc will note
-  // this). Future commits can add a counter / log_line.
-  bool profile_just_activated = false;
-  if (snap_changed && state.ctl.profile_pending) {
-    if (state.chain_has_leading_tdl || state.ctl.shadow_profile.force) {
-      snap_profile_from_shadow(state.live_profile, state.ctl);
-      state.live_profile_active = true;
-      profile_just_activated = true;
-      // v3.1: warn when force was needed AND the chain has no leading
-      // tdl. The profile is stored + snapped but the per-sample chain
-      // never reaches a Tdl branch, so kernel output is unchanged.
-      // Option C from the v3 plan — explicit visibility without
-      // attempting to flip the dispatch gate.
-      if (!state.chain_has_leading_tdl) {
-        std::cout << "event=control_force_warning link_id=" << link_key_value
-                  << " reason=\"chain has no leading tdl; profile stored but inert\"\n";
-        state.ctl.force_inert_warnings.fetch_add(1, std::memory_order_relaxed);
-      }
-    }
-    // else: eligibility failed (no force on a non-tdl-leading chain),
-    // profile sits silently in shadow until a YAML reload — or until
-    // a re-send with force=true.
-  }
-
-  // v2.2 W1: when a profile snap arms, zero the cross-slot delay_line so
-  // the new tap layout doesn't convolve with stale ring contents. Set
-  // warmup_until_slot so the broker can flag the next dl_size samples
-  // as warmup artefacts. ceil(dl_size / count) slots; typically 1 in
-  // production (count=23040 >> dl_size=~128). Find the leading tdl
-  // step's StepState (its delay_line is the link's cross-slot ring).
-  if (profile_just_activated) {
-    StepState* leading_tdl_state = nullptr;
-    for (std::size_t i = 0; i < model.chain.size(); ++i) {
-      if (model.chain[i].type == ModelStepType::Tdl) {
-        leading_tdl_state = &state.steps[i];
-        break;
-      }
-    }
-    std::size_t dl_size_samples = 0;
-    if (leading_tdl_state) {
-      std::fill(leading_tdl_state->delay_line.begin(),
-                leading_tdl_state->delay_line.end(), IqSample{});
-      dl_size_samples = leading_tdl_state->delay_line.size();
-    }
-    const std::size_t count_samples = input.size();
-    const std::uint64_t warmup_slots = count_samples == 0
-        ? 1
-        : ((dl_size_samples + count_samples - 1) / count_samples);
-    // The snap call we just completed is the FIRST slot to run with the
-    // new profile (snap_idx == state.next_slot - 1). Warmup ends when
-    // the link finishes `warmup_slots` slots, so end-slot = snap_idx + warmup_slots.
-    state.warmup_until_slot = snap_idx + warmup_slots;
-    std::cout << "event=control_warmup_begin slot=" << snap_idx
-              << " link_id=" << link_key_value
-              << " dl_samples=" << dl_size_samples
-              << " warmup_slots=" << warmup_slots << '\n';
-  }
-
-  // v2.2 W2: emit end-event when this slot is the one that closes the
-  // warmup window. `warmup_until_slot - 1` is the last warmup slot (so
-  // snap_idx == warmup_until_slot means "first post-warmup slot").
-  if (state.warmup_until_slot != 0 && snap_idx >= state.warmup_until_slot) {
-    std::cout << "event=control_warmup_end slot=" << snap_idx
-              << " link_id=" << link_key_value << '\n';
-    state.warmup_until_slot = 0;
-  }
-
-  // v3.0 TM1: publish the per-link telemetry snapshot. Cheap (seqlock
-  // pre-bump + POD copy + post-bump); the telemetry thread reads at
-  // its own cadence and tolerates a torn-read retry if it lands mid-
-  // write.
-  {
-    TelemetrySnapshot ts;
-    ts.slot              = snap_idx;
-    ts.live_seqno        = state.live_seqno;
-    ts.live              = state.live;
-    ts.profile_active    = state.live_profile_active;
-    ts.warmup_until_slot = state.warmup_until_slot;
-    publish_telemetry_snapshot(state.ctl, ts);
-  }
 
   std::copy(input.begin(), input.end(), state.scratch_a.begin());
   std::span<IqSample> current(state.scratch_a.data(), input.size());
@@ -427,17 +336,17 @@ ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::stri
         std::vector<ocg::TapSpec> effective_taps;
         std::vector<std::array<float, kTdlFracFilterTaps>> effective_polyphase;
 
-        if (state.live_profile_active) {
+        if (state.link->live_profile_active) {
           // v2.0-F3: ALL taps sourced from the live profile. Polyphase
           // recomputed per-tap from each tap's fractional delay so the
           // resulting kernel output matches a fresh prepare with the new
           // profile. CPU↔CUDA parity holds post-warmup because both
           // backends derive polyphase from compute_windowed_sinc_taps.
-          const int n_taps = state.live_profile.n_taps;
+          const int n_taps = state.link->live_profile.n_taps;
           effective_taps.resize(static_cast<std::size_t>(n_taps));
           effective_polyphase.resize(static_cast<std::size_t>(n_taps));
           for (int k = 0; k < n_taps; ++k) {
-            effective_taps[k] = state.live_profile.taps[k];
+            effective_taps[k] = state.link->live_profile.taps[k];
             const double tau_int = std::floor(effective_taps[k].delay_samples);
             const double frac    = effective_taps[k].delay_samples - tau_int;
             compute_windowed_sinc_taps(frac, effective_polyphase[k]);
@@ -468,8 +377,8 @@ ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::stri
                                 effective_taps, effective_polyphase,
                                 step_state.delay_line, step_state.tdl_fading,
                                 sample_rate_hz,
-                                state.clock->slot_start_samples,
-                                state.fading->lane_grids[static_cast<std::size_t>(state.lane_index)]
+                                state.link->clock.slot_start_samples,
+                                state.link->fading.lane_grids[static_cast<std::size_t>(state.lane_index)]
                                                         [step_index],
                                 state.los_coefficient);
         } else {
@@ -484,7 +393,7 @@ ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::stri
   }
 
   std::copy(current.begin(), current.end(), output.begin());
-  return state.clock;
+  return state.link;
 }
 
 void CpuChannelProcessor::process_superposition(const std::string& dst_key,
@@ -523,7 +432,11 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   // here, before any lane is shaped, because the cross-lane step M3.4 inserts
   // between the two loops needs all of a link's rows at once. Nothing in this
   // loop looks at another lane yet, so the output is exactly what M2 produced.
-  thread_local std::vector<PhysicalLinkFading*> touched_links;
+  // M4.2 -- one pass per LINK before any of its lanes is shaped: snap the
+  // control update, then build the lane grids. Both belong here for the same
+  // reason: they are decisions about the link that every lane must see the same
+  // way, and a lane that made them for itself could make them differently.
+  thread_local std::vector<PhysicalLinkRuntime*> touched_links;
   touched_links.clear();
   for (const auto& lane : inputs) {
     if (lane.model == nullptr) {
@@ -531,10 +444,31 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
     }
     LinkState& state = ensure_link_state(lane.link_key, *lane.model, count,
                                          LaneIdentity{.physical_link_key = lane.link_key});
-    if (std::find(touched_links.begin(), touched_links.end(), state.fading) ==
+    if (std::find(touched_links.begin(), touched_links.end(), state.link) ==
         touched_links.end()) {
-      touched_links.push_back(state.fading);
-      state.fading->begin_slot();
+      touched_links.push_back(state.link);
+      state.link->fading.begin_slot();
+      const LinkSnapOutcome outcome = snap_physical_link(*state.link, lane.link_key, count);
+      if (outcome.values_changed || outcome.profile_activated) {
+        // Everything the snap decided is applied to EVERY lane of this link, in
+        // this slot. The values are per lane and the cross-slot rings are per
+        // lane, but the decision was the link's, so the sweep is what turns
+        // "same slot for every lane" from an arrangement into a fact.
+        for (const auto& sibling : inputs) {
+          auto it = states_.find(sibling.link_key);
+          if (it == states_.end() || it->second.link != state.link) {
+            continue;
+          }
+          if (outcome.values_changed) {
+            it->second.live = state.link->live;
+          }
+          if (outcome.profile_activated) {
+            for (auto& step : it->second.steps) {
+              std::fill(step.delay_line.begin(), step.delay_line.end(), IqSample{});
+            }
+          }
+        }
+      }
     }
     refresh_lane_grids(state, *lane.model, count, sample_rate_hz);
   }
@@ -543,25 +477,25 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   // has its independent grid by now; this replaces them with g = L w, so the
   // lane vector has the covariance the topology declared. An iid link returns
   // immediately and its grids are not even read.
-  for (auto* link_fading : touched_links) {
-    link_fading->apply_mixing();
+  for (auto* link : touched_links) {
+    link->fading.apply_mixing();
   }
 
   // Clocks touched by this slot, each advanced once at the end. Reused across
   // calls on this thread; a physical link has one destination node, so no other
   // thread can be advancing the same clock.
-  thread_local std::vector<PhysicalLinkClock*> touched;
+  thread_local std::vector<PhysicalLinkRuntime*> touched;
   touched.clear();
-  const auto touch = [](PhysicalLinkClock* clock) {
-    if (clock == nullptr) {
+  const auto touch = [](PhysicalLinkRuntime* link) {
+    if (link == nullptr) {
       return;
     }
     for (const auto* seen : touched) {
-      if (seen == clock) {
+      if (seen == link) {
         return; // sibling lane of a link already accounted for
       }
     }
-    touched.push_back(clock);
+    touched.push_back(link);
   };
   for (const auto& lane : inputs) {
     if (lane.model == nullptr || lane.samples.size() != count) {
@@ -590,6 +524,10 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
       const std::string key = rx_state_key(dst_key, r, nr);
       LinkState& rx_state = ensure_link_state(key, *rx_model, count,
                                               LaneIdentity{.physical_link_key = key});
+      rx_state.link->fading.begin_slot();
+      if (snap_physical_link(*rx_state.link, key, count).values_changed) {
+        rx_state.live = rx_state.link->live;
+      }
       refresh_lane_grids(rx_state, *rx_model, count, sample_rate_hz);
       touch(apply_chain_to_link(key, *rx_model, summed, row, sample_rate_hz));
     }
@@ -598,8 +536,8 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   // same time origin, so the link's clock moves on by exactly one slot. Doing
   // it here, once per link rather than once per lane, is what makes "the lanes
   // of a link share a time" a property of the code and not of the caller.
-  for (auto* clock : touched) {
-    clock->slot_start_samples += count;
+  for (auto* link : touched) {
+    link->clock.slot_start_samples += count;
   }
 }
 
@@ -610,10 +548,21 @@ CpuChannelProcessor::collect_control_links()
   // BrokerLinkControl by link key. Pointers stay stable for the lifetime
   // of `states_` (no rehashing on read; the broker calls collect_control_
   // links() once after prepare() and hands the map to ControlServer).
+  // M4.2: one entry per PHYSICAL LINK, keyed by the link's own identity -- so a
+  // 2x2 link is one control endpoint rather than four, and the address carries
+  // no lane suffix. At Nt = Nr = 1 the lane key and the link key are the same
+  // string, so an existing 1x1 deployment's link_id does not change.
+  //
+  // Receiver-model rows are deliberately absent: they are node rows, not links.
+  // The CUDA backend never exposed them, and the two backends disagreeing meant
+  // the same REQ succeeded on one and was rejected on the other.
   std::unordered_map<std::string, BrokerLinkControl*> out;
-  out.reserve(states_.size());
-  for (auto& [key, state] : states_) {
-    out.emplace(key, &state.ctl);
+  out.reserve(links_.size());
+  for (auto& [key, link] : links_) {
+    if (rx_model_keys_.count(key) != 0) {
+      continue;
+    }
+    out.emplace(key, &link.control);
   }
   return out;
 }

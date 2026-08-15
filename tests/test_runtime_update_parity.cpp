@@ -18,6 +18,7 @@
 #include "ocudu_gpu_channel/runtime_control.h"
 
 #include <atomic>
+#include <set>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -215,11 +216,111 @@ ocg::TopologyConfig make_awgn_topology(ocg::Backend backend)
 
 }  // namespace
 
+namespace {
+
+// A 2x2 topology, used to check what the control plane addresses.
+ocg::TopologyConfig make_2x2_topology(ocg::Backend backend)
+{
+  ocg::TopologyConfig cfg;
+  cfg.runtime.backend = backend;
+  cfg.runtime.batch_samples_auto = false;
+  cfg.runtime.batch_samples = 8;
+  cfg.runtime.queue_samples = 64;
+  int port = 9800;
+  for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
+    ocg::DeviceConfig d;
+    d.id = id;
+    d.sample_rate_hz = 23040000;
+    d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+    d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+    cfg.devices.push_back(d);
+  }
+  ocg::RadioNodeConfig gnb;
+  gnb.id = "gnb";
+  gnb.tx_ports = {"gnb_p0", "gnb_p1"};
+  gnb.rx_ports = {"gnb_p0", "gnb_p1"};
+  ocg::RadioNodeConfig ue;
+  ue.id = "ue";
+  ue.tx_ports = {"ue_p0", "ue_p1"};
+  ue.rx_ports = {"ue_p0", "ue_p1"};
+  cfg.radio_nodes = {gnb, ue};
+  cfg.links = {{.from = "gnb", .to = "ue", .model = "chain"},
+               {.from = "ue", .to = "gnb", .model = "chain"}};
+  ocg::ModelConfig m;
+  m.id = "chain";
+  ocg::ModelStep tdl;
+  tdl.type = ocg::ModelStepType::Tdl;
+  tdl.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+  tdl.taps_declared = true;
+  m.chain.push_back(tdl);
+  ocg::ModelStep loss;
+  loss.type = ocg::ModelStepType::PathLoss;
+  loss.params["path_loss_db"] = 0.0;
+  m.chain.push_back(loss);
+  cfg.models.emplace("chain", m);
+  return cfg;
+}
+
+std::set<std::string> control_keys(ocg::ChannelProcessor& proc)
+{
+  std::set<std::string> keys;
+  for (const auto& [key, ctl] : proc.collect_control_links()) {
+    require(ctl != nullptr, "a control entry must point at a control block");
+    keys.insert(key);
+  }
+  return keys;
+}
+
+} // namespace
+
 int main()
 {
   const std::vector<ocg::IqSample> input = {
       {1.0F, 0.0F}, {0.0F, 1.0F}, {1.0F, 1.0F}, {0.5F, -0.5F},
       {-1.0F, 0.0F}, {0.0F, -1.0F}, {1.0F, -1.0F}, {-0.5F, 0.5F}};
+
+  // ── M4.2: what the control plane addresses ─────────────────────────────
+  //
+  // A 2x2 link used to appear as four control endpoints, each addressed by a
+  // lane key carrying a `#r1t0` suffix -- the string-format dependence M2
+  // removed from seeding, still sitting on the operator-facing surface. One
+  // link is one endpoint now, and the address is the link's own key.
+  {
+    auto cfg_2x2 = make_2x2_topology(ocg::Backend::Cpu);
+    ocg::CpuChannelProcessor cpu_2x2;
+    cpu_2x2.prepare(cfg_2x2);
+    const auto keys = control_keys(cpu_2x2);
+    require(keys.size() == 2, "a 2x2 link pair is TWO control endpoints, not eight");
+    for (const auto& key : keys) {
+      require(key.find('#') == std::string::npos,
+              "a control address carries no lane suffix");
+    }
+    require(keys.count("gnb>ue:chain") == 1 && keys.count("ue>gnb:chain") == 1,
+            "the address is the physical link's own key");
+
+    // Back-compat: at 1x1 the lane key and the link key are the same string, so
+    // an existing deployment's link_id does not change at all.
+    auto cfg_1x1 = make_topology(ocg::Backend::Cpu);
+    ocg::CpuChannelProcessor cpu_1x1;
+    cpu_1x1.prepare(cfg_1x1);
+    const auto keys_1x1 = control_keys(cpu_1x1);
+    const std::string legacy =
+        ocg::link_key({.from = "gnb0", .to = "ue0", .model = "chain"});
+    require(keys_1x1.count(legacy) == 1,
+            "a 1x1 link keeps the link_id it had before M4");
+
+#if OCUDU_GPU_CHANNEL_HAS_CUDA
+    if (ocg::cuda_compiled()) {
+      // The two backends used to expose DIFFERENT key sets -- the CPU included
+      // receiver-model rows, CUDA did not -- so the same REQ succeeded on one
+      // and was rejected as an unknown link_id on the other.
+      auto cuda_cfg = make_2x2_topology(ocg::Backend::Cuda);
+      auto cuda_2x2 = ocg::create_channel_processor(cuda_cfg);
+      require(control_keys(*cuda_2x2) == keys,
+              "both backends must expose the same control addresses");
+    }
+#endif
+  }
 
   // ── CPU backend: drive 3 slots with path_loss updates between them ─────
   auto cpu_cfg = make_topology(ocg::Backend::Cpu);

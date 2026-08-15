@@ -1,6 +1,6 @@
 #pragma once
-// State owned by a physical link: its absolute time (M2.3) and its lanes'
-// fading grids (M3.3).
+// State owned by a physical link: its absolute time (M2.3), its lanes' fading
+// grids (M3.3), and its runtime-control block (M4.2).
 //
 // Both are here for the same reason. A physical link's lanes are realisations
 // of ONE channel: they share a time origin, and from M3 they also share a
@@ -28,8 +28,11 @@
 // touched clock exactly once per slot, after the slot's lanes have been shaped.
 
 #include "ocudu_gpu_channel/delay.h"
+#include "ocudu_gpu_channel/mutable_params.h"
+#include "ocudu_gpu_channel/runtime_control.h"
 #include <algorithm>
 #include <complex>
+#include <iostream>
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -139,5 +142,120 @@ struct PhysicalLinkFading {
 private:
   std::vector<std::complex<float>> scratch;
 };
+
+// Everything one physical link owns, in one place (M4.2).
+//
+// The control block used to sit on each LANE. A 2x2 link therefore had four of
+// them, four slot counters, and four independent snap points -- so "every lane
+// of a link takes the swap in the same slot" was something a caller could
+// arrange by sending four matching REQs, not something the code guaranteed.
+// Swapping H while half the lanes have taken the swap produces a slot that is
+// two channel matrices mixed together and neither of them.
+//
+// One block per link makes the skew unrepresentable instead of unlikely, which
+// is the move M0 made for cursors, M2 for seeds and time, and M3 for the
+// stochastic generator. The snap runs once per link per slot, before any lane
+// of that link is shaped; lanes only read `live`.
+struct PhysicalLinkRuntime {
+  PhysicalLinkClock clock;
+  PhysicalLinkFading fading;
+
+  // Runtime-mutable state. `live` is what the chain reads; `control.shadow` is
+  // what the ZMQ control thread writes; the snap moves one to the other at a
+  // slot boundary when the seqno has advanced.
+  BrokerLinkControl control;
+  MutableParams live;
+  std::uint32_t live_seqno = 0;
+  // The link's slot index -- ONE definition of "which slot is this", which is
+  // what take_effect_at_slot needs to mean the same thing for every lane.
+  std::uint64_t next_slot = 0;
+
+  // v2.0-F3 profile swap, now per link: a tap layout belongs to the channel,
+  // and the channel is the link.
+  ProfileShadow live_profile;
+  bool live_profile_active = false;
+  bool chain_has_leading_tdl = false;
+  // v2.2 warmup window. The cross-slot ring it refers to is per LANE, so the
+  // zero-fill has to sweep every lane of the link -- see the caller.
+  std::uint64_t warmup_until_slot = 0;
+};
+
+// What a slot-boundary snap decided, for the caller to apply to every lane of
+// the link: the values are per lane and so are the cross-slot rings, but the
+// decision is the link's, and applying it to all lanes in one pass is what
+// makes "the same slot for every lane" a fact rather than an arrangement.
+struct LinkSnapOutcome {
+  bool values_changed = false;
+  bool profile_activated = false;
+};
+
+// Moves a pending control update into the link's `live` at a slot boundary.
+// Runs ONCE per link per slot, before any of its lanes is shaped.
+//
+// Shared by both backends deliberately: this is the rule for when an update
+// takes effect, and two copies of it would eventually disagree about which slot
+// that is -- on a control plane whose whole promise is deterministic timing.
+inline LinkSnapOutcome snap_physical_link(PhysicalLinkRuntime& link,
+                                          const std::string& link_id,
+                                          std::size_t count)
+{
+  // No-op when the seqno has not advanced (one relaxed load and an early
+  // return). The slot counter is the link's, so take_effect_at_slot names the
+  // same slot for every lane.
+  const std::uint64_t snap_idx = link.next_slot;
+  const bool values_changed =
+      snap_mutable_params(link.live, link.live_seqno, link.control, snap_idx);
+  link.next_slot = snap_idx + 1;
+
+  bool profile_activated = false;
+  if (values_changed && link.control.profile_pending) {
+    if (link.chain_has_leading_tdl || link.control.shadow_profile.force) {
+      if (snap_profile_from_shadow(link.live_profile, link.control)) {
+        link.live_profile_active = true;
+        profile_activated = true;
+        // v3.1: force on a chain with no leading tdl stores the profile, but
+        // the per-sample chain never reaches a Tdl branch. Say so.
+        if (!link.chain_has_leading_tdl) {
+          std::cout << "event=control_force_warning link_id=" << link_id
+                    << " reason=\"chain has no leading tdl; profile stored but inert\"\n";
+          link.control.force_inert_warnings.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    }
+  }
+
+  if (profile_activated) {
+    // v2.2 W1: size the warmup window from the leading tdl's ring length. The
+    // rings are zeroed by the caller, one per lane.
+    const auto dl_size = static_cast<std::size_t>(std::max(0, link.control.dl_size_samples_hint));
+    const std::uint64_t warmup_slots =
+        count == 0 ? 1 : std::max<std::uint64_t>(1, (dl_size + count - 1) / count);
+    link.warmup_until_slot = snap_idx + warmup_slots;
+    std::cout << "event=control_warmup_begin slot=" << snap_idx
+              << " link_id=" << link_id << " dl_samples=" << dl_size
+              << " warmup_slots=" << warmup_slots << '\n';
+  }
+
+  // v2.2 W2: this slot closes the warmup window.
+  if (link.warmup_until_slot != 0 && snap_idx >= link.warmup_until_slot) {
+    std::cout << "event=control_warmup_end slot=" << snap_idx
+              << " link_id=" << link_id << '\n';
+    link.warmup_until_slot = 0;
+  }
+
+  // v3.0 TM1: one telemetry frame per LINK per slot -- a 2x2 used to publish
+  // four frames saying the same thing.
+  {
+    TelemetrySnapshot ts;
+    ts.slot = snap_idx;
+    ts.live_seqno = link.live_seqno;
+    ts.live = link.live;
+    ts.profile_active = link.live_profile_active;
+    ts.warmup_until_slot = link.warmup_until_slot;
+    publish_telemetry_snapshot(link.control, ts);
+  }
+  return LinkSnapOutcome{.values_changed = values_changed,
+                         .profile_activated = profile_activated};
+}
 
 } // namespace ocg

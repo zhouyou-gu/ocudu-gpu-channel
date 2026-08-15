@@ -9,6 +9,7 @@
 #include "ocudu_gpu_channel/runtime_control.h"
 #include <array>
 #include <complex>
+#include <set>
 #include <random>
 #include <span>
 #include <string>
@@ -68,56 +69,36 @@ private:
     TdlFadingState tdl_fading;
   };
 
-  // All state owned by one link: two ping-pong scratch buffers and one
-  // StepState per model-chain step. A link is processed by a single thread,
-  // so a LinkState needs no internal locking.
+  // All state owned by one LANE: two ping-pong scratch buffers, one StepState
+  // per model-chain step, and its position in the link's matrix. A lane is
+  // processed by a single thread, so it needs no internal locking.
+  //
+  // What is NOT here, since M4.2: the runtime-control block, `live`, the slot
+  // counter and the profile state. Those belong to the physical link, because a
+  // lane that could hold its own copy could take a swap in a different slot
+  // from its siblings.
   struct LinkState {
     IqBuffer scratch_a;
     IqBuffer scratch_b;
     std::vector<StepState> steps;
-    // Runtime-mutable scalar params (Phase 3 v1). `live` is the canonical
-    // source read by apply_chain_to_link (post-C2a). `ctl.shadow` is the
-    // write target for the ZMQ control thread (Phase 3 C3+); the snap step
-    // at the top of every serve copies shadow → live if ctl.seqno advanced
-    // since the last snap. `live_seqno` tracks the version this LinkState
-    // last consumed.
+
+    // The lane's materialised view of the runtime-mutable parameters.
+    //
+    // The DECISION to change them is the link's (one shadow, one seqno, one
+    // slot gate); the VALUES are per lane, and the snap writes the link's
+    // snapped view into every lane of the link in the same slot. Keeping the
+    // values per lane is what preserves a fixed_mimo matrix: its per-lane tap
+    // weights are folded into per-lane model clones at load time, so a single
+    // shared `live` would overwrite them all with one lane's numbers before any
+    // control plane was even wired. An actual control update DOES flatten them
+    // -- which is why a tap-scope update is rejected on a fixed_mimo model.
     MutableParams live;
-    BrokerLinkControl ctl;
-    std::uint32_t live_seqno = 0;
-    // v2.1: per-link slot index, incremented on every snap call. Passed
-    // into snap_mutable_params so it can update ctl.current_slot and
-    // honour ctl.take_effect_at_slot. Starts at 0 (the first slot the
-    // link serves becomes slot 0).
-    std::uint64_t next_slot = 0;
 
-    // v2.0-F3: live profile-swap state. When `live_profile_active` is true,
-    // the chain executor reads ALL Tdl taps from `live_profile.taps[..n_taps]`
-    // instead of the YAML `step.taps`. Set by the snap path on the first
-    // accepted profile_swap REQ for this link. `chain_has_leading_tdl` is
-    // cached at prepare() so the snap path can do the eligibility check
-    // without re-walking the chain each slot.
-    ProfileShadow live_profile;
-    bool          live_profile_active = false;
-    bool          chain_has_leading_tdl = false;
-    // v2.2: delay-line warmup contract. When a profile_swap activates a
-    // new tap layout the cross-slot ring is stale; the snap path zero-
-    // fills it and sets warmup_until_slot. Output samples produced before
-    // current_slot >= warmup_until_slot are warmup artefacts (typed
-    // exception to the broker's "every sample is meaningful" contract).
-    // 0 = not in warmup.
-    std::uint64_t warmup_until_slot = 0;
-
-    // M2.3: the physical link this lane belongs to owns the absolute sample
-    // time its stochastic channel evolves against. Borrowed from `clocks_`,
-    // which outlives every LinkState; several lanes of one link share one
-    // clock, and none of them advances it -- process_superposition does, once
-    // per slot per link.
-    PhysicalLinkClock* clock = nullptr;
-
-    // M3.3: the same link owns this slot's fading grids for ALL of its lanes.
-    // This state writes into row `lane_index` and reads back the same row; the
-    // rows exist together so that M3.4 can mix across them.
-    PhysicalLinkFading* fading = nullptr;
+    // The link this lane belongs to. Borrowed from `links_`, which outlives
+    // every LinkState; all lanes of a link share one, and none of them advances
+    // its clock or snaps its control -- process_superposition does, once per
+    // slot per link.
+    PhysicalLinkRuntime* link = nullptr;
     int lane_index = 0;
     int lane_count = 1;
     // M3.5: this lane's entry in the link's LOS matrix. 1 + 0j when the model
@@ -142,12 +123,10 @@ private:
   static void refresh_lane_grids(LinkState& state, const ModelConfig& model,
                                  std::size_t count, std::uint64_t sample_rate_hz);
 
-  // One-shot setup for a Tdl step's per-link runtime state. Called from
-  // ensure_link_state whenever a step in the chain is a Tdl step. Static
-  // because it owns no instance state -- the StepState reference carries
-  // everything it needs to populate. `fading_seed` is hashed from the link
-  // key + step index at the call site so both backends draw the same Jakes
-  // sub-ray angles / phases when fading is enabled.
+  // One-shot setup for a Tdl step's per-lane runtime state. Static because it
+  // owns no instance state -- the StepState reference carries everything it
+  // needs. `fading_seed` comes from physical_link_seed + lane_fading_seed at
+  // the call site, so both backends draw the same Jakes sub-rays for a lane.
   static void prepare_tdl_step(StepState& state, const ModelStep& step,
                                std::uint64_t fading_seed);
 
@@ -155,9 +134,9 @@ private:
   // input through its model chain into the provided output span. This is
   // what process_into() used to be -- now private since the public API only
   // exposes the per-node superposition entry point.
-  // Returns the physical-link clock the shaped lane read its time from, so the
-  // caller can advance it once the slot is complete.
-  PhysicalLinkClock* apply_chain_to_link(const std::string& link_key,
+  // Returns the physical link the shaped lane read its time and parameters
+  // from, so the caller can advance its clock once the slot is complete.
+  PhysicalLinkRuntime* apply_chain_to_link(const std::string& link_key,
                                          const ModelConfig& model,
                                          std::span<const IqSample> input,
                                          std::span<IqSample> output,
@@ -166,9 +145,12 @@ private:
   std::unordered_map<std::string, LinkState> states_;
   // Keyed by physical link identity (LaneConfig::physical_link_key). Node-based
   // storage, so a LinkState may hold a pointer into it across insertions.
-  std::unordered_map<std::string, PhysicalLinkClock> clocks_;
-  // Same keying and the same node-based storage rule as `clocks_`.
-  std::unordered_map<std::string, PhysicalLinkFading> link_fadings_;
+  std::unordered_map<std::string, PhysicalLinkRuntime> links_;
+  // Which state keys are receiver-model rows rather than lanes. They are not
+  // links, so M4.2 keeps them off the control surface (the CUDA backend never
+  // exposed them, and the two disagreeing was a REQ succeeding on one backend
+  // and failing on the other).
+  std::set<std::string> rx_model_keys_;
 };
 
 } // namespace ocg

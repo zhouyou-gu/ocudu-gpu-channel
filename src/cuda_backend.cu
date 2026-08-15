@@ -83,29 +83,11 @@ struct LinkModelState {
   // case. The seed is derived from the link key + step index so the CPU and
   // CUDA backends draw the same Jakes sub-ray angles.
   TdlFadingState tdl_fading;
-  // Runtime-mutable scalar params (Phase 3 v1). `live` is the canonical
-  // source read by build_steps (post-C2a). `ctl.shadow` is the write target
-  // for the ZMQ control thread (Phase 3 C3+); the snap step at the top of
-  // every serve copies shadow → live if ctl.seqno advanced since the last
-  // snap. `live_seqno` tracks the version this LinkModelState last consumed.
+  // The lane's materialised view of the runtime-mutable params, read by
+  // build_steps. The DECISION to change them belongs to the link (M4.2); the
+  // values stay per lane so a fixed_mimo matrix, whose per-lane weights are
+  // folded into per-lane model clones, is not flattened by sharing one copy.
   MutableParams live;
-  BrokerLinkControl ctl;
-  std::uint32_t live_seqno = 0;
-  // v2.1: per-link slot index, mirror of CPU LinkState::next_slot.
-  std::uint64_t next_slot = 0;
-
-  // v2.0-F3b: live profile-swap state, mirror of CPU LinkState. When
-  // live_profile_active is true, the next slot's snap path calls
-  // refresh_all_taps_from_live() on the matching DeviceLinkState before
-  // the H2D round-trip, so the channel kernel reads the new tap layout.
-  ProfileShadow live_profile;
-  bool          live_profile_active = false;
-  bool          chain_has_leading_tdl = false;
-  // v2.2: warmup window — see LinkState comment on CPU side. Same
-  // semantic on CUDA; the zero-fill targets host_state->delay_line[]
-  // before the H2D back so the device's cross-slot ring starts the
-  // next slot clear.
-  std::uint64_t warmup_until_slot = 0;
 
   // M3.5: this lane's LOS-matrix entry, used by the host fallback. The device
   // path carries its own copy in DeviceLinkState.
@@ -113,11 +95,9 @@ struct LinkModelState {
   // M3.3: scratch grid for the HOST fallback path (stage_link). The device
   // path gets its grids from generate_fading_grid_kernel instead.
   FadingGrid fallback_grid;
-  // M2.3: borrowed from the processor's clock table. The absolute time the
-  // lane's channel evolves against belongs to its physical link, on the host,
-  // on both dispatch paths -- the device copy in DeviceLinkState is written
-  // from this value, never accumulated independently.
-  PhysicalLinkClock* clock = nullptr;
+  // The physical link this lane belongs to: its clock (M2.3), its lanes' grids
+  // (M3.3) and its control block (M4.2). Borrowed from the processor's table.
+  PhysicalLinkRuntime* link = nullptr;
 };
 
 void init_model_state(LinkModelState& state, std::size_t steps, const std::string& seed_prefix)
@@ -461,9 +441,9 @@ public:
       }
       const ResolvedNode& destination_node = *dst_it->second;
       auto& slot = link_slots_[lane.key];
-      // M2.3: the lane's absolute time lives on its physical link, so sibling
-      // lanes borrow one clock rather than each keeping a counter.
-      slot.model.clock = &clocks_[lane.physical_link_key];
+      // M2.3 / M4.2: time, grids and control all belong to the physical link,
+      // so sibling lanes borrow one runtime rather than each keeping a copy.
+      slot.model.link = &links_[lane.physical_link_key];
       init_model_state(slot.model, model->chain.size(), lane.key);
       // The leading tdl is chain step 0 by construction (validate_cuda_support
       // rejects a non-leading one), so the lane's step-0 seed is the one this
@@ -480,20 +460,23 @@ public:
       // snap is a no-op.
       slot.model.live = populate_mutable_params_from_yaml(
           *model, /*reference_power=*/0.0, destination_node.sample_rate_hz);
-      init_broker_link_control(slot.model.ctl, slot.model.live);
-      // v2.0-F3b: cache the eligibility flag for the snap path's
-      // profile_swap check.
-      slot.model.chain_has_leading_tdl =
+      if (slot.model.link->control.seqno.load(std::memory_order_relaxed) == 0 &&
+          slot.model.link->live_seqno == 0) {
+        slot.model.link->live = slot.model.live;
+        init_broker_link_control(slot.model.link->control, slot.model.link->live);
+      }
+      // v2.0-F3b: eligibility flag for the snap path's profile_swap check.
+      slot.model.link->chain_has_leading_tdl =
           !model->chain.empty() && model->chain.front().type == ModelStepType::Tdl;
 
       // v2.2 follow-on: per-link hints for the control plane's
       // warmup-cap check. delay_line.size() is set by
       // configure_leading_propagation when has_leading_tdl is true.
-      if (slot.model.chain_has_leading_tdl) {
-        slot.model.ctl.dl_size_samples_hint =
+      if (slot.model.link->chain_has_leading_tdl) {
+        slot.model.link->control.dl_size_samples_hint =
             static_cast<int>(slot.model.delay_line.size());
       }
-      slot.model.ctl.slot_count_hint =
+      slot.model.link->control.slot_count_hint =
           static_cast<int>(resolve_batch_samples(config.runtime, destination_node.sample_rate_hz));
     }
 
@@ -900,6 +883,35 @@ public:
         std::copy(edge.samples.data(), edge.samples.data() + count, src_slot);
       }
     }
+    // M4.2 -- one snap per LINK per slot, before any of its edges is staged.
+    // Running it per edge (as it did) meant a 2x2 link could take a swap in
+    // four different slots, which is two channel matrices in one slot and
+    // neither of them.
+    std::vector<PhysicalLinkRuntime*> touched_links;
+    std::vector<LinkSnapOutcome> link_outcomes;
+    touched_links.reserve(inputs.size());
+    link_outcomes.reserve(inputs.size());
+    const auto link_index_of = [&](const PhysicalLinkRuntime* link) -> std::size_t {
+      for (std::size_t i = 0; i != touched_links.size(); ++i) {
+        if (touched_links[i] == link) {
+          return i;
+        }
+      }
+      return touched_links.size(); // unreachable: the pass below inserts every link
+    };
+    for (const auto& edge : inputs) {
+      auto ls_it = link_slots_.find(edge.link_key);
+      if (ls_it == link_slots_.end() || ls_it->second.model.link == nullptr) {
+        continue;
+      }
+      PhysicalLinkRuntime* link = ls_it->second.model.link;
+      if (link_index_of(link) != touched_links.size()) {
+        continue; // a sibling lane already snapped this link
+      }
+      touched_links.push_back(link);
+      link_outcomes.push_back(snap_physical_link(*link, edge.link_key, count));
+    }
+
     for (std::size_t k = 0; k != inputs.size(); ++k) {
       const auto& edge = inputs[k];
       if (edge.model == nullptr || edge.samples.size() != count) {
@@ -912,136 +924,61 @@ public:
       if (ls_it == link_slots_.end()) {
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
-      // Phase 3 C2b: snap any pending shadow update from the control plane
-      // into `live` before build_steps reads it. No-op when seqno hasn't
-      // advanced (single acquire-load + early-return). v2.1 also gates on
-      // take_effect_at_slot via the per-link slot counter.
+      // M4.2: the snap already ran ONCE for this edge's link, in the pass above.
+      // What is left here is per-edge work that the link's decision implies:
+      // take the new values, and refresh the device-side derived fields.
       auto& lms_for_snap = ls_it->second.model;
-      const std::uint64_t snap_idx = lms_for_snap.next_slot;
-      const bool live_changed = snap_mutable_params(
-          lms_for_snap.live, lms_for_snap.live_seqno, lms_for_snap.ctl, snap_idx);
-      lms_for_snap.next_slot = snap_idx + 1;
+      PhysicalLinkRuntime& link = *lms_for_snap.link;
+      const LinkSnapOutcome outcome = link_outcomes[link_index_of(&link)];
+      const std::uint64_t snap_idx = link.next_slot == 0 ? 0 : link.next_slot - 1;
+      if (outcome.values_changed) {
+        lms_for_snap.live = link.live;
+      }
 
-      // v2.0-F3b: profile-swap snap with eligibility check. Same logic
-      // as the CPU branch in apply_chain_to_link — if profile_pending
-      // is set on this seqno bump AND the chain leads with a tdl (or
-      // force=true), copy the profile shadow into live_profile and mark
-      // active. The downstream refresh below picks the all-taps refresh
-      // when active and the tap-0-only refresh otherwise.
-      bool profile_just_activated = false;
-      if (live_changed && lms_for_snap.ctl.profile_pending) {
-        if (lms_for_snap.chain_has_leading_tdl ||
-            lms_for_snap.ctl.shadow_profile.force) {
-          if (snap_profile_from_shadow(lms_for_snap.live_profile,
-                                       lms_for_snap.ctl)) {
-            lms_for_snap.live_profile_active = true;
-            profile_just_activated = true;
-            // v3.1: force on a non-tdl-leading chain → profile stored
-            // but inert. Emit warning + bump per-link counter; same
-            // semantics as the CPU branch.
-            if (!lms_for_snap.chain_has_leading_tdl) {
-              std::cout << "event=control_force_warning link_id=" << edge.link_key
-                        << " reason=\"chain has no leading tdl; profile stored but inert\"\n";
-              lms_for_snap.ctl.force_inert_warnings.fetch_add(
-                  1, std::memory_order_relaxed);
+      // Phase 3 v1-fin-B / v2.0-F3b: when the snap changed tap-0 / LOS params
+      // (v1) or replaced the whole tap layout (v2), refresh the derived fields
+      // the kernel reads from DeviceLinkState. The round-trip is conditional
+      // and the D2H is required: the device owns the cross-slot delay_line, so
+      // an unconditional H2D would clobber that continuity.
+      if (outcome.values_changed && sp.use_device_channel && sp.host_link_states[k].has_tdl) {
+        DeviceLinkState* d_state = sp.device_link_states + k;
+        DeviceLinkState* h_state = &sp.host_link_states[k];
+        check(cudaMemcpyAsync(h_state, d_state, sizeof(DeviceLinkState),
+                              cudaMemcpyDeviceToHost, sp.stream),
+              "snap-refresh D2H");
+        check(cudaStreamSynchronize(sp.stream), "snap-refresh D2H sync");
+        h_state->live = lms_for_snap.live;
+        if (link.live_profile_active) {
+          // v2.0-F3b: all-taps refresh -- the live profile is the canonical
+          // layout for this link.
+          refresh_all_taps_from_live(*h_state, link.live_profile.n_taps,
+                                     link.live_profile.taps);
+          if (outcome.profile_activated) {
+            // v2.2 W1: zero this lane's cross-slot ring so the new layout does
+            // not convolve with the previous profile's tail. Every lane of the
+            // link reaches this in the SAME slot, because the decision that
+            // brought them here was the link's.
+            for (int i = 0; i < kDeviceMaxDelayLine; ++i) {
+              h_state->delay_line[i] = IqSample{};
             }
           }
+        } else {
+          refresh_tap0_from_live(*h_state);
         }
+        check(cudaMemcpyAsync(d_state, h_state, sizeof(DeviceLinkState),
+                              cudaMemcpyHostToDevice, sp.stream),
+              "snap-refresh H2D");
+      }
+      // Host-fallback path keeps its own ring, zeroed on the same slot.
+      if (outcome.profile_activated && !sp.use_device_channel) {
+        std::fill(lms_for_snap.delay_line.begin(), lms_for_snap.delay_line.end(), IqSample{});
       }
 
-      // Phase 3 v1-fin-B / v2.0-F3b: when the snap changed tap-0 / LOS
-      // params (v1) or replaced the whole tap layout (v2), refresh the
-      // derived fields the kernel reads from DeviceLinkState. Round-trip
-      // is conditional: skipped entirely when nothing changed; ~one D2H
-      // + one H2D of one DeviceLinkState per dirty edge per update slot.
-      // D2H is needed because the device owns cross-slot delay_line +
-      // slot_start_samples; an unconditional H2D would clobber that
-      // continuity.
-      if (live_changed && sp.use_device_channel) {
-        std::size_t edge_idx_for_refresh = 0;
-        bool found_edge = false;
-        for (std::size_t kk = 0; kk < inputs.size(); ++kk) {
-          if (inputs[kk].link_key == edge.link_key) {
-            edge_idx_for_refresh = kk;
-            found_edge = true;
-            break;
-          }
-        }
-        if (found_edge && sp.host_link_states[edge_idx_for_refresh].has_tdl) {
-          DeviceLinkState* d_state = sp.device_link_states + edge_idx_for_refresh;
-          DeviceLinkState* h_state = &sp.host_link_states[edge_idx_for_refresh];
-          check(cudaMemcpyAsync(h_state, d_state, sizeof(DeviceLinkState),
-                                cudaMemcpyDeviceToHost, sp.stream),
-                "snap-refresh D2H");
-          check(cudaStreamSynchronize(sp.stream), "snap-refresh D2H sync");
-          // Mirror host live into device state in either case.
-          h_state->live = lms_for_snap.live;
-          if (lms_for_snap.live_profile_active) {
-            // v2.0-F3b: all-taps refresh. Replaces tap-0 refresh too —
-            // the live profile is the canonical layout for this link.
-            refresh_all_taps_from_live(*h_state,
-                                       lms_for_snap.live_profile.n_taps,
-                                       lms_for_snap.live_profile.taps);
-            // v2.2 W1: on profile activation, zero the cross-slot
-            // delay_line so the new tap layout doesn't convolve with
-            // stale ring contents from the prior profile. The next
-            // slot's apply_channel_kernel will reach into a zeroed ring
-            // for any read past the slot's source_iq window; output
-            // samples whose convolution window peeks into the ring are
-            // warmup artefacts (typed exception to the broker's
-            // every-sample-meaningful contract).
-            if (profile_just_activated) {
-              for (int i = 0; i < kDeviceMaxDelayLine; ++i) {
-                h_state->delay_line[i] = IqSample{};
-              }
-              const std::size_t dl_size_samples =
-                  static_cast<std::size_t>(h_state->delay_line_size);
-              const std::size_t count_samples = count;
-              const std::uint64_t warmup_slots = count_samples == 0
-                  ? 1
-                  : ((dl_size_samples + count_samples - 1) / count_samples);
-              lms_for_snap.warmup_until_slot = snap_idx + warmup_slots;
-              std::cout << "event=control_warmup_begin slot=" << snap_idx
-                        << " link_id=" << edge.link_key
-                        << " dl_samples=" << dl_size_samples
-                        << " warmup_slots=" << warmup_slots << '\n';
-            }
-          } else {
-            // v1 path: tap-0 refresh only.
-            refresh_tap0_from_live(*h_state);
-          }
-          check(cudaMemcpyAsync(d_state, h_state, sizeof(DeviceLinkState),
-                                cudaMemcpyHostToDevice, sp.stream),
-                "snap-refresh H2D");
-        }
-      }
-
-      // v2.2 W2: emit end-event when this slot closes the warmup window.
-      if (lms_for_snap.warmup_until_slot != 0 &&
-          snap_idx >= lms_for_snap.warmup_until_slot) {
-        std::cout << "event=control_warmup_end slot=" << snap_idx
-                  << " link_id=" << edge.link_key << '\n';
-        lms_for_snap.warmup_until_slot = 0;
-      }
-
-      // v3.0 TM1: publish per-link telemetry snapshot for the optional
-      // telemetry-publisher thread.
-      {
-        TelemetrySnapshot ts;
-        ts.slot              = snap_idx;
-        ts.live_seqno        = lms_for_snap.live_seqno;
-        ts.live              = lms_for_snap.live;
-        ts.profile_active    = lms_for_snap.live_profile_active;
-        ts.warmup_until_slot = lms_for_snap.warmup_until_slot;
-        publish_telemetry_snapshot(lms_for_snap.ctl, ts);
-      }
       // M2.3: the device copy of this edge's time is written, not
       // accumulated, so record where its link's NEXT slot begins. Read before
       // any clock advance below, so every edge of a link ships the same value.
-      if (lms_for_snap.clock != nullptr) {
-        sp.host_next_slot_start[k] =
-            lms_for_snap.clock->slot_start_samples + static_cast<unsigned long long>(count);
-      }
+      sp.host_next_slot_start[k] =
+          link.clock.slot_start_samples + static_cast<unsigned long long>(count);
       if (sp.use_device_channel) {
         // Device-kernel path: build_steps reads the SHARED source slot for
         // this edge's snr_db power estimator. Edges sharing a source share
@@ -1054,7 +991,7 @@ public:
         // Host stage_link path (legacy).
         IqSample* slot = sp.host_staged + k * count;
         stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz,
-                   ls_it->second.model.clock->slot_start_samples);
+                   ls_it->second.model.link->clock.slot_start_samples);
         build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
       }
       const int nsteps = static_cast<int>(edge.model->chain.size());
@@ -1070,20 +1007,9 @@ public:
     // once per lane. A link has a single destination node, so this thread is
     // its only writer.
     {
-      std::vector<PhysicalLinkClock*> touched;
-      touched.reserve(inputs.size());
-      for (const auto& edge : inputs) {
-        auto ls_it = link_slots_.find(edge.link_key);
-        if (ls_it == link_slots_.end() || ls_it->second.model.clock == nullptr) {
-          continue;
-        }
-        PhysicalLinkClock* clock = ls_it->second.model.clock;
-        if (std::find(touched.begin(), touched.end(), clock) == touched.end()) {
-          touched.push_back(clock);
-        }
-      }
-      for (auto* clock : touched) {
-        clock->slot_start_samples += count;
+      // The links touched this slot are exactly the ones the snap pass found.
+      for (auto* link : touched_links) {
+        link->clock.slot_start_samples += count;
       }
     }
 
@@ -1240,10 +1166,14 @@ public:
     // BrokerLinkControl by link key. Pointers stay stable for the
     // lifetime of `link_slots_`; the broker calls this once after
     // prepare() and hands the map to ControlServer.
+    // M4.2: one entry per PHYSICAL LINK, keyed by the link's identity -- a 2x2
+    // link is one control endpoint, not four, and the address carries no lane
+    // suffix. At Nt = Nr = 1 the two strings are identical, so existing 1x1
+    // deployments keep their link_id.
     std::unordered_map<std::string, BrokerLinkControl*> out;
-    out.reserve(link_slots_.size());
-    for (auto& [key, slot] : link_slots_) {
-      out.emplace(key, &slot.model.ctl);
+    out.reserve(links_.size());
+    for (auto& [key, link] : links_) {
+      out.emplace(key, &link.control);
     }
     return out;
   }
@@ -1362,7 +1292,7 @@ private:
   // M2.3: absolute time, one entry per physical link, keyed by
   // LaneConfig::physical_link_key. Node-based storage, so the pointers the
   // lanes hold stay valid as the table grows.
-  std::unordered_map<std::string, PhysicalLinkClock> clocks_;
+  std::unordered_map<std::string, PhysicalLinkRuntime> links_;
 };
 
 } // namespace
