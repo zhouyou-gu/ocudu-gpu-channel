@@ -2128,139 +2128,197 @@ int main()
     }
   }
 
-  // ---- M3.4: the lane covariance is the one that was declared --------------
+  // ---- M3.4 / M3.6: the lane covariance is the one that was declared -------
   //
   // Same isolation trick as the IID gate above -- two processors driven in
   // lockstep, one exciting each TX port -- so the four lanes of a 2x2 are
   // observed at the same absolute times. What changes is the expectation: with
-  // an RX-side correlation declared, lanes sharing a TX port must now show it,
+  // an RX-side correlation declared, lanes sharing a TX port must show it,
   // while lanes sharing an RX port stay uncorrelated because the TX side is
-  // identity. That asymmetry is the point: it is what a swapped Kronecker
-  // convention gets exactly backwards while every magnitude stays plausible.
+  // identity. That asymmetry is the point: a swapped Kronecker convention gets
+  // it exactly backwards while every magnitude stays plausible.
+  //
+  // Run twice. The real case checks the magnitude; the complex case checks the
+  // PHASE, which is the half of the convention that can be wrong silently --
+  // conjugating a complex R_tx or R_rx changes nothing a magnitude test sees.
   {
     constexpr std::uint64_t sample_rate_hz = 100000;
     constexpr std::size_t batch = 2000;
     constexpr std::size_t n_slots = 200;  // 4 s => ~400 fading cycles
-    constexpr double declared_rx = 0.7;
+    constexpr std::size_t n_lanes = 4;    // 0=(r0,t0) 1=(r1,t0) 2=(r0,t1) 3=(r1,t1)
+    constexpr std::size_t auto_lag = 100; // 1 ms; J_0(2*pi*100*0.001) = 0.904
 
-    ocg::ModelConfig m;
-    m.id = "tdl_correlated";
-    ocg::ModelStep step;
-    step.type = ocg::ModelStepType::Tdl;
-    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
-    step.taps_declared = true;
-    step.fading_enabled = true;
-    step.fading_f_d_max_hz = 100.0;
-    step.fading_grid_us = 100.0;
-    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
-    m.chain.push_back(step);
-    m.spatial_correlation.declared = true;
-    m.spatial_correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
-    m.spatial_correlation.rx = {{.i = 0, .j = 1, .re = declared_rx, .im = 0.0}};
-
-    ocg::TopologyConfig cfg;
-    cfg.runtime.backend = ocg::Backend::Cpu;
-    cfg.runtime.batch_samples_auto = false;
-    cfg.runtime.batch_samples = batch;
-    cfg.runtime.queue_samples = batch * 8;
-    int port = 8300;
-    for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
-      ocg::DeviceConfig d;
-      d.id = id;
-      d.sample_rate_hz = sample_rate_hz;
-      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
-      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
-      cfg.devices.push_back(d);
-    }
-    ocg::RadioNodeConfig gnb;
-    gnb.id = "gnb";
-    gnb.tx_ports = {"gnb_p0", "gnb_p1"};
-    gnb.rx_ports = {"gnb_p0", "gnb_p1"};
-    ocg::RadioNodeConfig ue;
-    ue.id = "ue";
-    ue.tx_ports = {"ue_p0", "ue_p1"};
-    ue.rx_ports = {"ue_p0", "ue_p1"};
-    cfg.radio_nodes = {gnb, ue};
-    cfg.links = {{.from = "gnb", .to = "ue", .model = m.id},
-                 {.from = "ue", .to = "gnb", .model = m.id}};
-    cfg.models.emplace(m.id, m);
-    require(ocg::validate_config(cfg).empty(), "correlated 2x2 topology validates");
-    const auto resolved = ocg::resolve_topology(cfg);
-
-    const ocg::IqBuffer dc(batch, ocg::IqSample{1.0F, 0.0F});
-    const ocg::IqBuffer silent(batch, ocg::IqSample{0.0F, 0.0F});
-    const auto build_lanes = [&](int live_tx) {
-      std::vector<ocg::SuperpositionInput> lanes;
-      for (const auto& lane : resolved.lanes) {
-        if (lane.dst_node != "ue") {
-          continue;
-        }
-        lanes.push_back({.link_key = lane.key,
-                         .model = ocg::find_model(cfg, lane.model_id),
-                         .samples = lane.tx_port == live_tx
-                                        ? std::span<const ocg::IqSample>(dc)
-                                        : std::span<const ocg::IqSample>(silent),
-                         .rx_port = lane.rx_port,
-                         .tx_port = lane.tx_port});
-      }
-      return lanes;
+    struct Measured {
+      std::array<double, n_lanes> power{};
+      std::array<std::array<double, n_lanes>, n_lanes> cross_re{};
+      std::array<std::array<double, n_lanes>, n_lanes> cross_im{};
+      std::array<double, n_lanes> autocorr{};
+      std::array<double, n_lanes> autocorr_pairs{};
     };
-    const auto lanes_tx0 = build_lanes(0);
-    const auto lanes_tx1 = build_lanes(1);
 
-    ocg::CpuChannelProcessor proc_tx0;
-    ocg::CpuChannelProcessor proc_tx1;
-    proc_tx0.prepare(cfg);
-    proc_tx1.prepare(cfg);
+    const auto measure = [&](double rx_re, double rx_im) {
+      ocg::ModelConfig m;
+      m.id = "tdl_correlated";
+      ocg::ModelStep step;
+      step.type = ocg::ModelStepType::Tdl;
+      step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+      step.taps_declared = true;
+      step.fading_enabled = true;
+      step.fading_f_d_max_hz = 100.0;
+      step.fading_grid_us = 100.0;
+      step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+      m.chain.push_back(step);
+      m.spatial_correlation.declared = true;
+      m.spatial_correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
+      m.spatial_correlation.rx = {{.i = 0, .j = 1, .re = rx_re, .im = rx_im}};
 
-    constexpr std::size_t n_lanes = 4;  // 0=(r0,t0) 1=(r1,t0) 2=(r0,t1) 3=(r1,t1)
-    std::array<double, n_lanes> power{};
-    std::array<std::array<double, n_lanes>, n_lanes> cross_re{};
-    std::array<std::array<double, n_lanes>, n_lanes> cross_im{};
-    std::vector<ocg::IqBuffer> rows_a(2, ocg::IqBuffer(batch));
-    std::vector<ocg::IqBuffer> rows_b(2, ocg::IqBuffer(batch));
-    for (std::size_t s = 0; s != n_slots; ++s) {
-      std::span<ocg::IqSample> a[2] = {rows_a[0], rows_a[1]};
-      std::span<ocg::IqSample> b[2] = {rows_b[0], rows_b[1]};
-      proc_tx0.process_superposition("ue", lanes_tx0, nullptr, sample_rate_hz,
-                                     std::span<std::span<ocg::IqSample>>(a));
-      proc_tx1.process_superposition("ue", lanes_tx1, nullptr, sample_rate_hz,
-                                     std::span<std::span<ocg::IqSample>>(b));
-      for (std::size_t n = 0; n != batch; ++n) {
-        const ocg::IqSample g[n_lanes] = {rows_a[0][n], rows_a[1][n],
-                                          rows_b[0][n], rows_b[1][n]};
+      ocg::TopologyConfig cfg;
+      cfg.runtime.backend = ocg::Backend::Cpu;
+      cfg.runtime.batch_samples_auto = false;
+      cfg.runtime.batch_samples = batch;
+      cfg.runtime.queue_samples = batch * 8;
+      int port = 8300;
+      for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
+        ocg::DeviceConfig d;
+        d.id = id;
+        d.sample_rate_hz = sample_rate_hz;
+        d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+        d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+        cfg.devices.push_back(d);
+      }
+      ocg::RadioNodeConfig gnb;
+      gnb.id = "gnb";
+      gnb.tx_ports = {"gnb_p0", "gnb_p1"};
+      gnb.rx_ports = {"gnb_p0", "gnb_p1"};
+      ocg::RadioNodeConfig ue;
+      ue.id = "ue";
+      ue.tx_ports = {"ue_p0", "ue_p1"};
+      ue.rx_ports = {"ue_p0", "ue_p1"};
+      cfg.radio_nodes = {gnb, ue};
+      cfg.links = {{.from = "gnb", .to = "ue", .model = m.id},
+                   {.from = "ue", .to = "gnb", .model = m.id}};
+      cfg.models.emplace(m.id, m);
+      require(ocg::validate_config(cfg).empty(), "correlated 2x2 topology validates");
+      const auto resolved = ocg::resolve_topology(cfg);
+
+      const ocg::IqBuffer dc(batch, ocg::IqSample{1.0F, 0.0F});
+      const ocg::IqBuffer silent(batch, ocg::IqSample{0.0F, 0.0F});
+      const auto build_lanes = [&](int live_tx) {
+        std::vector<ocg::SuperpositionInput> lanes;
+        for (const auto& lane : resolved.lanes) {
+          if (lane.dst_node != "ue") {
+            continue;
+          }
+          lanes.push_back({.link_key = lane.key,
+                           .model = ocg::find_model(cfg, lane.model_id),
+                           .samples = lane.tx_port == live_tx
+                                          ? std::span<const ocg::IqSample>(dc)
+                                          : std::span<const ocg::IqSample>(silent),
+                           .rx_port = lane.rx_port,
+                           .tx_port = lane.tx_port});
+        }
+        return lanes;
+      };
+      const auto lanes_tx0 = build_lanes(0);
+      const auto lanes_tx1 = build_lanes(1);
+
+      ocg::CpuChannelProcessor proc_tx0;
+      ocg::CpuChannelProcessor proc_tx1;
+      proc_tx0.prepare(cfg);
+      proc_tx1.prepare(cfg);
+
+      Measured out;
+      std::vector<ocg::IqBuffer> rows_a(2, ocg::IqBuffer(batch));
+      std::vector<ocg::IqBuffer> rows_b(2, ocg::IqBuffer(batch));
+      std::vector<std::vector<ocg::IqSample>> series(n_lanes, std::vector<ocg::IqSample>(batch));
+      for (std::size_t s = 0; s != n_slots; ++s) {
+        std::span<ocg::IqSample> a[2] = {rows_a[0], rows_a[1]};
+        std::span<ocg::IqSample> b[2] = {rows_b[0], rows_b[1]};
+        proc_tx0.process_superposition("ue", lanes_tx0, nullptr, sample_rate_hz,
+                                       std::span<std::span<ocg::IqSample>>(a));
+        proc_tx1.process_superposition("ue", lanes_tx1, nullptr, sample_rate_hz,
+                                       std::span<std::span<ocg::IqSample>>(b));
+        for (std::size_t n = 0; n != batch; ++n) {
+          const ocg::IqSample g[n_lanes] = {rows_a[0][n], rows_a[1][n],
+                                            rows_b[0][n], rows_b[1][n]};
+          for (std::size_t i = 0; i != n_lanes; ++i) {
+            series[i][n] = g[i];
+            out.power[i] += static_cast<double>(g[i].i) * g[i].i +
+                            static_cast<double>(g[i].q) * g[i].q;
+            for (std::size_t j = 0; j != n_lanes; ++j) {
+              // g_i * conj(g_j)
+              out.cross_re[i][j] += static_cast<double>(g[i].i) * g[j].i +
+                                    static_cast<double>(g[i].q) * g[j].q;
+              out.cross_im[i][j] += static_cast<double>(g[i].q) * g[j].i -
+                                    static_cast<double>(g[i].i) * g[j].q;
+            }
+          }
+        }
+        // Temporal autocorrelation within the slot, one lag. Correlating lanes
+        // must not disturb each lane's own spectrum.
         for (std::size_t i = 0; i != n_lanes; ++i) {
-          power[i] += static_cast<double>(g[i].i) * g[i].i +
-                      static_cast<double>(g[i].q) * g[i].q;
-          for (std::size_t j = 0; j != n_lanes; ++j) {
-            cross_re[i][j] += static_cast<double>(g[i].i) * g[j].i +
-                              static_cast<double>(g[i].q) * g[j].q;
-            cross_im[i][j] += static_cast<double>(g[i].q) * g[j].i -
-                              static_cast<double>(g[i].i) * g[j].q;
+          for (std::size_t n = 0; n + auto_lag < batch; ++n) {
+            out.autocorr[i] += static_cast<double>(series[i][n].i) * series[i][n + auto_lag].i +
+                               static_cast<double>(series[i][n].q) * series[i][n + auto_lag].q;
+            out.autocorr_pairs[i] += 1.0;
           }
         }
       }
-    }
-    const auto rho = [&](std::size_t i, std::size_t j) {
-      return std::sqrt(cross_re[i][j] * cross_re[i][j] + cross_im[i][j] * cross_im[i][j]) /
-             std::sqrt(power[i] * power[j]);
+      return out;
     };
-    // Same 0.15 as the IID gate, and for the same measured reason: that gate
-    // put the estimator's noise floor at 0.065 over this many fading cycles.
-    require(std::fabs(rho(0, 1) - declared_rx) < 0.15,
-            "lanes differing only in RX port must carry the declared rx correlation");
-    require(std::fabs(rho(2, 3) - declared_rx) < 0.15,
-            "the same holds on the other TX port");
-    require(rho(0, 2) < 0.15,
-            "lanes differing only in TX port stay uncorrelated when tx is identity");
-    require(rho(1, 3) < 0.15,
-            "the same holds on the other RX port");
-    // Unit-diagonal R preserves per-lane power, so the marginal statistics the
-    // M2 gates measured are unchanged by correlating.
-    const double mean_power = (power[0] + power[1] + power[2] + power[3]) /
-                              (4.0 * static_cast<double>(batch * n_slots));
-    require(mean_power > 0.8 && mean_power < 1.2,
-            "a unit-diagonal correlation must not change a lane's power");
+
+    // (a) Real correlation: magnitudes.
+    {
+      constexpr double declared = 0.7;
+      const Measured measured = measure(declared, 0.0);
+      const auto rho = [&](std::size_t i, std::size_t j) {
+        return std::sqrt(measured.cross_re[i][j] * measured.cross_re[i][j] +
+                         measured.cross_im[i][j] * measured.cross_im[i][j]) /
+               std::sqrt(measured.power[i] * measured.power[j]);
+      };
+      // Same 0.15 as the IID gate, and for the same measured reason: that gate
+      // put this estimator's noise floor at 0.065 over this many fading cycles.
+      require(std::fabs(rho(0, 1) - declared) < 0.15,
+              "lanes differing only in RX port must carry the declared rx correlation");
+      require(std::fabs(rho(2, 3) - declared) < 0.15,
+              "the same holds on the other TX port");
+      require(rho(0, 2) < 0.15,
+              "lanes differing only in TX port stay uncorrelated when tx is identity");
+      require(rho(1, 3) < 0.15, "the same holds on the other RX port");
+
+      const double mean_power =
+          (measured.power[0] + measured.power[1] + measured.power[2] + measured.power[3]) /
+          (4.0 * static_cast<double>(batch * n_slots));
+      require(mean_power > 0.8 && mean_power < 1.2,
+              "a unit-diagonal correlation must not change a lane's power");
+
+      // Each lane is now a mix of independent Jakes processes with the same
+      // spectrum, so its autocorrelation is a WEIGHTED AVERAGE of theirs --
+      // which lands closer to J_0 than any single realisation, not further.
+      for (std::size_t i = 0; i != n_lanes; ++i) {
+        const double r0 = measured.power[i] / static_cast<double>(batch * n_slots);
+        const double r = measured.autocorr[i] / measured.autocorr_pairs[i] / r0;
+        require(std::fabs(r - 0.904) < 0.15,
+                "correlating lanes must leave each lane's own Doppler spectrum alone");
+      }
+    }
+
+    // (b) Complex correlation: the PHASE of the cross-correlation must be the
+    // declared one. This is what pins E[g g^H] = R_rx (x) R_tx with the blocks
+    // used as written -- conjugating either side leaves every magnitude here
+    // untouched and flips this sign.
+    {
+      constexpr double declared_re = 0.5;
+      constexpr double declared_im = 0.3;
+      const Measured measured = measure(declared_re, declared_im);
+      const double norm = std::sqrt(measured.power[0] * measured.power[1]);
+      const double got_re = measured.cross_re[0][1] / norm;
+      const double got_im = measured.cross_im[0][1] / norm;
+      require(std::fabs(got_re - declared_re) < 0.15,
+              "the real part of a complex declared correlation must come back");
+      require(std::fabs(got_im - declared_im) < 0.15,
+              "and so must the imaginary part, with the sign the convention fixes");
+    }
   }
 
   // ---- M3.5: the LOS phase relationship is the declared one ----------------
