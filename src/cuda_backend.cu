@@ -1,6 +1,7 @@
 #include "ocudu_gpu_channel/backend.h"
 #include "ocudu_gpu_channel/cuda_backend.h"
 #include "ocudu_gpu_channel/delay.h"
+#include "ocudu_gpu_channel/correlation.h"
 #include "ocudu_gpu_channel/device_channel.h"
 #include "ocudu_gpu_channel/physical_link.h"
 #include "ocudu_gpu_channel/mutable_params.h"
@@ -335,6 +336,10 @@ struct CudaSuperposeState {
   // M3.3: this slot's Jakes grids for every incoming edge, written by
   // generate_fading_grid_kernel and read by apply_channel_kernel.
   float* device_fading_grid = nullptr;
+  // M3.4: one entry per correlated link feeding this node. Empty when nothing
+  // is correlated, and the mixing kernel then does not launch at all.
+  DeviceCorrelationGroup* device_correlation_groups = nullptr;
+  std::size_t n_correlation_groups = 0;
   std::size_t num_sources = 0;
   // Per-edge mapping built at prepare time: for each unique source slot s in
   // [0, num_sources), source_first_edge[s] is the index k of the FIRST edge
@@ -379,6 +384,7 @@ void free_superpose_state(CudaSuperposeState& state)
   if (state.h2d_done != nullptr)       { cudaEventDestroy(state.h2d_done);       state.h2d_done = nullptr; }
   if (state.h2d_start != nullptr)      { cudaEventDestroy(state.h2d_start);      state.h2d_start = nullptr; }
   if (state.stream != nullptr)         { cudaStreamDestroy(state.stream);        state.stream = nullptr; }
+  if (state.device_correlation_groups != nullptr) { cudaFree(state.device_correlation_groups); state.device_correlation_groups = nullptr; }
   if (state.device_fading_grid != nullptr)     { cudaFree(state.device_fading_grid);         state.device_fading_grid = nullptr; }
   if (state.device_next_slot_start != nullptr) { cudaFree(state.device_next_slot_start);     state.device_next_slot_start = nullptr; }
   if (state.host_next_slot_start != nullptr)   { cudaFreeHost(state.host_next_slot_start);    state.host_next_slot_start = nullptr; }
@@ -398,6 +404,7 @@ void free_superpose_state(CudaSuperposeState& state)
   state.max_links = 0;
   state.max_steps = 0;
   state.num_sources = 0;
+  state.n_correlation_groups = 0;
   state.use_device_channel = false;
   state.host_link_states.clear();
   state.host_link_states.shrink_to_fit();
@@ -608,12 +615,18 @@ public:
       sp.source_first_edge.clear();
       std::vector<int> per_edge_src_index;
       per_edge_src_index.reserve(incoming);
+      // M3.4: which link each edge belongs to and where it sits in that link's
+      // matrix, recorded in the same walk so the correlation groups below are
+      // built from the resolver's lane view rather than a second derivation.
+      std::vector<const LaneConfig*> per_edge_lane;
+      per_edge_lane.reserve(incoming);
       for (const auto& lane : resolved.lanes) {
         if (lane.dst_node != node.id) continue;
         const auto* model = find_model(config, lane.model_id);
         if (model == nullptr) continue;
         auto ls_it = link_slots_.find(lane.key);
         if (ls_it == link_slots_.end()) continue;
+        per_edge_lane.push_back(&lane);
         auto [it, inserted] = src_to_index.try_emplace(
             lane.src_device, static_cast<int>(sp.source_first_edge.size()));
         if (inserted) {
@@ -694,6 +707,74 @@ public:
         ++k_idx;
       }
       sp.use_device_channel = all_leading_tdl;
+
+      // M3.4: group this node's edges by physical link, and build the mixing
+      // matrix of each correlated one.
+      std::vector<DeviceCorrelationGroup> groups;
+      {
+        std::unordered_map<std::string, std::size_t> group_of;
+        for (std::size_t edge = 0; edge != per_edge_lane.size(); ++edge) {
+          const LaneConfig& lane = *per_edge_lane[edge];
+          const auto* model = find_model(config, lane.model_id);
+          if (model == nullptr || !model->spatial_correlation.declared ||
+              model->spatial_correlation.kind == SpatialCorrelationKind::Iid) {
+            continue;
+          }
+          // A correlated link cannot be served by the host fallback: the
+          // fallback stages each edge on its own and has no cross-lane step, so
+          // it would silently drop the correlation. Refuse instead.
+          if (!sp.use_device_channel) {
+            throw std::runtime_error(
+                "node " + node.id + " falls back to host staging (an incoming edge does not lead "
+                "with tdl), but link " + lane.physical_link_key +
+                " declares spatial_correlation, which only the device path applies");
+          }
+          auto [it, inserted] = group_of.try_emplace(lane.physical_link_key, groups.size());
+          if (inserted) {
+            DeviceCorrelationGroup group{};
+            group.n_lanes = lane.nt * lane.nr;
+            for (int l = 0; l != kMaxCorrelatedLanes; ++l) {
+              group.edge_index[l] = -1;
+            }
+            std::vector<CplxD> mixing;
+            std::string error;
+            if (!lane_mixing_matrix(model->spatial_correlation, lane.nt, lane.nr, mixing, error)) {
+              throw std::runtime_error("link " + lane.physical_link_key + ": " + error);
+            }
+            const int n = group.n_lanes;
+            for (int r0 = 0; r0 != n; ++r0) {
+              for (int c0 = 0; c0 != n; ++c0) {
+                const CplxD value = mixing[static_cast<std::size_t>(r0) * n + c0];
+                group.mixing_re[r0][c0] = static_cast<float>(value.real());
+                group.mixing_im[r0][c0] = static_cast<float>(value.imag());
+              }
+            }
+            groups.push_back(group);
+          }
+          groups[it->second].edge_index[lane.rx_port * lane.nt + lane.tx_port] =
+              static_cast<int>(edge);
+        }
+        for (const auto& group : groups) {
+          for (int l = 0; l != group.n_lanes; ++l) {
+            if (group.edge_index[l] < 0) {
+              throw std::runtime_error(
+                  "node " + node.id +
+                  " has a correlated link with a missing lane; correlation is defined over the "
+                  "whole Nt x Nr matrix");
+            }
+          }
+        }
+      }
+      sp.n_correlation_groups = groups.size();
+      if (!groups.empty()) {
+        check(cudaMalloc(reinterpret_cast<void**>(&sp.device_correlation_groups),
+                         groups.size() * sizeof(DeviceCorrelationGroup)),
+              "cudaMalloc superpose correlation groups");
+        check(cudaMemcpy(sp.device_correlation_groups, groups.data(),
+                         groups.size() * sizeof(DeviceCorrelationGroup), cudaMemcpyHostToDevice),
+              "cudaMemcpy correlation groups H2D");
+      }
+
       check(cudaMemcpy(sp.device_link_states, sp.host_link_states.data(),
                        incoming * sizeof(DeviceLinkState), cudaMemcpyHostToDevice),
             "cudaMemcpy device_link_states H2D");
@@ -1064,6 +1145,16 @@ public:
                                          static_cast<float>(sample_rate_hz),
                                          sp.stream);
       check(cudaGetLastError(), "generate_fading_grid_kernel launch");
+      if (sp.n_correlation_groups != 0) {
+        launch_mix_fading_grid_kernel(sp.device_fading_grid,
+                                      sp.device_correlation_groups,
+                                      sp.device_link_states,
+                                      static_cast<int>(sp.n_correlation_groups),
+                                      static_cast<int>(count),
+                                      static_cast<float>(sample_rate_hz),
+                                      sp.stream);
+        check(cudaGetLastError(), "mix_fading_grid_kernel launch");
+      }
       launch_apply_channel_kernel_static(sp.device_link_states,
                                           sp.device_source_iq,
                                           sp.device_fading_grid,

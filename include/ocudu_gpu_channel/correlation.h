@@ -30,6 +30,12 @@ namespace ocg {
 
 using CplxD = std::complex<double>;
 
+// Largest lane count a correlated link may have (4x4). The device mixing kernel
+// holds a lane vector in registers, so the bound is real and shared: the
+// validator rejects above it rather than letting a topology reach a kernel that
+// cannot represent it.
+constexpr int kMaxCorrelatedLanes = 16;
+
 // Dense row-major Hermitian matrix built from the sparse upper-triangle
 // entries: unit diagonal, entry (i, j) as declared, (j, i) its conjugate.
 // Assumes the entries have already been validated for range and duplicates.

@@ -1071,22 +1071,27 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     // Correlation is a property of a stochastic channel. On a chain with no
     // fading there is nothing to correlate, and a block that does nothing is
     // worse than one that is rejected.
-    bool has_fading = false;
     bool has_los_tap = false;
     for (const auto& step : model.chain) {
       if (step.type != ModelStepType::Tdl || !step.fading_enabled) {
         continue;
       }
-      has_fading = true;
       for (const auto& tap : step.taps) {
         if (tap.is_los) {
           has_los_tap = true;
         }
       }
     }
-    if (correlated && !has_fading) {
+    // The correlated step is the chain-LEADING one: it is the propagation step,
+    // the channel itself, and it is the only one the CUDA backend runs as a tdl
+    // at all. Requiring it here means "the correlated step" and "step 0" are the
+    // same thing by construction, so neither backend has to search for it.
+    const bool leads_with_fading_tdl = !model.chain.empty() &&
+                                       model.chain.front().type == ModelStepType::Tdl &&
+                                       model.chain.front().fading_enabled;
+    if (correlated && !leads_with_fading_tdl) {
       errors.emplace_back("model " + model_id +
-                          " declares spatial_correlation but its chain has no fading tdl step to correlate");
+                          " declares spatial_correlation but its chain does not lead with a fading tdl step");
     }
     // fixed_mimo says what H IS; spatial_correlation says the covariance of a
     // random H. Both at once states H twice, and fixed_mimo also deletes the
@@ -1180,6 +1185,12 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
                                 " outside its " + std::to_string(nt) + " TX port(s)");
             in_range = false;
           }
+        }
+        if (nt * nr > kMaxCorrelatedLanes) {
+          errors.emplace_back(where + " has " + std::to_string(nt * nr) +
+                              " lanes, above the " + std::to_string(kMaxCorrelatedLanes) +
+                              " a correlated link supports");
+          in_range = false;
         }
         if (in_range) {
           std::vector<CplxD> mixing;

@@ -125,6 +125,66 @@ __global__ void generate_fading_grid_kernel(
   }
 }
 
+// The cross-lane step (M3.4). One block per correlated link; threads split the
+// (tap, grid point) pairs. Each thread reads that point's lane vector w across
+// the link's edges, forms g = L w, and writes it back.
+//
+// This is the whole reason the generator was lifted out of the convolution: it
+// needs every lane of a link at one tap and one grid point, which no per-edge
+// block could ever see.
+__global__ void mix_fading_grid_kernel(
+    float2* __restrict__ grid,
+    const DeviceCorrelationGroup* __restrict__ groups,
+    const DeviceLinkState* __restrict__ states,
+    int n_groups,
+    int count,
+    float sample_rate_hz)
+{
+  const int gi = blockIdx.x;
+  if (gi >= n_groups) {
+    return;
+  }
+  const DeviceCorrelationGroup* group = &groups[gi];
+  const int n_lanes = group->n_lanes;
+  if (n_lanes <= 0) {
+    return;
+  }
+  const DeviceLinkState* first = &states[group->edge_index[0]];
+  if (first->has_tdl == 0 || first->fading_enabled == 0) {
+    return;
+  }
+  int grid_stride = 1;
+  int grid_points = 0;
+  fading_grid_shape(first, count, sample_rate_hz, &grid_stride, &grid_points);
+  const int n_taps = first->n_taps;
+  const int total = n_taps * grid_points;
+
+  for (int cell = threadIdx.x; cell < total; cell += blockDim.x) {
+    const int kt = cell / grid_points;
+    const int gp = cell - kt * grid_points;
+    float w_re[kMaxCorrelatedLanes];
+    float w_im[kMaxCorrelatedLanes];
+    for (int l = 0; l < n_lanes; ++l) {
+      const float2 value =
+          grid[((size_t)group->edge_index[l] * kDeviceMaxTaps + kt) * kDeviceMaxGridPoints + gp];
+      w_re[l] = value.x;
+      w_im[l] = value.y;
+    }
+    for (int l = 0; l < n_lanes; ++l) {
+      float acc_re = 0.0f;
+      float acc_im = 0.0f;
+      for (int c = 0; c < n_lanes; ++c) {
+        const float mr = group->mixing_re[l][c];
+        const float mi = group->mixing_im[l][c];
+        acc_re += mr * w_re[c] - mi * w_im[c];
+        acc_im += mr * w_im[c] + mi * w_re[c];
+      }
+      grid[((size_t)group->edge_index[l] * kDeviceMaxTaps + kt) * kDeviceMaxGridPoints + gp] =
+          make_float2(acc_re, acc_im);
+    }
+  }
+}
+
 __global__ void apply_channel_kernel(
     const DeviceLinkState* __restrict__ states,
     const IqSample* __restrict__ source_iq,
@@ -554,6 +614,23 @@ void launch_generate_fading_grid_kernel(
   cudaStream_t s = static_cast<cudaStream_t>(stream);
   generate_fading_grid_kernel<<<n_links, kDeviceMaxTaps, 0, s>>>(
       states, reinterpret_cast<float2*>(grid), n_links, count, sample_rate_hz);
+}
+
+void launch_mix_fading_grid_kernel(
+    float* grid,
+    const DeviceCorrelationGroup* groups,
+    const DeviceLinkState* states,
+    int n_groups,
+    int count,
+    float sample_rate_hz,
+    void* stream)
+{
+  if (n_groups <= 0 || count <= 0) {
+    return;
+  }
+  cudaStream_t s = static_cast<cudaStream_t>(stream);
+  mix_fading_grid_kernel<<<n_groups, 256, 0, s>>>(
+      reinterpret_cast<float2*>(grid), groups, states, n_groups, count, sample_rate_hz);
 }
 
 void launch_apply_channel_kernel_static(

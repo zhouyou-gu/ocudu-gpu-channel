@@ -28,7 +28,10 @@
 // touched clock exactly once per slot, after the slot's lanes have been shaped.
 
 #include "ocudu_gpu_channel/delay.h"
+#include <algorithm>
+#include <complex>
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 namespace ocg {
@@ -52,6 +55,23 @@ struct PhysicalLinkClock {
 struct PhysicalLinkFading {
   std::vector<std::vector<FadingGrid>> lane_grids;
 
+  // M3.4: the lane mixing matrix L, row-major, lanes x lanes, with L L^H = R.
+  // EMPTY for an iid link, and an empty matrix means the mixing step is skipped
+  // outright rather than multiplied by the identity -- multiplying would change
+  // the order of float operations and cost the bit-exact evidence that an
+  // uncorrelated topology still behaves exactly as it did before M3.
+  std::vector<std::complex<float>> mixing;
+  int lanes = 1;
+  // Which lanes have had their grid built for the slot in progress. Mixing
+  // reads every lane of the link at once, so it has to know they are all there:
+  // a stale row would be silently mixed into the others.
+  std::vector<char> lane_ready;
+
+  void begin_slot()
+  {
+    lane_ready.assign(static_cast<std::size_t>(std::max(lanes, 1)), 0);
+  }
+
   // Sizes the table for a link of `lane_count` lanes whose model chain has
   // `steps` steps. Idempotent, and cheap after the first slot: the grids keep
   // their storage across slots and are overwritten in place.
@@ -65,7 +85,59 @@ struct PhysicalLinkFading {
         per_step.resize(steps);
       }
     }
+    if (lane_ready.size() < lane_count) {
+      lane_ready.resize(lane_count, 0);
+    }
   }
+
+  // Replaces the link's independent grids w with the correlated g = L w, at
+  // every tap and every grid point of the chain-leading step.
+  //
+  // Only the leading step is mixed. It is the propagation step -- the channel
+  // itself -- and the validator requires a correlated model to lead with a
+  // fading tdl, so "the correlated step" and "step 0" are the same thing by
+  // construction rather than by convention.
+  void apply_mixing()
+  {
+    if (mixing.empty()) {
+      return; // iid: untouched, so bit-identical to the pre-M3 path
+    }
+    const auto n = static_cast<std::size_t>(lanes);
+    for (std::size_t l = 0; l != n; ++l) {
+      if (l >= lane_ready.size() || lane_ready[l] == 0) {
+        throw std::runtime_error(
+            "spatial correlation needs every lane of the link in the same slot, "
+            "but one lane's grid was not built");
+      }
+    }
+    const FadingGrid& first = lane_grids[0][0];
+    const std::size_t taps = first.taps;
+    const std::size_t points = first.points;
+    if (taps == 0 || points == 0) {
+      return;
+    }
+    if (scratch.size() < n) {
+      scratch.resize(n);
+    }
+    for (std::size_t k = 0; k != taps; ++k) {
+      for (std::size_t g = 0; g != points; ++g) {
+        for (std::size_t l = 0; l != n; ++l) {
+          scratch[l] = lane_grids[l][0].tap(k)[g];
+        }
+        for (std::size_t l = 0; l != n; ++l) {
+          std::complex<float> acc{0.0F, 0.0F};
+          const std::complex<float>* row = mixing.data() + l * n;
+          for (std::size_t c = 0; c != n; ++c) {
+            acc += row[c] * scratch[c];
+          }
+          lane_grids[l][0].tap(k)[g] = acc;
+        }
+      }
+    }
+  }
+
+private:
+  std::vector<std::complex<float>> scratch;
 };
 
 } // namespace ocg

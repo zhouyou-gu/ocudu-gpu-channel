@@ -1,4 +1,5 @@
 #include "ocudu_gpu_channel/cpu_backend.h"
+#include "ocudu_gpu_channel/correlation.h"
 #include "ocudu_gpu_channel/delay.h"
 #include <algorithm>
 #include <cmath>
@@ -132,6 +133,7 @@ void CpuChannelProcessor::refresh_lane_grids(LinkState& state, const ModelConfig
     generate_fading_grid(state.steps[i].tdl_fading, model.chain[i].taps.size(), count,
                          sample_rate_hz, state.clock->slot_start_samples, per_step[i]);
   }
+  state.fading->lane_ready[static_cast<std::size_t>(state.lane_index)] = 1;
 }
 
 void CpuChannelProcessor::prepare(const TopologyConfig& config)
@@ -160,6 +162,45 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
                                    .tx_port = lane.tx_port,
                                    .nt = lane.nt,
                                    .nr = lane.nr});
+  }
+
+  // M3.4: one mixing matrix per physical link. Built here, from the resolver's
+  // per-link lane grouping, so the backend never derives its own view of which
+  // lanes belong together.
+  for (const auto& group : resolved.link_groups) {
+    int first_live = -1;
+    for (int position : group.lane_index) {
+      if (position >= 0) {
+        first_live = position;
+        break;
+      }
+    }
+    if (first_live < 0) {
+      continue;
+    }
+    const auto* model = find_model(config, resolved.lanes[static_cast<std::size_t>(first_live)].model_id);
+    if (model == nullptr) {
+      continue;
+    }
+    auto& fading = link_fadings_[group.physical_link_key];
+    fading.lanes = group.nt * group.nr;
+    fading.mixing.clear();
+    if (!model->spatial_correlation.declared ||
+        model->spatial_correlation.kind == SpatialCorrelationKind::Iid) {
+      continue; // iid links skip the mixing entirely
+    }
+    std::vector<CplxD> mixing;
+    std::string error;
+    if (!lane_mixing_matrix(model->spatial_correlation, group.nt, group.nr, mixing, error)) {
+      // validate_config runs the same factorisation, so reaching here means a
+      // programmatic config that never went through it.
+      throw std::runtime_error("link " + group.physical_link_key + ": " + error);
+    }
+    fading.mixing.assign(mixing.size(), std::complex<float>{0.0F, 0.0F});
+    for (std::size_t k = 0; k != mixing.size(); ++k) {
+      fading.mixing[k] = std::complex<float>(static_cast<float>(mixing[k].real()),
+                                             static_cast<float>(mixing[k].imag()));
+    }
   }
 
   // Receiver-model state, one entry per output ROW. Sibling rows must not share
@@ -477,13 +518,28 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   // here, before any lane is shaped, because the cross-lane step M3.4 inserts
   // between the two loops needs all of a link's rows at once. Nothing in this
   // loop looks at another lane yet, so the output is exactly what M2 produced.
+  thread_local std::vector<PhysicalLinkFading*> touched_links;
+  touched_links.clear();
   for (const auto& lane : inputs) {
     if (lane.model == nullptr) {
       throw std::runtime_error("CPU superposition input is malformed");
     }
     LinkState& state = ensure_link_state(lane.link_key, *lane.model, count,
                                          LaneIdentity{.physical_link_key = lane.link_key});
+    if (std::find(touched_links.begin(), touched_links.end(), state.fading) ==
+        touched_links.end()) {
+      touched_links.push_back(state.fading);
+      state.fading->begin_slot();
+    }
     refresh_lane_grids(state, *lane.model, count, sample_rate_hz);
+  }
+
+  // M3.4 -- the cross-lane step, in the gap M3.3 opened. Every lane of a link
+  // has its independent grid by now; this replaces them with g = L w, so the
+  // lane vector has the covariance the topology declared. An iid link returns
+  // immediately and its grids are not even read.
+  for (auto* link_fading : touched_links) {
+    link_fading->apply_mixing();
   }
 
   // Clocks touched by this slot, each advanced once at the end. Reused across

@@ -25,6 +25,7 @@
 //     of one slot's worth of work, then writes the cross-slot updates back.
 
 #include "ocudu_gpu_channel/config.h"
+#include "ocudu_gpu_channel/correlation.h"
 #include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/iq.h"
 #include "ocudu_gpu_channel/mutable_params.h"
@@ -61,6 +62,21 @@ static_assert(kDeviceMaxFadingSubrays == kTdlFadingSinusoids,
 // or shorter grid_us values. If runtime grid_count exceeds this, the kernel
 // clamps (slight interpolation accuracy loss; the host path is unaffected).
 constexpr int kDeviceMaxGridPoints = 32;
+
+// One correlated physical link, as the device sees it (M3.4): which edges of
+// this node are its lanes, in lane order l = r*Nt + t, and the mixing matrix L
+// with L L^H = R. Split into real and imaginary planes so the struct stays POD
+// and cudaMemcpy-able without a complex type on the device.
+//
+// Only correlated links get one. An iid link is absent from the table, and the
+// mixing kernel then never touches its grids -- which is what keeps an
+// uncorrelated topology bit-identical to its pre-M3 self.
+struct DeviceCorrelationGroup {
+  int n_lanes;
+  int edge_index[kMaxCorrelatedLanes];
+  float mixing_re[kMaxCorrelatedLanes][kMaxCorrelatedLanes];
+  float mixing_im[kMaxCorrelatedLanes][kMaxCorrelatedLanes];
+};
 
 // One per (dst_node × incoming edge). Built host-side from
 // LinkModelState + TdlFadingState + the link's TapSpec array, copied to
@@ -215,6 +231,20 @@ void launch_generate_fading_grid_kernel(
     const DeviceLinkState* states,
     float* grid,
     int n_links,
+    int count,
+    float sample_rate_hz,
+    void* stream);
+
+// Replaces each correlated link's independent grids w with g = L w, in place,
+// at every tap and grid point. Runs between the generator and the convolution
+// on the same stream -- the gap M3.3 opened.
+//
+// Launch: dim3(n_groups), dim3(256).
+void launch_mix_fading_grid_kernel(
+    float* grid,
+    const DeviceCorrelationGroup* groups,
+    const DeviceLinkState* states,
+    int n_groups,
     int count,
     float sample_rate_hz,
     void* stream);
