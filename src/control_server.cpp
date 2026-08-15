@@ -524,6 +524,14 @@ std::string handle_scalar_update(
     return emit_rejection(ctx, "unknown link_id: " + link_id);
   }
 
+  // M4.5: tap-scope params on a fixed_mimo link would overwrite the folded
+  // matrix coefficients of every lane with one number.
+  if (it_ctl->second->fixed_mimo_declared && param.rfind("tap0_", 0) == 0) {
+    return emit_rejection(ctx,
+        "link " + link_id + " declares fixed_mimo, whose per-lane tap weights carry the "
+        "matrix; a tap-scope update would erase it (scalar params like path_loss_db are fine)");
+  }
+
   const ParamSpec* spec = find_param_spec(param);
   if (spec == nullptr) {
     return emit_rejection(ctx, "unknown param: " + param);
@@ -741,9 +749,9 @@ std::string handle_correlation_swap(
     << " take_effect_at_slot=" << take_effect << '\n';
   ctx.logger(o.str());
   ctx.updates_applied.fetch_add(1, std::memory_order_relaxed);
-  std::ostringstream reply;
-  reply << "{\"status\":\"ok\",\"seqno\":" << seqno << "}";
-  return reply.str();
+  // Same reply shape as every other handler: a client that already parses
+  // profile_swap replies parses this one.
+  return std::string("{\"ok\":true,\"seqno\":") + std::to_string(seqno) + "}";
 }
 
 std::string handle_profile_swap(
@@ -758,6 +766,14 @@ std::string handle_profile_swap(
   auto it_ctl = ctx.link_map.find(link_id);
   if (it_ctl == ctx.link_map.end() || it_ctl->second == nullptr) {
     return emit_rejection(ctx, "unknown link_id: " + link_id);
+  }
+
+  // M4.5: a profile swap replaces every tap, including the folded fixed_mimo
+  // coefficients -- for the whole link at once.
+  if (it_ctl->second->fixed_mimo_declared) {
+    return emit_rejection(ctx,
+        "profile_swap: link " + link_id + " declares fixed_mimo, whose per-lane tap "
+        "weights carry the matrix; replacing the tap layout would erase it");
   }
 
   // v2.2 follow-on: warmup-cap check. Reject if the prospective

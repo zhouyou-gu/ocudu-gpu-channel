@@ -107,6 +107,12 @@ struct BrokerLinkControl {
   // and neither may change at runtime.
   int                        nt_hint = 1;
   int                        nr_hint = 1;
+  // Whether the link's model declares a fixed_mimo matrix. A fixed matrix is
+  // folded into each lane's TAP weights at load time, so a tap-scope runtime
+  // update -- addressed at the link, as everything is since M4.2 -- would write
+  // one value over every lane and erase the matrix. Rejected rather than
+  // silently destructive.
+  bool                       fixed_mimo_declared = false;
   // Whether the link's model declared a spatial_correlation block at load.
   // Declaring it -- even as `kind: iid` -- is the opt-in that makes the link
   // runtime-correlatable; a link that never declared one keeps the untouched

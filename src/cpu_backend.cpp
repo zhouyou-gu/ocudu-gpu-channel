@@ -130,6 +130,7 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
     state.link->control.nt_hint = identity.nt;
     state.link->control.nr_hint = identity.nr;
     state.link->control.correlation_declared = model.spatial_correlation.declared;
+    state.link->control.fixed_mimo_declared = model.fixed_mimo_declared;
   }
   return state;
 }

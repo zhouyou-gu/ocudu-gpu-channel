@@ -622,6 +622,73 @@ int main()
     require(s.telemetry_frames > 0, "v3.0: telemetry_frames counter should advance");
   }
 
+  // ── M4.5: what the control plane must refuse ───────────────────────────
+  //
+  // The four properties the milestone freezes -- Nt/Nr, port membership, the
+  // sample rate, and the fixed-vs-stochastic family -- are not addressable at
+  // all: they have no param and no message type, so an attempt to set one is
+  // refused by the whitelist rather than by a special case. Asserted here so
+  // that adding a param called "nt" later has to confront this test.
+  for (const char* param : {"nt", "nr", "sample_rate_hz", "rx_ports", "fixed_mimo"}) {
+    const std::string reply = server.handle_message(
+        std::string(R"({"link_id":"ue0-gnb0","param":")") + param + R"(","value":2})");
+    require(contains(reply, "\"ok\":false"),
+            "an immutable property must not be settable through the control plane");
+  }
+
+  // A fixed_mimo link refuses TAP-scope updates, because the matrix lives in
+  // the per-lane tap weights and the address is the link: one REQ would write
+  // one number over every lane and erase it. Scalar params stay allowed --
+  // path loss is a property of the link, not of a matrix entry.
+  {
+    ctl_b->fixed_mimo_declared = true;
+    const std::string tap_reply = server.handle_message(
+        R"({"link_id":"ue1-gnb0","param":"tap0_gain_db","value":-3.0})");
+    require(contains(tap_reply, "\"ok\":false"),
+            "a tap-scope update on a fixed_mimo link must be refused");
+    require(contains(tap_reply, "fixed_mimo"), "the refusal says why");
+
+    const std::string swap_reply = server.handle_message(
+        R"({"type":"profile_swap","link_id":"ue1-gnb0","taps":[{"delay_samples":0.0,"gain_db":0.0}]})");
+    require(contains(swap_reply, "\"ok\":false"),
+            "a profile_swap on a fixed_mimo link must be refused");
+
+    const std::string scalar_reply = server.handle_message(
+        R"({"link_id":"ue1-gnb0","param":"path_loss_db","value":-6.0})");
+    require(contains(scalar_reply, "\"ok\":true"),
+            "a scalar param on a fixed_mimo link stays allowed");
+    ctl_b->fixed_mimo_declared = false;
+  }
+
+  // A correlation_swap needs the link to have declared the block: enabling the
+  // machinery on a topology that never asked for it would be the worse default.
+  {
+    const std::string undeclared = server.handle_message(
+        R"({"type":"correlation_swap","link_id":"ue0-gnb0","kind":"kronecker","rx":[{"i":0,"j":1,"re":0.5,"im":0.0}]})");
+    require(contains(undeclared, "\"ok\":false"),
+            "a swap against a link that declared no correlation must be refused");
+
+    ctl_a->correlation_declared = true;
+    ctl_a->nt_hint = 2;
+    ctl_a->nr_hint = 2;
+    const std::string ok = server.handle_message(
+        R"({"type":"correlation_swap","link_id":"ue0-gnb0","kind":"kronecker","rx":[{"i":0,"j":1,"re":0.5,"im":0.25}]})");
+    require(contains(ok, "\"ok\":true"), "a well-formed correlation_swap is accepted");
+    require(ctl_a->correlation_pending, "the swap is staged for the next slot boundary");
+    require(ctl_a->shadow_correlation.lanes == 4, "the staged factor covers all four lanes");
+
+    // Out of range for the link's dimensions, and a magnitude no correlation
+    // can have: both refused before anything is staged.
+    ctl_a->correlation_pending = false;
+    const std::string bad_index = server.handle_message(
+        R"({"type":"correlation_swap","link_id":"ue0-gnb0","kind":"kronecker","rx":[{"i":0,"j":5,"re":0.5,"im":0.0}]})");
+    require(contains(bad_index, "\"ok\":false"), "an index outside the link's ports is refused");
+    const std::string too_big = server.handle_message(
+        R"({"type":"correlation_swap","link_id":"ue0-gnb0","kind":"kronecker","rx":[{"i":0,"j":1,"re":1.4,"im":0.0}]})");
+    require(contains(too_big, "\"ok\":false"), "a magnitude above 1 is refused");
+    require(!ctl_a->correlation_pending, "a refused swap stages nothing");
+  }
+
   std::cout << "test_control_server OK\n";
   return 0;
 }

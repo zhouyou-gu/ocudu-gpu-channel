@@ -491,6 +491,7 @@ public:
       slot.model.link->control.nt_hint = lane.nt;
       slot.model.link->control.nr_hint = lane.nr;
       slot.model.link->control.correlation_declared = model->spatial_correlation.declared;
+      slot.model.link->control.fixed_mimo_declared = model->fixed_mimo_declared;
       slot.model.link->control.slot_count_hint =
           static_cast<int>(resolve_batch_samples(config.runtime, destination_node.sample_rate_hz));
     }
