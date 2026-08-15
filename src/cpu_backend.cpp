@@ -61,6 +61,12 @@ CpuChannelProcessor::LinkState& CpuChannelProcessor::ensure_link_state(const std
   }
 
   LinkState& state = it->second;
+  if (state.clock == nullptr) {
+    // Bound once, when the state is created. A later call cannot rebind it: a
+    // lane belongs to the link it was prepared under, and re-pointing a clock
+    // mid-run is exactly the drift this design removes.
+    state.clock = &clocks_[physical_link_key];
+  }
   if (state.scratch_a.size() < sample_count) {
     state.scratch_a.resize(sample_count);
     state.scratch_b.resize(sample_count);
@@ -158,7 +164,7 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
   }
 }
 
-void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
+ocg::PhysicalLinkClock* CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
                                               const ModelConfig& model,
                                               std::span<const IqSample> input,
                                               std::span<IqSample> output,
@@ -168,7 +174,7 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
     throw std::runtime_error("apply_chain_to_link input and output sizes must match");
   }
   if (input.empty()) {
-    return;
+    return nullptr;
   }
 
   // prepare() has already created every state the broker serves, so this
@@ -387,10 +393,13 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
         }
 
         if (step.fading_enabled) {
+          // Time comes from the physical link, and the same value is handed to
+          // every lane of that link this slot. The call does not advance it.
           apply_tdl_step_fading(current.data(), next.data(), current.size(),
                                 effective_taps, effective_polyphase,
                                 step_state.delay_line, step_state.tdl_fading,
-                                sample_rate_hz);
+                                sample_rate_hz,
+                                state.clock->slot_start_samples);
         } else {
           apply_tdl_step(current.data(), next.data(), current.size(),
                          effective_taps, effective_polyphase,
@@ -403,6 +412,7 @@ void CpuChannelProcessor::apply_chain_to_link(const std::string& link_key_value,
   }
 
   std::copy(current.begin(), current.end(), output.begin());
+  return state.clock;
 }
 
 void CpuChannelProcessor::process_superposition(const std::string& dst_key,
@@ -436,6 +446,22 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
     scratch.resize(count);
   }
   const std::span<IqSample> shaped(scratch.data(), count);
+  // Clocks touched by this slot, each advanced once at the end. Reused across
+  // calls on this thread; a physical link has one destination node, so no other
+  // thread can be advancing the same clock.
+  thread_local std::vector<PhysicalLinkClock*> touched;
+  touched.clear();
+  const auto touch = [](PhysicalLinkClock* clock) {
+    if (clock == nullptr) {
+      return;
+    }
+    for (const auto* seen : touched) {
+      if (seen == clock) {
+        return; // sibling lane of a link already accounted for
+      }
+    }
+    touched.push_back(clock);
+  };
   for (const auto& lane : inputs) {
     if (lane.model == nullptr || lane.samples.size() != count) {
       throw std::runtime_error("CPU superposition input is malformed");
@@ -445,7 +471,8 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
       throw std::runtime_error("CPU superposition lane rx_port is out of range: " +
                                lane.link_key);
     }
-    apply_chain_to_link(lane.link_key, *lane.model, lane.samples, shaped, sample_rate_hz);
+    touch(apply_chain_to_link(lane.link_key, *lane.model, lane.samples, shaped,
+                              sample_rate_hz));
     const std::span<IqSample> row = outputs[static_cast<std::size_t>(lane.rx_port)];
     for (std::size_t s = 0; s != count; ++s) {
       row[s] += scratch[s];
@@ -459,8 +486,16 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
     for (int r = 0; r != nr; ++r) {
       const std::span<IqSample> row = outputs[static_cast<std::size_t>(r)];
       const std::span<const IqSample> summed(row.data(), row.size());
-      apply_chain_to_link(rx_state_key(dst_key, r, nr), *rx_model, summed, row, sample_rate_hz);
+      touch(apply_chain_to_link(rx_state_key(dst_key, r, nr), *rx_model, summed, row,
+                                sample_rate_hz));
     }
+  }
+  // The slot is complete: every lane of a link has now been shaped against the
+  // same time origin, so the link's clock moves on by exactly one slot. Doing
+  // it here, once per link rather than once per lane, is what makes "the lanes
+  // of a link share a time" a property of the code and not of the caller.
+  for (auto* clock : touched) {
+    clock->slot_start_samples += count;
   }
 }
 

@@ -2,6 +2,7 @@
 #include "ocudu_gpu_channel/cuda_backend.h"
 #include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/device_channel.h"
+#include "ocudu_gpu_channel/link_clock.h"
 #include "ocudu_gpu_channel/mutable_params.h"
 #include "ocudu_gpu_channel/processing.h"
 #include "ocudu_gpu_channel/runtime_control.h"
@@ -104,6 +105,12 @@ struct LinkModelState {
   // before the H2D back so the device's cross-slot ring starts the
   // next slot clear.
   std::uint64_t warmup_until_slot = 0;
+
+  // M2.3: borrowed from the processor's clock table. The absolute time the
+  // lane's channel evolves against belongs to its physical link, on the host,
+  // on both dispatch paths -- the device copy in DeviceLinkState is written
+  // from this value, never accumulated independently.
+  PhysicalLinkClock* clock = nullptr;
 };
 
 void init_model_state(LinkModelState& state, std::size_t steps, const std::string& seed_prefix)
@@ -252,8 +259,11 @@ void configure_leading_propagation(LinkModelState& state, const ModelConfig& mod
 // leading propagation step (tdl multi-tap convolution) host-side, or a plain
 // copy when the link's chain has no leading propagation. The device kernel
 // then runs the rest of the chain per-sample.
+// `slot_start_samples` is the physical link's clock value for this slot, read
+// by the caller (link_clock.h). stage_link neither owns nor advances it.
 void stage_link(LinkModelState& state, const IqSample* in, IqSample* out,
-                std::size_t count, std::uint64_t sample_rate_hz)
+                std::size_t count, std::uint64_t sample_rate_hz,
+                std::uint64_t slot_start_samples)
 {
   if (state.has_tdl) {
     // tdl_taps borrowed from ModelConfig; the staging path is bit-identical
@@ -263,7 +273,8 @@ void stage_link(LinkModelState& state, const IqSample* in, IqSample* out,
     if (state.tdl_fading.enabled) {
       apply_tdl_step_fading(in, out, count, *state.tdl_taps,
                              state.tdl_polyphase, state.delay_line,
-                             state.tdl_fading, sample_rate_hz);
+                             state.tdl_fading, sample_rate_hz,
+                             slot_start_samples);
     } else {
       apply_tdl_step(in, out, count, *state.tdl_taps, state.tdl_polyphase,
                      state.delay_line);
@@ -311,6 +322,11 @@ struct CudaSuperposeState {
   // count (num_sources), not by incoming edge count: multiple edges sharing
   // a source read the same slot via DeviceLinkState::src_index. Saves
   // (n_edges - n_sources) * count IQ samples of H2D bandwidth per slot.
+  // M2.3: per-edge "where the next slot starts", staged host-side from each
+  // edge's physical-link clock and shipped with the slot so
+  // update_delay_line_kernel can assign it. Sized by edge count.
+  unsigned long long* host_next_slot_start = nullptr;
+  unsigned long long* device_next_slot_start = nullptr;
   std::size_t num_sources = 0;
   // Per-edge mapping built at prepare time: for each unique source slot s in
   // [0, num_sources), source_first_edge[s] is the index k of the FIRST edge
@@ -355,6 +371,8 @@ void free_superpose_state(CudaSuperposeState& state)
   if (state.h2d_done != nullptr)       { cudaEventDestroy(state.h2d_done);       state.h2d_done = nullptr; }
   if (state.h2d_start != nullptr)      { cudaEventDestroy(state.h2d_start);      state.h2d_start = nullptr; }
   if (state.stream != nullptr)         { cudaStreamDestroy(state.stream);        state.stream = nullptr; }
+  if (state.device_next_slot_start != nullptr) { cudaFree(state.device_next_slot_start);     state.device_next_slot_start = nullptr; }
+  if (state.host_next_slot_start != nullptr)   { cudaFreeHost(state.host_next_slot_start);    state.host_next_slot_start = nullptr; }
   if (state.device_source_iq != nullptr)   { cudaFree(state.device_source_iq);    state.device_source_iq = nullptr; }
   if (state.host_source_iq != nullptr)     { cudaFreeHost(state.host_source_iq);  state.host_source_iq = nullptr; }
   if (state.device_link_states != nullptr) { cudaFree(state.device_link_states);  state.device_link_states = nullptr; }
@@ -423,6 +441,9 @@ public:
       }
       const ResolvedNode& destination_node = *dst_it->second;
       auto& slot = link_slots_[lane.key];
+      // M2.3: the lane's absolute time lives on its physical link, so sibling
+      // lanes borrow one clock rather than each keeping a counter.
+      slot.model.clock = &clocks_[lane.physical_link_key];
       init_model_state(slot.model, model->chain.size(), lane.key);
       // The leading tdl is chain step 0 by construction (validate_cuda_support
       // rejects a non-leading one), so the lane's step-0 seed is the one this
@@ -602,6 +623,14 @@ public:
       check(cudaMalloc(reinterpret_cast<void**>(&sp.device_source_iq),
                        source_bytes),
             "cudaMalloc superpose source_iq");
+      // M2.3: one slot-start value per incoming edge.
+      const std::size_t slot_start_bytes = incoming * sizeof(unsigned long long);
+      check(cudaHostAlloc(reinterpret_cast<void**>(&sp.host_next_slot_start),
+                          slot_start_bytes, cudaHostAllocDefault),
+            "cudaHostAlloc superpose next_slot_start");
+      check(cudaMalloc(reinterpret_cast<void**>(&sp.device_next_slot_start),
+                       slot_start_bytes),
+            "cudaMalloc superpose next_slot_start");
       std::size_t k_idx = 0;
       // Dispatch gate: every incoming edge must have a leading tdl step
       // (fading-enabled tdl included -- the device kernel handles both
@@ -897,6 +926,13 @@ public:
         ts.warmup_until_slot = lms_for_snap.warmup_until_slot;
         publish_telemetry_snapshot(lms_for_snap.ctl, ts);
       }
+      // M2.3: the device copy of this edge's time is written, not
+      // accumulated, so record where its link's NEXT slot begins. Read before
+      // any clock advance below, so every edge of a link ships the same value.
+      if (lms_for_snap.clock != nullptr) {
+        sp.host_next_slot_start[k] =
+            lms_for_snap.clock->slot_start_samples + static_cast<unsigned long long>(count);
+      }
       if (sp.use_device_channel) {
         // Device-kernel path: build_steps reads the SHARED source slot for
         // this edge's snr_db power estimator. Edges sharing a source share
@@ -908,7 +944,8 @@ public:
       } else {
         // Host stage_link path (legacy).
         IqSample* slot = sp.host_staged + k * count;
-        stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz);
+        stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz,
+                   ls_it->second.model.clock->slot_start_samples);
         build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
       }
       const int nsteps = static_cast<int>(edge.model->chain.size());
@@ -917,6 +954,28 @@ public:
       std::copy(ls_it->second.model.host_steps.begin(), ls_it->second.model.host_steps.begin() + nsteps,
                 sp.host_steps.begin() + total_steps);
       total_steps += nsteps;
+    }
+
+    // Every edge of this node has now been staged against its link's slot-start
+    // time, so each link's clock moves on by one slot -- once per link, not
+    // once per lane. A link has a single destination node, so this thread is
+    // its only writer.
+    {
+      std::vector<PhysicalLinkClock*> touched;
+      touched.reserve(inputs.size());
+      for (const auto& edge : inputs) {
+        auto ls_it = link_slots_.find(edge.link_key);
+        if (ls_it == link_slots_.end() || ls_it->second.model.clock == nullptr) {
+          continue;
+        }
+        PhysicalLinkClock* clock = ls_it->second.model.clock;
+        if (std::find(touched.begin(), touched.end(), clock) == touched.end()) {
+          touched.push_back(clock);
+        }
+      }
+      for (auto* clock : touched) {
+        clock->slot_start_samples += count;
+      }
     }
 
     // Build the receiver model (applied once to the sum). It is a thermal-noise
@@ -949,6 +1008,10 @@ public:
                             sp.num_sources * sample_bytes,
                             cudaMemcpyHostToDevice, sp.stream),
             "cudaMemcpyAsync superpose source_iq H2D");
+      check(cudaMemcpyAsync(sp.device_next_slot_start, sp.host_next_slot_start,
+                            static_cast<std::size_t>(link_count) * sizeof(unsigned long long),
+                            cudaMemcpyHostToDevice, sp.stream),
+            "cudaMemcpyAsync superpose next_slot_start H2D");
     } else {
       check(cudaMemcpyAsync(sp.device_staged, sp.host_staged,
                             static_cast<std::size_t>(link_count) * sample_bytes,
@@ -988,6 +1051,7 @@ public:
       check(cudaGetLastError(), "apply_channel_kernel launch");
       launch_update_delay_line_kernel(sp.device_link_states,
                                        sp.device_source_iq,
+                                       sp.device_next_slot_start,
                                        link_count,
                                        static_cast<int>(count),
                                        sp.stream);
@@ -1166,6 +1230,10 @@ private:
   ProcessorTimings last_timings_;
   std::unordered_map<std::string, CudaLinkSlot> link_slots_;
   std::unordered_map<std::string, CudaSuperposeState> superpose_states_;
+  // M2.3: absolute time, one entry per physical link, keyed by
+  // LaneConfig::physical_link_key. Node-based storage, so the pointers the
+  // lanes hold stay valid as the table grows.
+  std::unordered_map<std::string, PhysicalLinkClock> clocks_;
 };
 
 } // namespace

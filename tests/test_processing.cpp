@@ -1688,6 +1688,124 @@ int main()
     }
   }
 
+  // ---- M2.3: chunk invariance -- one clock per physical link ---------------
+  //
+  // The channel is a function of absolute time, so how the stream is cut into
+  // slots must not change it: 2N samples in one call and 2N samples in two
+  // calls of N have to produce the same output. That is the observable form of
+  // "the physical link owns the time". If a lane kept its own accumulator, or
+  // the clock advanced per lane instead of per link, the second chunk would
+  // evaluate the channel at the wrong instant -- and the output would still
+  // look like a perfectly healthy faded signal.
+  //
+  // Run on a 2 x 2 so there are four lanes sharing one link's clock, which is
+  // where a per-lane advance would show up as a four-fold overshoot.
+  //
+  // Tap delays are integers here on purpose. A fractional tap's 8-tap filter
+  // reads up to three samples ahead, and a streaming slot has no future to
+  // read (delay.h returns zero past the end), so its slot boundary is a real
+  // and pre-existing artefact of streaming -- unrelated to what this test is
+  // about, and it would mask the thing being measured.
+  {
+    constexpr std::uint64_t sample_rate_hz = 100000;
+    constexpr std::size_t half = 200;   // a whole number of 100 us fading-grid
+    constexpr std::size_t full = 400;   // steps, so both cuts land on grid points
+
+    ocg::ModelConfig m;
+    m.id = "tdl_chunk_invariance";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0},
+                 ocg::TapSpec{.delay_samples = 3.0, .gain_db = -3.0, .phase_rad = 0.4}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 100.0;
+    step.fading_grid_us = 100.0;
+    step.fading_spectrum = ocg::FadingSpectrum::Jakes;
+    m.chain.push_back(step);
+
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = full;
+    cfg.runtime.queue_samples = full * 8;
+    int port = 7600;
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = sample_rate_hz;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    }
+    gnb.tx_ports = {"gnb_p0", "gnb_p1"};
+    gnb.rx_ports = {"gnb_p0", "gnb_p1"};
+    ue.tx_ports = {"ue_p0", "ue_p1"};
+    ue.rx_ports = {"ue_p0", "ue_p1"};
+    cfg.radio_nodes = {gnb, ue};
+    cfg.links = {{.from = "gnb", .to = "ue", .model = m.id},
+                 {.from = "ue", .to = "gnb", .model = m.id}};
+    cfg.models.emplace(m.id, m);
+    require(ocg::validate_config(cfg).empty(), "chunk invariance: 2x2 topology validates");
+
+    const auto resolved = ocg::resolve_topology(cfg);
+    // Distinguishable per-TX-port input so a lane reading the wrong source
+    // would show up as well.
+    std::vector<ocg::IqBuffer> per_tx(2, ocg::IqBuffer(full));
+    for (std::size_t n = 0; n != full; ++n) {
+      per_tx[0][n] = {static_cast<float>(std::cos(0.031 * n)),
+                      static_cast<float>(std::sin(0.017 * n))};
+      per_tx[1][n] = {static_cast<float>(0.5 * std::sin(0.023 * n)),
+                      static_cast<float>(0.5 * std::cos(0.041 * n))};
+    }
+
+    // One call over `full`, then the same stream as two calls over `half`.
+    const auto run = [&](std::size_t chunk, std::vector<ocg::IqBuffer>& rows_out) {
+      ocg::CpuChannelProcessor proc;
+      proc.prepare(cfg);
+      rows_out.assign(2, ocg::IqBuffer(full));
+      for (std::size_t offset = 0; offset < full; offset += chunk) {
+        std::vector<ocg::SuperpositionInput> lanes;
+        for (const auto& lane : resolved.lanes) {
+          if (lane.dst_node != "ue") {
+            continue;
+          }
+          lanes.push_back({.link_key = lane.key,
+                           .model = ocg::find_model(cfg, lane.model_id),
+                           .samples = std::span<const ocg::IqSample>(
+                               per_tx[static_cast<std::size_t>(lane.tx_port)].data() + offset,
+                               chunk),
+                           .rx_port = lane.rx_port,
+                           .tx_port = lane.tx_port});
+        }
+        std::span<ocg::IqSample> rows[2] = {
+            std::span<ocg::IqSample>(rows_out[0].data() + offset, chunk),
+            std::span<ocg::IqSample>(rows_out[1].data() + offset, chunk)};
+        proc.process_superposition("ue", lanes, nullptr, sample_rate_hz,
+                                   std::span<std::span<ocg::IqSample>>(rows));
+      }
+    };
+
+    std::vector<ocg::IqBuffer> one_call;
+    std::vector<ocg::IqBuffer> two_calls;
+    run(full, one_call);
+    run(half, two_calls);
+    // Not bit-exact, and the reason is worth naming: the coarse fading grid is
+    // built by phase accumulation from the slot's start, so the second chunk
+    // re-derives in 20 steps what the single call reached in 40 -- a last-bit
+    // difference in float, not a difference in the time being evaluated. A
+    // clock that actually skewed moves samples by whole grid points and lands
+    // far outside this tolerance.
+    require_near_buffer(one_call[0], two_calls[0],
+                        "chunk invariance: row 0 must not depend on the slot cut");
+    require_near_buffer(one_call[1], two_calls[1],
+                        "chunk invariance: row 1 must not depend on the slot cut");
+  }
+
   // ---- Item 9 backfill: standalone CPU per-sample-step behaviour ----
   // The CPU backend's path_loss / phase / cfo / awgn steps were previously
   // only exercised indirectly via CUDA-vs-CPU parity. These tests assert each

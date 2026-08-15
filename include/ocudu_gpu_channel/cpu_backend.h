@@ -3,6 +3,7 @@
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/iq.h"
+#include "ocudu_gpu_channel/link_clock.h"
 #include "ocudu_gpu_channel/mutable_params.h"
 #include "ocudu_gpu_channel/processing.h"
 #include "ocudu_gpu_channel/runtime_control.h"
@@ -104,6 +105,13 @@ private:
     // exception to the broker's "every sample is meaningful" contract).
     // 0 = not in warmup.
     std::uint64_t warmup_until_slot = 0;
+
+    // M2.3: the physical link this lane belongs to owns the absolute sample
+    // time its stochastic channel evolves against. Borrowed from `clocks_`,
+    // which outlives every LinkState; several lanes of one link share one
+    // clock, and none of them advances it -- process_superposition does, once
+    // per slot per link.
+    PhysicalLinkClock* clock = nullptr;
   };
 
   // `physical_link_key` / `rx_port` / `tx_port` name the lane's position in
@@ -131,13 +139,18 @@ private:
   // input through its model chain into the provided output span. This is
   // what process_into() used to be -- now private since the public API only
   // exposes the per-node superposition entry point.
-  void apply_chain_to_link(const std::string& link_key,
-                           const ModelConfig& model,
-                           std::span<const IqSample> input,
-                           std::span<IqSample> output,
-                           std::uint64_t sample_rate_hz);
+  // Returns the physical-link clock the shaped lane read its time from, so the
+  // caller can advance it once the slot is complete.
+  PhysicalLinkClock* apply_chain_to_link(const std::string& link_key,
+                                         const ModelConfig& model,
+                                         std::span<const IqSample> input,
+                                         std::span<IqSample> output,
+                                         std::uint64_t sample_rate_hz);
 
   std::unordered_map<std::string, LinkState> states_;
+  // Keyed by physical link identity (LaneConfig::physical_link_key). Node-based
+  // storage, so a LinkState may hold a pointer into it across insertions.
+  std::unordered_map<std::string, PhysicalLinkClock> clocks_;
 };
 
 } // namespace ocg

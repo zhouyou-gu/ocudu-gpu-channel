@@ -17,8 +17,10 @@
 //   - DeviceLinkState lives in GPU global memory, one per (dst_node × incoming
 //     edge). Topology fields are populated once at startup and never change
 //     during a run.
-//   - The cross-slot state (delay_line, slot_start_samples) is updated by the
-//     kernel each serve.
+//   - The cross-slot delay_line is updated by the kernel each serve.
+//   - slot_start_samples is NOT accumulated on the device: it is written each
+//     serve from the physical link's host-side clock (link_clock.h), so lanes
+//     of one link cannot drift into different instants of the same channel.
 //   - The kernel mirrors per-link state into shared memory for the duration
 //     of one slot's worth of work, then writes the cross-slot updates back.
 
@@ -101,6 +103,10 @@ struct DeviceLinkState {
 
   // ---- Cross-slot state (kernel reads + writes each serve) --------------
   IqSample delay_line[kDeviceMaxDelayLine];
+  // Absolute sample index of the slot this state is about to be used for. Read
+  // by apply_channel_kernel as the fading time origin, and written each serve
+  // by update_delay_line_kernel from the value the host passes in -- the device
+  // holds a copy of the physical link's clock, not a counter of its own.
   unsigned long long slot_start_samples;
 
   // ---- Runtime-mutable scalar params (Phase 3 v1) -----------------------
@@ -203,17 +209,26 @@ void launch_apply_channel_kernel_static(
     float sample_rate_hz,
     void* stream);
 
-// Roll the per-link delay_line ring forward and advance slot_start_samples
-// by `count`. Called after launch_apply_channel_kernel so the cross-slot
-// continuity matches the host-side apply_tdl_step's post-loop ring update
-// in delay.h. Reads source_iq via `states[k].src_index` — same shared
-// per-source layout as apply_channel_kernel above (D4).
+// Roll the per-link delay_line ring forward and set each link's
+// slot_start_samples to the value the host supplies. Called after
+// launch_apply_channel_kernel so the cross-slot continuity matches the
+// host-side apply_tdl_step's post-loop ring update in delay.h. Reads source_iq
+// via `states[k].src_index` — same shared per-source layout as
+// apply_channel_kernel above (D4).
+//
+// `next_slot_start` is a device array of `n_links` values: entry k is the
+// absolute sample index at which edge k's NEXT slot begins, taken from that
+// edge's physical-link clock on the host (M2.3). The kernel assigns rather
+// than accumulates, so a device-side copy cannot develop a time of its own --
+// which is the whole point: every lane of a link must evaluate its channel at
+// the same instant, and that instant has one owner.
 //
 // Launch: dim3(n_links), dim3(1) — serial per link. The work per link is
 // at most kDeviceMaxDelayLine memory ops, trivial.
 void launch_update_delay_line_kernel(
     DeviceLinkState* states,
     const IqSample* source_iq,
+    const unsigned long long* next_slot_start,
     int n_links,
     int count,
     void* stream);

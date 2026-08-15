@@ -259,13 +259,14 @@ __global__ void apply_channel_kernel(
   out_buffer[k * count + idx] = out;
 }
 
-// Roll the per-link delay_line ring forward and advance slot_start_samples.
-// Mirrors the post-loop ring update at the bottom of apply_tdl_step() in
-// delay.h. One block per link; one thread per block (work per link is at
-// most kDeviceMaxDelayLine memory ops, trivially serial).
+// Roll the per-link delay_line ring forward and take the next slot's time
+// origin from the host. Mirrors the post-loop ring update at the bottom of
+// apply_tdl_step() in delay.h. One block per link; one thread per block (work
+// per link is at most kDeviceMaxDelayLine memory ops, trivially serial).
 __global__ void update_delay_line_kernel(
     DeviceLinkState* __restrict__ states,
     const IqSample* __restrict__ source_iq,
+    const unsigned long long* __restrict__ next_slot_start,
     int n_links,
     int count)
 {
@@ -274,6 +275,9 @@ __global__ void update_delay_line_kernel(
     return;
   }
   DeviceLinkState* s = &states[k];
+  // Written before any early return, so the device copy tracks the physical
+  // link's clock for every edge, including ones that own no delay line.
+  s->slot_start_samples = next_slot_start[k];
   if (s->has_tdl == 0) {
     return;
   }
@@ -301,7 +305,6 @@ __global__ void update_delay_line_kernel(
       s->delay_line[keep_old + i] = source_iq[src_base + i];
     }
   }
-  s->slot_start_samples += static_cast<unsigned long long>(count);
 }
 
 } // namespace
@@ -505,6 +508,7 @@ void launch_apply_channel_kernel_static(
 void launch_update_delay_line_kernel(
     DeviceLinkState* states,
     const IqSample* source_iq,
+    const unsigned long long* next_slot_start,
     int n_links,
     int count,
     void* stream)
@@ -513,7 +517,8 @@ void launch_update_delay_line_kernel(
     return;
   }
   cudaStream_t s = static_cast<cudaStream_t>(stream);
-  update_delay_line_kernel<<<n_links, 1, 0, s>>>(states, source_iq, n_links, count);
+  update_delay_line_kernel<<<n_links, 1, 0, s>>>(states, source_iq, next_slot_start,
+                                                 n_links, count);
 }
 
 } // namespace ocg

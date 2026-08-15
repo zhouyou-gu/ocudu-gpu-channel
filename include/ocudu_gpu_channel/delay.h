@@ -180,14 +180,17 @@ inline void apply_tdl_step(const IqSample* in,
 // a constexpr so future Phase 1.x can lift it without touching every site.
 constexpr int kTdlFadingSinusoids = 20;
 
-// Per-link runtime state for the `tdl` fading sub-config. Populated once at
-// prepare time from a deterministic seed; mutated per slot (only the
-// slot_start_samples accumulator advances). All randomness is in the per-tap
-// alpha / phi arrays drawn here; the kernel turns them into a Doppler-shaped
-// stochastic process at apply time. tap_alpha / tap_phi / tap_phi_los are
-// sized to the tap count; non-LOS taps still get a tap_phi_los draw (kept for
-// determinism: same seed -> same random sequence regardless of which taps are
-// LOS).
+// Per-lane runtime state for the `tdl` fading sub-config. Populated once at
+// prepare time from a deterministic seed and read-only afterwards. All
+// randomness is in the per-tap alpha / phi arrays drawn here; the kernel turns
+// them into a Doppler-shaped stochastic process at apply time. tap_alpha /
+// tap_phi / tap_phi_los are sized to the tap count; non-LOS taps still get a
+// tap_phi_los draw (kept for determinism: same seed -> same random sequence
+// regardless of which taps are LOS).
+//
+// Note what is NOT here: the absolute time. Time belongs to the physical link
+// (PhysicalLinkClock in link_clock.h) and is passed in per call, so a lane
+// cannot hold a clock of its own and drift from its siblings.
 struct TdlFadingState {
   bool enabled = false;
   double f_d_max_hz = 0.0;
@@ -196,7 +199,6 @@ struct TdlFadingState {
   std::vector<std::array<float, kTdlFadingSinusoids>> tap_alpha;  // sub-ray angles in [0, 2pi)
   std::vector<std::array<float, kTdlFadingSinusoids>> tap_phi;    // initial phases in [0, 2pi)
   std::vector<float> tap_phi_los;                                 // LOS specular initial phase
-  std::uint64_t slot_start_samples = 0;                           // accumulated sample count
 };
 
 // One-shot RNG setup for a tdl step's fading sub-config. Both backends call
@@ -217,7 +219,6 @@ inline void prepare_tdl_fading_state(const ModelStep& step,
   state.f_d_max_hz = step.fading_f_d_max_hz;
   state.spectrum = step.fading_spectrum;
   state.grid_us = step.fading_grid_us;
-  state.slot_start_samples = 0;
   if (!step.fading_enabled) {
     state.tap_alpha.clear();
     state.tap_phi.clear();
@@ -266,9 +267,12 @@ inline void prepare_tdl_fading_state(const ModelStep& step,
 // where K = 10^(los_k_db/10). The specular phase advances per sample via a
 // pre-computed `exp(j*omega_los/sample_rate)` multiplier; no per-sample trig.
 //
-// Sample-rate-relative time evolves continuously across calls via
-// `fading.slot_start_samples`, which is advanced by `count` at the end of
-// every call so subsequent slots pick up where the previous one left off.
+// Sample-rate-relative time comes in as `slot_start_samples`: the sample index
+// of this slot's first sample, counted from the start of the run. It is read
+// from the physical link's clock (link_clock.h) by the caller, which advances
+// that clock once per slot after every lane of the link has been shaped -- so
+// the lanes of one link all evaluate the channel at the same instant, and this
+// function holds no time of its own between calls.
 //
 // Spectra other than Jakes are not implemented in Phase 1.4b -- the function
 // throws on encountering them. Phase 1.5+ can drop them in behind the same
@@ -279,8 +283,9 @@ inline void apply_tdl_step_fading(const IqSample* in,
                                   const std::vector<TapSpec>& taps,
                                   const std::vector<std::array<float, kTdlFracFilterTaps>>& polyphase,
                                   std::vector<IqSample>& delay_line,
-                                  TdlFadingState& fading,
-                                  std::uint64_t sample_rate_hz)
+                                  const TdlFadingState& fading,
+                                  std::uint64_t sample_rate_hz,
+                                  std::uint64_t slot_start_samples)
 {
   if (!fading.enabled) {
     apply_tdl_step(in, out, count, taps, polyphase, delay_line);
@@ -311,8 +316,7 @@ inline void apply_tdl_step_fading(const IqSample* in,
   // * n_taps).
   std::vector<std::vector<complex_f>> g_grid(n_taps,
                                              std::vector<complex_f>(grid_count));
-  const double slot_start_t =
-      static_cast<double>(fading.slot_start_samples) / sr;
+  const double slot_start_t = static_cast<double>(slot_start_samples) / sr;
   const double grid_dt = static_cast<double>(grid_stride) / sr;
   for (std::size_t k = 0; k != n_taps; ++k) {
     for (int m = 0; m < kTdlFadingSinusoids; ++m) {
@@ -447,9 +451,6 @@ inline void apply_tdl_step_fading(const IqSample* in,
     std::copy(in, in + count,
               delay_line.begin() + static_cast<std::ptrdiff_t>(keep_old));
   }
-
-  // Advance the per-link slot-start accumulator for the next call's t origin.
-  fading.slot_start_samples += count;
 }
 
 } // namespace ocg
