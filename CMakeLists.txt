@@ -94,6 +94,12 @@ target_link_libraries(ocudu-zmq-sink PRIVATE ocudu_gpu_channel_lib)
 add_executable(ocudu-control-req apps/ocudu_control_req.cpp)
 target_link_libraries(ocudu-control-req PRIVATE ocudu_gpu_channel_lib)
 
+# M5.2: the multi-port test peer the mission's success criterion names. It owns
+# BOTH ports in one process -- two independent single-port peers would not be
+# one radio, which is the property the multi-port gate exists to check.
+add_executable(ocudu-mimo-transport-peer apps/ocudu_mimo_transport_peer.cpp)
+target_link_libraries(ocudu-mimo-transport-peer PRIVATE ocudu_gpu_channel_lib)
+
 # Microbench for the runtime-mutation cost M (the D2H + stream-sync + H2D the
 # current control path runs per dirty edge). CUDA-only; not a ctest -- runs on
 # the GPU workstation. See tests/bench_mutation_cost.cu.
