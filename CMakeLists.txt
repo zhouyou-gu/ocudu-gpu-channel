@@ -31,6 +31,7 @@ add_library(ocudu_gpu_channel_lib
   src/broker.cpp
   src/config.cpp
   src/control_server.cpp
+  src/correlation.cpp
   src/cpu_backend.cpp
   src/latency.cpp
   src/mutable_params.cpp

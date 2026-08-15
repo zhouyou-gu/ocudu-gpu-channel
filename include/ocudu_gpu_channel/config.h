@@ -179,6 +179,59 @@ struct MimoCoefficient {
   double imag = 0.0;
 };
 
+// ---------------------------------------------------------------------------
+// Spatial correlation (M3)
+//
+// The lanes of one physical link are realisations of one channel, and in a real
+// radio they are not independent: antennas sit centimetres apart, so the paths
+// they see resemble each other. `spatial_correlation` declares that resemblance
+// as the covariance R of the lane vector, and the emulator draws lanes with it.
+enum class SpatialCorrelationKind {
+  Iid,       // R = I. The M2 behaviour, and the default.
+  Kronecker, // R = R_rx (x) R_tx in lane order l = r*Nt + t (see docs/plans/m3-*).
+};
+
+// One OFF-DIAGONAL entry of a Hermitian correlation matrix, upper triangle only
+// (i < j). The diagonal is 1 by definition and the lower triangle is the
+// conjugate mirror, so neither can be written down: a matrix that is not
+// Hermitian, or whose diagonal is not unit, is unrepresentable here rather than
+// rejected after the fact. What still has to be checked is positive
+// semidefiniteness, which no syntax can enforce.
+struct CorrelationEntry {
+  int i = 0;
+  int j = 0;
+  double re = 0.0;
+  double im = 0.0;
+};
+
+struct SpatialCorrelationConfig {
+  // Distinguishes "no block" from "a block that declared nothing".
+  bool declared = false;
+  SpatialCorrelationKind kind = SpatialCorrelationKind::Iid;
+  std::vector<CorrelationEntry> rx; // Nr x Nr, receiver-side correlation
+  std::vector<CorrelationEntry> tx; // Nt x Nt, transmitter-side correlation
+};
+
+// One lane's complex LOS coefficient. The specular (line-of-sight) part of a
+// Rician tap has a DETERMINISTIC phase relationship across lanes -- it is a
+// rank-1 component of H, not an independent draw per lane. This declares that
+// relationship. A lane with no entry carries the default 1 + 0j.
+//
+// It is declared rather than computed from antenna geometry because array
+// geometry, beamforming and CDL are mission non-goals (AGENT_GOAL.mimo.md)
+// until the user expands the mission.
+struct LosCoefficient {
+  int rx = 0;
+  int tx = 0;
+  double re = 1.0;
+  double im = 0.0;
+};
+
+struct LosMatrixConfig {
+  bool declared = false;
+  std::vector<LosCoefficient> coefficients;
+};
+
 struct ModelConfig {
   std::string id;
   std::vector<ModelStep> chain;
@@ -195,6 +248,13 @@ struct ModelConfig {
   std::vector<MimoCoefficient> fixed_mimo;
   // Distinguishes "no fixed_mimo block" from "a block that declared nothing".
   bool fixed_mimo_declared = false;
+
+  // M3. `fixed_mimo` states what H IS; `spatial_correlation` states the
+  // covariance of a random H. Declaring both says H twice, so the validator
+  // rejects the combination (docs/plans/m3-spatial-correlation-and-los.md
+  // section 2.6).
+  SpatialCorrelationConfig spatial_correlation;
+  LosMatrixConfig los_matrix;
 };
 
 // The emulated network as a directed graph: `devices` are the nodes, `links`

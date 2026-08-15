@@ -1,4 +1,5 @@
 #include "ocudu_gpu_channel/config.h"
+#include "ocudu_gpu_channel/correlation.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -215,6 +216,56 @@ bool parse_bool(const std::string& value, const std::string& key)
   throw std::runtime_error("invalid boolean value for " + key + ": " + value);
 }
 
+SpatialCorrelationKind parse_spatial_correlation_kind(const std::string& value)
+{
+  if (value == "iid") {
+    return SpatialCorrelationKind::Iid;
+  }
+  if (value == "kronecker") {
+    return SpatialCorrelationKind::Kronecker;
+  }
+  if (value == "full") {
+    // Named explicitly rather than folded into the generic error: `full` is a
+    // planned kind (MIMO_MILESTONES M3) deferred out of this milestone, and a
+    // reader who wrote it deserves to know it is deferred, not misspelled.
+    throw std::runtime_error(
+        "spatial_correlation kind 'full' is not implemented; use 'kronecker' or 'iid'");
+  }
+  throw std::runtime_error("unsupported spatial_correlation kind: " + value);
+}
+
+void apply_correlation_entry(CorrelationEntry& entry, const std::string& key,
+                             const std::string& value)
+{
+  if (key == "i") {
+    entry.i = static_cast<int>(parse_size(value, key));
+  } else if (key == "j") {
+    entry.j = static_cast<int>(parse_size(value, key));
+  } else if (key == "re") {
+    entry.re = parse_double(value, key);
+  } else if (key == "im") {
+    entry.im = parse_double(value, key);
+  } else {
+    throw std::runtime_error("unknown spatial_correlation entry key: " + key);
+  }
+}
+
+void apply_los_coefficient(LosCoefficient& coefficient, const std::string& key,
+                           const std::string& value)
+{
+  if (key == "rx") {
+    coefficient.rx = static_cast<int>(parse_size(value, key));
+  } else if (key == "tx") {
+    coefficient.tx = static_cast<int>(parse_size(value, key));
+  } else if (key == "re") {
+    coefficient.re = parse_double(value, key);
+  } else if (key == "im") {
+    coefficient.im = parse_double(value, key);
+  } else {
+    throw std::runtime_error("unknown los_matrix coefficient key: " + key);
+  }
+}
+
 void apply_tap(TapSpec& tap, const std::string& key, const std::string& value)
 {
   if (key == "delay_samples") {
@@ -316,6 +367,16 @@ TopologyConfig load_config_file(const std::string& path)
   // Set inside a model's `fixed_mimo:` block, and again inside its nested
   // `coefficients:` list.
   bool current_model_in_fixed_mimo = false;
+  // M3: `spatial_correlation:` and `los_matrix:` are two more indent-4 blocks
+  // under a model, each with its own nested list. Tracked as separate states
+  // for the same reason as the taps/fading pair: the branch that owns a line
+  // is decided by which block is open at that indent, not by the key alone.
+  bool current_model_in_spatial = false;
+  int current_correlation_side = 0; // 0 none, 1 rx, 2 tx
+  CorrelationEntry* current_correlation_entry = nullptr;
+  bool current_model_in_los = false;
+  bool current_model_in_los_coefficients = false;
+  LosCoefficient* current_los_coefficient = nullptr;
   bool current_model_in_coefficients = false;
   MimoCoefficient* current_coefficient = nullptr;
 
@@ -490,6 +551,12 @@ TopologyConfig load_config_file(const std::string& path)
         current_model_in_fixed_mimo = false;
         current_model_in_coefficients = false;
         current_coefficient = nullptr;
+        current_model_in_spatial = false;
+        current_correlation_side = 0;
+        current_correlation_entry = nullptr;
+        current_model_in_los = false;
+        current_model_in_los_coefficients = false;
+        current_los_coefficient = nullptr;
       } else if (current_model != nullptr && line == "chain:") {
         current_step = nullptr;
         current_step_in_taps = false;
@@ -498,6 +565,12 @@ TopologyConfig load_config_file(const std::string& path)
         current_model_in_fixed_mimo = false;
         current_model_in_coefficients = false;
         current_coefficient = nullptr;
+        current_model_in_spatial = false;
+        current_correlation_side = 0;
+        current_correlation_entry = nullptr;
+        current_model_in_los = false;
+        current_model_in_los_coefficients = false;
+        current_los_coefficient = nullptr;
       } else if (current_model != nullptr && indent == 4 && line == "fixed_mimo:") {
         // Sibling of `chain:`. Marking it declared here lets the validator
         // reject an empty block rather than silently treating the model as
@@ -509,6 +582,12 @@ TopologyConfig load_config_file(const std::string& path)
         current_step_in_taps = false;
         current_step_in_fading = false;
         current_model->fixed_mimo_declared = true;
+        current_model_in_spatial = false;
+        current_correlation_side = 0;
+        current_correlation_entry = nullptr;
+        current_model_in_los = false;
+        current_model_in_los_coefficients = false;
+        current_los_coefficient = nullptr;
       } else if (current_model_in_fixed_mimo && indent == 6 && line == "coefficients:") {
         current_model_in_coefficients = true;
         current_coefficient = nullptr;
@@ -520,6 +599,73 @@ TopologyConfig load_config_file(const std::string& path)
       } else if (current_coefficient != nullptr && current_model_in_coefficients && indent == 10) {
         auto [key, value] = split_key_value(line);
         apply_mimo_coefficient(*current_coefficient, key, value);
+      } else if (current_model != nullptr && indent == 4 && line == "spatial_correlation:") {
+        // Sibling of `chain:` and `fixed_mimo:`. Declared here so the validator
+        // can reject a block that says nothing rather than silently running iid.
+        current_model_in_spatial = true;
+        current_correlation_side = 0;
+        current_correlation_entry = nullptr;
+        current_model_in_los = false;
+        current_model_in_los_coefficients = false;
+        current_los_coefficient = nullptr;
+        current_model_in_fixed_mimo = false;
+        current_model_in_coefficients = false;
+        current_coefficient = nullptr;
+        current_step = nullptr;
+        current_step_in_taps = false;
+        current_step_in_fading = false;
+        current_model->spatial_correlation.declared = true;
+      } else if (current_model_in_spatial && indent == 6 && line == "rx:") {
+        current_correlation_side = 1;
+        current_correlation_entry = nullptr;
+      } else if (current_model_in_spatial && indent == 6 && line == "tx:") {
+        current_correlation_side = 2;
+        current_correlation_entry = nullptr;
+      } else if (current_model_in_spatial && indent == 6) {
+        auto [key, value] = split_key_value(line);
+        if (key != "kind") {
+          throw std::runtime_error("unknown spatial_correlation key: " + key);
+        }
+        current_model->spatial_correlation.kind = parse_spatial_correlation_kind(value);
+        current_correlation_side = 0;
+        current_correlation_entry = nullptr;
+      } else if (current_correlation_side != 0 && indent == 8 && line.rfind("- ", 0) == 0) {
+        auto& side = current_correlation_side == 1 ? current_model->spatial_correlation.rx
+                                                   : current_model->spatial_correlation.tx;
+        side.emplace_back();
+        current_correlation_entry = &side.back();
+        auto [key, value] = split_key_value(trim(line.substr(2)));
+        apply_correlation_entry(*current_correlation_entry, key, value);
+      } else if (current_correlation_entry != nullptr && current_correlation_side != 0 &&
+                 indent == 10) {
+        auto [key, value] = split_key_value(line);
+        apply_correlation_entry(*current_correlation_entry, key, value);
+      } else if (current_model != nullptr && indent == 4 && line == "los_matrix:") {
+        current_model_in_los = true;
+        current_model_in_los_coefficients = false;
+        current_los_coefficient = nullptr;
+        current_model_in_spatial = false;
+        current_correlation_side = 0;
+        current_correlation_entry = nullptr;
+        current_model_in_fixed_mimo = false;
+        current_model_in_coefficients = false;
+        current_coefficient = nullptr;
+        current_step = nullptr;
+        current_step_in_taps = false;
+        current_step_in_fading = false;
+        current_model->los_matrix.declared = true;
+      } else if (current_model_in_los && indent == 6 && line == "coefficients:") {
+        current_model_in_los_coefficients = true;
+        current_los_coefficient = nullptr;
+      } else if (current_model_in_los_coefficients && indent == 8 && line.rfind("- ", 0) == 0) {
+        current_model->los_matrix.coefficients.emplace_back();
+        current_los_coefficient = &current_model->los_matrix.coefficients.back();
+        auto [key, value] = split_key_value(trim(line.substr(2)));
+        apply_los_coefficient(*current_los_coefficient, key, value);
+      } else if (current_los_coefficient != nullptr && current_model_in_los_coefficients &&
+                 indent == 10) {
+        auto [key, value] = split_key_value(line);
+        apply_los_coefficient(*current_los_coefficient, key, value);
       } else if (current_model != nullptr && indent == 6 && line.rfind("- ", 0) == 0) {
         current_model->chain.emplace_back();
         current_step = &current_model->chain.back();
@@ -899,6 +1045,168 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
                               "x" + std::to_string(nt) + " but model " + link.model +
                               " addresses rx " + std::to_string(c.rx) + " tx " +
                               std::to_string(c.tx));
+        }
+      }
+    }
+  }
+
+  // ---- spatial_correlation / los_matrix (M3) ------------------------------
+  //
+  // Model-scope checks first (what the block says on its own), then per-link
+  // checks (whether it fits the dimensions of the links that use it), because
+  // one model can be shared by links of different shapes.
+  for (const auto& [model_id, model] : config.models) {
+    const auto& correlation = model.spatial_correlation;
+    const bool correlated = correlation.declared &&
+                            correlation.kind != SpatialCorrelationKind::Iid;
+    if (correlation.declared && !correlated &&
+        (!correlation.rx.empty() || !correlation.tx.empty())) {
+      errors.emplace_back("model " + model_id +
+                          " declares spatial_correlation entries with kind: iid, which ignores them");
+    }
+    if (correlated && correlation.rx.empty() && correlation.tx.empty()) {
+      errors.emplace_back("model " + model_id +
+                          " declares spatial_correlation kind: kronecker with no rx or tx entries");
+    }
+    // Correlation is a property of a stochastic channel. On a chain with no
+    // fading there is nothing to correlate, and a block that does nothing is
+    // worse than one that is rejected.
+    bool has_fading = false;
+    bool has_los_tap = false;
+    for (const auto& step : model.chain) {
+      if (step.type != ModelStepType::Tdl || !step.fading_enabled) {
+        continue;
+      }
+      has_fading = true;
+      for (const auto& tap : step.taps) {
+        if (tap.is_los) {
+          has_los_tap = true;
+        }
+      }
+    }
+    if (correlated && !has_fading) {
+      errors.emplace_back("model " + model_id +
+                          " declares spatial_correlation but its chain has no fading tdl step to correlate");
+    }
+    // fixed_mimo says what H IS; spatial_correlation says the covariance of a
+    // random H. Both at once states H twice, and fixed_mimo also deletes the
+    // zero lanes the correlation is defined over.
+    if (correlated && model.fixed_mimo_declared) {
+      errors.emplace_back("model " + model_id +
+                          " declares both fixed_mimo and spatial_correlation; a model states H one way");
+    }
+    const auto check_side = [&](const std::vector<CorrelationEntry>& entries, const char* side) {
+      std::set<std::pair<int, int>> seen;
+      for (const auto& e : entries) {
+        if (e.i < 0 || e.j < 0) {
+          errors.emplace_back("model " + model_id + " spatial_correlation " + side +
+                              " indices must be non-negative");
+          continue;
+        }
+        // Only the upper triangle is writable: the diagonal is 1 by definition
+        // and the lower triangle is the conjugate mirror, so a Hermitian
+        // violation cannot be expressed rather than being caught later.
+        if (e.i >= e.j) {
+          errors.emplace_back("model " + model_id + " spatial_correlation " + side +
+                              " entry (" + std::to_string(e.i) + ", " + std::to_string(e.j) +
+                              ") must have i < j; the diagonal is 1 and the lower triangle is mirrored");
+        }
+        if (!seen.insert({e.i, e.j}).second) {
+          errors.emplace_back("model " + model_id + " spatial_correlation " + side +
+                              " has a duplicate entry for (" + std::to_string(e.i) + ", " +
+                              std::to_string(e.j) + ")");
+        }
+        if (std::sqrt(e.re * e.re + e.im * e.im) > 1.0 + 1e-12) {
+          errors.emplace_back("model " + model_id + " spatial_correlation " + side +
+                              " entry (" + std::to_string(e.i) + ", " + std::to_string(e.j) +
+                              ") has magnitude above 1, which no unit-diagonal correlation can have");
+        }
+      }
+    };
+    if (correlation.declared) {
+      check_side(correlation.rx, "rx");
+      check_side(correlation.tx, "tx");
+    }
+
+    if (model.los_matrix.declared) {
+      if (!has_los_tap) {
+        errors.emplace_back("model " + model_id +
+                            " declares los_matrix but its chain has no fading tdl tap with is_los");
+      }
+      std::set<std::pair<int, int>> seen;
+      for (const auto& c : model.los_matrix.coefficients) {
+        if (c.rx < 0 || c.tx < 0) {
+          errors.emplace_back("model " + model_id + " los_matrix indices must be non-negative");
+          continue;
+        }
+        if (!seen.insert({c.rx, c.tx}).second) {
+          errors.emplace_back("model " + model_id + " los_matrix has a duplicate entry for rx " +
+                              std::to_string(c.rx) + " tx " + std::to_string(c.tx));
+        }
+      }
+    }
+  }
+
+  // Per-link: do the declared matrices fit the dimensions of the radios, and is
+  // the correlation actually a valid covariance? The PSD test runs the same
+  // factorisation the backends will use, so validation and use cannot disagree
+  // about what is acceptable.
+  if (!config.radio_nodes.empty()) {
+    for (const auto& link : config.links) {
+      const auto* model = find_model(config, link.model);
+      const auto* source = find_radio_node(config, link.from);
+      const auto* destination = find_radio_node(config, link.to);
+      if (model == nullptr || source == nullptr || destination == nullptr) {
+        continue;
+      }
+      const int nt = static_cast<int>(source->tx_ports.size());
+      const int nr = static_cast<int>(destination->rx_ports.size());
+      const std::string where = "link " + link.from + "->" + link.to + " (" +
+                                std::to_string(nr) + "x" + std::to_string(nt) + ") model " +
+                                link.model;
+      const auto& correlation = model->spatial_correlation;
+      if (correlation.declared && correlation.kind != SpatialCorrelationKind::Iid) {
+        bool in_range = true;
+        for (const auto& e : correlation.rx) {
+          if (e.i >= nr || e.j >= nr) {
+            errors.emplace_back(where + " rx correlation addresses index " + std::to_string(e.j) +
+                                " outside its " + std::to_string(nr) + " RX port(s)");
+            in_range = false;
+          }
+        }
+        for (const auto& e : correlation.tx) {
+          if (e.i >= nt || e.j >= nt) {
+            errors.emplace_back(where + " tx correlation addresses index " + std::to_string(e.j) +
+                                " outside its " + std::to_string(nt) + " TX port(s)");
+            in_range = false;
+          }
+        }
+        if (in_range) {
+          std::vector<CplxD> mixing;
+          std::string error;
+          if (!lane_mixing_matrix(correlation, nt, nr, mixing, error)) {
+            errors.emplace_back(where + ": " + error);
+          }
+        }
+      }
+      if (model->los_matrix.declared) {
+        // A declared LOS matrix must name every lane. Filling the gaps with a
+        // default would make a half-written matrix mean something, silently.
+        std::set<std::pair<int, int>> seen;
+        bool in_range = true;
+        for (const auto& c : model->los_matrix.coefficients) {
+          if (c.rx >= nr || c.tx >= nt) {
+            errors.emplace_back(where + " los_matrix addresses rx " + std::to_string(c.rx) +
+                                " tx " + std::to_string(c.tx) + ", which it does not have");
+            in_range = false;
+            continue;
+          }
+          seen.insert({c.rx, c.tx});
+        }
+        if (in_range && seen.size() != static_cast<std::size_t>(nt) * static_cast<std::size_t>(nr)) {
+          errors.emplace_back(where + " los_matrix declares " + std::to_string(seen.size()) +
+                              " of " + std::to_string(nt * nr) +
+                              " lanes; declare every lane or none");
         }
       }
     }

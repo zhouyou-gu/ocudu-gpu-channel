@@ -1,9 +1,11 @@
 #include "ocudu_gpu_channel/config.h"
+#include "ocudu_gpu_channel/correlation.h"
 #include "ocudu_gpu_channel/processing.h"
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <cmath>
+#include <complex>
 #include <set>
 #include <stdexcept>
 
@@ -2242,6 +2244,385 @@ models:
     }
   }
 
+  // ---- spatial correlation: the mixing math (M3.2) --------------------------
+  //
+  // g = L w must have covariance R, so every check here is on the relation
+  // L L^H = R -- not on L's entries, which are not unique.
+  const auto reconstruct = [](const std::vector<ocg::CplxD>& m, int dim) {
+    std::vector<ocg::CplxD> out(static_cast<std::size_t>(dim) * dim, ocg::CplxD{0.0, 0.0});
+    for (int i = 0; i != dim; ++i) {
+      for (int j = 0; j != dim; ++j) {
+        ocg::CplxD acc{0.0, 0.0};
+        for (int k = 0; k != dim; ++k) {
+          acc += m[static_cast<std::size_t>(i) * dim + k] *
+                 std::conj(m[static_cast<std::size_t>(j) * dim + k]);
+        }
+        out[static_cast<std::size_t>(i) * dim + j] = acc;
+      }
+    }
+    return out;
+  };
+  const auto matrices_match = [](const std::vector<ocg::CplxD>& a,
+                                 const std::vector<ocg::CplxD>& b) {
+    if (a.size() != b.size()) {
+      return false;
+    }
+    for (std::size_t k = 0; k != a.size(); ++k) {
+      if (std::abs(a[k] - b[k]) > 1e-12) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  {
+    // The sparse upper triangle materialises as a Hermitian unit-diagonal
+    // matrix: this is what makes "not Hermitian" unrepresentable.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = 0.3, .im = 0.4}};
+    const auto dense = ocg::dense_correlation(entries, 2);
+    require(dense[0] == ocg::CplxD(1.0, 0.0) && dense[3] == ocg::CplxD(1.0, 0.0),
+            "a correlation matrix has a unit diagonal by construction");
+    require(dense[1] == ocg::CplxD(0.3, 0.4), "the declared entry lands in the upper triangle");
+    require(dense[2] == ocg::CplxD(0.3, -0.4), "the lower triangle is the conjugate mirror");
+  }
+
+  {
+    // Complex, positive definite: the factor must reproduce R exactly.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = 0.3, .im = 0.4}};
+    const auto dense = ocg::dense_correlation(entries, 2);
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::correlation_mixing_matrix(dense, 2, mixing, error),
+            "a positive definite correlation factorises");
+    require(matrices_match(reconstruct(mixing, 2), dense), "L L^H must reproduce R");
+  }
+
+  {
+    // Perfect correlation: exactly 1.0, so R is singular. This is the case
+    // Cholesky cannot do and LDL^H can, and it is worth being able to run --
+    // it is the extreme a MIMO test wants to reach.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = 1.0, .im = 0.0}};
+    const auto dense = ocg::dense_correlation(entries, 2);
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::correlation_mixing_matrix(dense, 2, mixing, error),
+            "a singular but PSD correlation still factorises");
+    require(matrices_match(reconstruct(mixing, 2), dense),
+            "L L^H must reproduce a singular R too");
+  }
+
+  {
+    // Hermitian, unit diagonal, every |entry| <= 1 -- and still not a
+    // covariance. Nothing in the syntax can catch this, which is why the
+    // factorisation is also the test.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = -0.6, .im = 0.0},
+                                                        {.i = 0, .j = 2, .re = -0.6, .im = 0.0},
+                                                        {.i = 1, .j = 2, .re = -0.6, .im = 0.0}};
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(!ocg::correlation_mixing_matrix(ocg::dense_correlation(entries, 3), 3, mixing, error),
+            "a non-PSD matrix must be rejected, not factorised");
+    require(!error.empty(), "the rejection says why");
+  }
+
+  {
+    // The convention of docs/plans/m3 section 2.3, asserted rather than
+    // described: lane order l = r*Nt + t, and E[g g^H] = R_rx (x) R_tx.
+    //
+    // With only the RX side correlated, lanes sharing a TX port must be
+    // correlated and lanes sharing an RX port must not. An implementation that
+    // swapped the Kronecker operands produces exactly the opposite, and every
+    // magnitude in the matrix stays plausible.
+    ocg::SpatialCorrelationConfig correlation;
+    correlation.declared = true;
+    correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
+    correlation.rx = {{.i = 0, .j = 1, .re = 0.5, .im = 0.0}};
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::lane_mixing_matrix(correlation, /*nt=*/2, /*nr=*/2, mixing, error),
+            "a 2x2 kronecker correlation factorises");
+    const auto r = reconstruct(mixing, 4);
+    // lane 0 = (r0,t0), lane 1 = (r0,t1), lane 2 = (r1,t0), lane 3 = (r1,t1).
+    require(std::abs(r[0 * 4 + 2] - ocg::CplxD(0.5, 0.0)) < 1e-12,
+            "lanes on the same TX port and different RX ports carry the rx correlation");
+    require(std::abs(r[0 * 4 + 1]) < 1e-12,
+            "lanes on the same RX port and different TX ports are uncorrelated when tx is identity");
+    require(std::abs(r[0 * 4 + 0] - ocg::CplxD(1.0, 0.0)) < 1e-12, "the lane variance stays 1");
+  }
+
+  {
+    // Asymmetric dimensions, where a Kronecker product built the wrong way
+    // round does not even have the right size.
+    ocg::SpatialCorrelationConfig correlation;
+    correlation.declared = true;
+    correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
+    correlation.rx = {{.i = 0, .j = 1, .re = 0.4, .im = 0.2}};
+    correlation.tx = {{.i = 0, .j = 1, .re = 0.7, .im = 0.0}};
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::lane_mixing_matrix(correlation, /*nt=*/2, /*nr=*/3, mixing, error),
+            "an asymmetric kronecker correlation factorises");
+    require(mixing.size() == 36, "a 3x2 link has six lanes");
+    const auto r = reconstruct(mixing, 6);
+    // (r0,t0) vs (r0,t1): pure tx correlation. (r0,t0) vs (r1,t0): pure rx.
+    require(std::abs(r[0 * 6 + 1] - ocg::CplxD(0.7, 0.0)) < 1e-12,
+            "same RX port, adjacent TX ports -> the tx entry");
+    require(std::abs(r[0 * 6 + 2] - ocg::CplxD(0.4, 0.2)) < 1e-12,
+            "same TX port, adjacent RX ports -> the rx entry");
+    // A pair differing in both indices carries the product of the two.
+    require(std::abs(r[0 * 6 + 3] - ocg::CplxD(0.4, 0.2) * ocg::CplxD(0.7, 0.0)) < 1e-12,
+            "a pair differing in both indices carries the product");
+  }
+
+  {
+    // iid is the identity, and it is what every pre-M3 model resolves to.
+    ocg::SpatialCorrelationConfig correlation;
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::lane_mixing_matrix(correlation, 2, 2, mixing, error), "iid always factorises");
+    std::vector<ocg::CplxD> identity(16, ocg::CplxD{0.0, 0.0});
+    for (int k = 0; k != 4; ++k) {
+      identity[static_cast<std::size_t>(k) * 4 + k] = ocg::CplxD{1.0, 0.0};
+    }
+    require(matrices_match(mixing, identity), "an iid model mixes with the identity");
+  }
+
+  {
+    // An undeclared LOS matrix is all-ones -- one specular path seen with the
+    // same phase everywhere, which is the minimum form of "not drawn per lane".
+    ocg::LosMatrixConfig los;
+    const auto coefficients = ocg::lane_los_coefficients(los, 2, 2);
+    require(coefficients.size() == 4, "one LOS coefficient per lane");
+    for (const auto& c : coefficients) {
+      require(c == ocg::CplxD(1.0, 0.0), "an undeclared LOS matrix is rank-1 all-ones");
+    }
+  }
+
+  {
+    // A declared one is read in lane order l = r*Nt + t.
+    ocg::LosMatrixConfig los;
+    los.declared = true;
+    los.coefficients = {{.rx = 0, .tx = 0, .re = 1.0, .im = 0.0},
+                        {.rx = 0, .tx = 1, .re = 0.0, .im = 1.0},
+                        {.rx = 1, .tx = 0, .re = -1.0, .im = 0.0},
+                        {.rx = 1, .tx = 1, .re = 0.0, .im = -1.0}};
+    const auto c = ocg::lane_los_coefficients(los, 2, 2);
+    require(c[1] == ocg::CplxD(0.0, 1.0), "lane 1 is (rx 0, tx 1)");
+    require(c[2] == ocg::CplxD(-1.0, 0.0), "lane 2 is (rx 1, tx 0)");
+  }
+
+  // ---- spatial correlation: schema and validation (M3.2) --------------------
+  const char* m3_path = "test_m3_topology.yaml";
+  const auto write_m3_config = [&](const char* model_blocks) {
+    std::ofstream f(m3_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+  - id: gnb_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3000
+    rx_endpoint: tcp://127.0.0.1:3001
+  - id: gnb_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3002
+    rx_endpoint: tcp://127.0.0.1:3003
+  - id: ue_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3004
+    rx_endpoint: tcp://127.0.0.1:3005
+  - id: ue_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3006
+    rx_endpoint: tcp://127.0.0.1:3007
+radio_nodes:
+  - id: gnb
+    tx_ports:
+      - gnb_a
+      - gnb_b
+    rx_ports:
+      - gnb_a
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+links:
+  - from: gnb
+    to: ue
+    model: h
+  - from: ue
+    to: gnb
+    model: h
+models:
+  h:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+        fading:
+          f_d_max_hz: 100.0
+          grid_us: 100.0
+)yaml";
+    f << model_blocks;
+  };
+
+  {
+    // Happy path: both blocks round-trip with their values intact.
+    write_m3_config(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.4
+      tx:
+        - i: 0
+          j: 1
+          re: 0.7
+          im: 0.0
+)yaml");
+    const auto cfg = ocg::load_config_file(m3_path);
+    const auto* model = ocg::find_model(cfg, "h");
+    require(model != nullptr, "the correlated model parses");
+    require(model->spatial_correlation.declared, "the block is marked declared");
+    require(model->spatial_correlation.kind == ocg::SpatialCorrelationKind::Kronecker,
+            "kind: kronecker round-trips");
+    require(model->spatial_correlation.rx.size() == 1 && model->spatial_correlation.tx.size() == 1,
+            "both sides round-trip");
+    require(model->spatial_correlation.rx.front().re == 0.3 &&
+                model->spatial_correlation.rx.front().im == 0.4,
+            "a complex rx entry round-trips");
+    require(ocg::validate_config(cfg).empty(), "a valid kronecker correlation validates");
+  }
+
+  const auto m3_rejects = [&](const char* model_blocks, const char* what) {
+    write_m3_config(model_blocks);
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(m3_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, what);
+  };
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: iid
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+)yaml", "entries under kind: iid must be rejected rather than ignored");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+)yaml", "kind: kronecker with no entries must be rejected");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: full
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+)yaml", "kind: full is deferred and must say so rather than be accepted");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 1
+          j: 0
+          re: 0.3
+          im: 0.0
+)yaml", "a lower-triangle entry must be rejected; the mirror is implied");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+        - i: 0
+          j: 1
+          re: 0.5
+          im: 0.0
+)yaml", "a duplicate correlation entry must be rejected");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 1.4
+          im: 0.0
+)yaml", "a correlation magnitude above 1 must be rejected");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 2
+          re: 0.3
+          im: 0.0
+)yaml", "a correlation entry outside the radio's port count must be rejected");
+
+  m3_rejects(R"yaml(    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 1
+          real: 1.0
+          imag: 0.0
+    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+)yaml", "fixed_mimo and spatial_correlation together must be rejected: a model states H one way");
+
+  m3_rejects(R"yaml(    los_matrix:
+      coefficients:
+        - rx: 0
+          tx: 0
+          re: 1.0
+          im: 0.0
+)yaml", "a los_matrix on a chain with no LOS tap must be rejected as inert");
+
+  {
+    // A perfectly correlated pair is singular but legitimate, and the
+    // validator must accept it -- that is the reason for LDL^H.
+    write_m3_config(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 1.0
+          im: 0.0
+)yaml");
+    const auto cfg = ocg::load_config_file(m3_path);
+    require(ocg::validate_config(cfg).empty(),
+            "perfect correlation is singular but valid, and must be accepted");
+  }
+
+  std::remove(m3_path);
   std::remove(fm_path);
   std::remove(rn_path);
   std::remove(rx_ring_path);
