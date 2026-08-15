@@ -294,6 +294,11 @@ Progress entry template
 - [M3 perf] Measured on 4x RTX 5090 / 23.04 MS/s / batch 23040 / CUDA / 3 s: the generator split cut TDL-A kernel p99 from 61.856 to 53.599 us (1x1) and from 90.655 to 69.536 us (16 edges); correlation costs +4.2 us p99 on a 2x2. Added `examples/topology.mimo-2x2-correlated.cuda.yaml`.
 - [M3 tooling] Fixed `ocudu_gpu_channel_bench`, which had keyed destinations by device id since M1 and therefore span millions of empty iterations reporting a zero kernel count on every multi-port topology -- measuring nothing while exiting green.
 - [M4 plan] Added `docs/plans/m4-physical-link-runtime-control.md`: the five code facts M4 stands on (control is addressed by LANE key, so a 2x2 link is four endpoints and the address carries the `#r1t0` suffix M2 removed from seeding; the snap runs per lane with a per-lane slot counter, so cross-lane atomicity is a discipline rather than an invariant; the two backends expose DIFFERENT control key sets -- the CPU includes receiver-model rows, CUDA does not, so the same REQ succeeds on one and is rejected on the other; M3's correlation is prepare-fixed; the warmup zero-fill is per-lane), the `PhysicalLinkRuntime` promotion that makes lane-wide atomicity structural, the base-link-key addressing that leaves 1x1 deployments byte-identical, runtime `R` swaps factorised on the control thread with a targeted device-group upload, the rejection list, and a six-commit order whose M4.2 gate is a fingerprint A/B like M3.3's.
+- [M4 control ownership] Promoted the runtime-control block, `live` view, slot counter and profile state from the lane to `PhysicalLinkRuntime`, with one snap per link per slot (shared by both backends via `snap_physical_link`). Control addressing moved to the physical link key: a 2x2 link pair is two endpoints instead of eight and no address carries a lane suffix, while 1x1 link_ids are unchanged. Receiver-model rows left the control surface, settling a pre-existing disagreement where the CPU exposed them and CUDA did not.
+- [M4 correlation swap] Added the `correlation_swap` message type: the LDL^H runs on the control thread during REQ validation (the same routine validate_config uses, so a matrix the loader would refuse cannot enter at runtime) and the shadow carries the factor; the snap swaps it in with no warmup, since correlation carries no cross-slot state. Opt-in is declaring a `spatial_correlation` block at load, even `kind: iid`. The device uploads one DeviceCorrelationGroup, found by link pointer.
+- [M4 rejections] Tap-scope updates (`tap0_*`, `profile_swap`) refused on a fixed_mimo model, whose per-lane tap weights carry the matrix; scalar params stay allowed. Nt/Nr, port membership, sample rate and the fixed-vs-stochastic family are not addressable at all, now asserted so a future param has to confront it.
+- [M4 live control plane] Added `ocudu-control-req`, the first control client outside the unit tests, and extended `gpu-test-sequence.sh` to nine steps: a `correlation_swap` against a RUNNING broker moves the received power off the iid value (6.94 to 9.29 cumulative). Disabling only the device-side group upload leaves every unit test green and fails this step -- the regression class no unit test here can see.
+- [M4 validation] `ctest` 8/8 on both trees at every step, `gpu-test-sequence.sh` 9/9, live 1x1 attach re-run after M4 (`20260815T103840Z`, `status=passed`), and a fingerprint A/B confirming the ownership move left 1x1 output bit-identical to M3.
 - [MIMO plan] Added `docs/plans/m0-single-engine-refactor.md`: broker ownership-transfer table, producer loop with the preserved pre-MIMO invariants annotated, `PortRepWorker` loop, RX ring sizing with an explicit added-latency budget and Msg3 exit condition, deadlock analysis, the multi-row `process_superposition` signature with a single-row convenience overload that keeps all seven existing call sites unchanged, and a six-commit work breakdown.
 
 ## Blockers and Risks
@@ -731,9 +736,52 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 
 ---
 
+## M4 — physical link 단위 runtime control (완료)
+
+> 상세 설계: [`docs/plans/m4-physical-link-runtime-control.md`](docs/plans/m4-physical-link-runtime-control.md)
+
+| 단계 | 커밋 | 상태 |
+|---|---|---|
+| M4.1 계획 문서 | `8802123` | ✅ |
+| M4.2 `PhysicalLinkRuntime` 승격 + base link key 주소 | `696003b` | ✅ |
+| M4.3 lane 전체 원자성 + warmup 게이트 | `d8ba3f4` | ✅ |
+| M4.4 런타임 상관 교체 (`correlation_swap`) | `0dd7224` | ✅ |
+| M4.5 거부 규칙 | `299aecf` | ✅ |
+| M4.6 라이브 컨트롤 플레인 + 클라이언트 | `99f2ab5` | ✅ |
+
+**사용자 결정 3건 확정** — (a) `fixed_mimo` 모델에 **tap 스코프 런타임 갱신 거부**(스칼라는 허용), (b) 수신 모델 `<node>>rx`를 컨트롤 표면에서 **제외**(CUDA에 맞춤), (c) `R` 교체는 **신규 메시지 타입** `correlation_swap`.
+
+**M4.2** — 컨트롤 블록이 lane마다 있었다. 2×2 링크 하나가 엔드포인트 4개, 슬롯 카운터 4개, 스냅 지점 4개였고, "모든 lane이 같은 슬롯에 갈린다"는 호출자가 REQ 4개를 맞춰 보내면 되는 **규율**이었지 코드의 보장이 아니었다. `PhysicalLinkRuntime`(clock + fading + control)로 모으고 슬롯당 링크당 1회 스냅. 주소는 base link key — **`Nt=Nr=1`이면 lane 키와 문자 그대로 같으므로 기존 1×1 배포의 `link_id`는 안 바뀐다.**
+
+**M4.2에서 테스트가 잡은 설계 오류** — `live`까지 링크 소유로 만들자 M1.7의 1×2 `fixed_mimo` 게이트가 **즉시** 깨졌다. 런타임 갱신 때가 아니라 **초기화에서**: `fixed_mimo`는 lane별 계수를 lane별 모델 클론의 tap에 접어 넣는데, `live` 하나를 공유하면 먼저 본 클론의 값이 모든 lane을 덮어쓴다. 그래서 **결정은 링크, 값은 lane**으로 갈랐다 — 스냅이 링크의 값을 그 슬롯에 모든 lane으로 써 넣는다. 실제 tap 갱신은 여전히 행렬을 지우므로 M4.5가 그것을 거부한다.
+
+**M4.4** — LDLᴴ은 **컨트롤 스레드**에서 REQ 검증 중에 돌고, shadow에 들어가는 것은 **인수분해된 factor**다. serve 경로는 복사만 한다(M3 §2.2의 약속). 로더가 거부할 행렬이 컨트롤 플레인으로 들어올 수 없다 — 같은 루틴이기 때문이다. **opt-in은 선언이다**: 모델이 `spatial_correlation` 블록을 선언했으면(`kind: iid`라도) 런타임 교체 가능, 선언 안 했으면 pre-M3 경로 그대로이고 REQ는 이유와 함께 거부된다. 디바이스는 그룹 **하나만** targeted 업로드하고, 그룹은 lane 키 문자열이 아니라 **링크 포인터**로 찾는다.
+
+**M4 Exit 게이트**
+
+| 게이트 | 결과 |
+|---|---|
+| 교체가 모든 lane에 같은 슬롯에 적용 | ✅ 2×2 4 lane 전부, delay 0→3 스왑으로 직접 관측 |
+| warmup zero-fill이 lane 전체에 | ✅ 같은 테스트 — 안 지운 lane은 이전 프로파일의 DC 꼬리가 보인다 |
+| 기존 `test_runtime_update_parity` 통과 | ✅ 키 변경 없이(1×1은 같은 문자열) |
+| 런타임 `R` 교체가 통계를 바꾼다 | ✅ 같은 런의 두 구간: 전 <0.15, 후 0.8±0.15 |
+| 거부 목록 | ✅ Nt/Nr·포트·sample rate·family는 주소 자체가 없음, `fixed_mimo` tap 갱신·비-PSD·차원 초과·미선언 링크 전부 거부 |
+| 두 백엔드의 컨트롤 키 집합 동일 | ✅ (CPU가 노출하던 `<node>>rx` 제거) |
+| 1×1이 M3과 bit-exact | ✅ 지문 A/B (`04d5c64` 대비) |
+| `ctest` 8/8 · `gpu-test-sequence` **9/9** | ✅ |
+| 라이브 1×1 attach | ✅ `20260815T103840Z` `status=passed`, rrc/pdu/ping 전부 1 |
+
+**라이브 컨트롤 플레인 (M4.6)** — 지금까지 컨트롤 게이트는 전부 핸들러를 직접 호출했다. 와이어 경로(REQ → shadow → 슬롯 경계 스냅 → 출력 변화)는 한 번도 돈 적이 없고, 돌릴 **클라이언트도 없었다**. `ocudu-control-req`를 제품에 추가하고 `gpu-test-sequence`를 `[9/9]`로 확장했다: 살아 있는 브로커에 `correlation_swap`을 쏘면 수신 전력이 6.94(iid)에서 **9.29**로 이동한다(상관값 9.71로 가는 중, 스왑 전 1초가 섞여 희석).
+
+**뮤테이션 프로브** — 링크 스냅을 lane 스냅으로 되돌리면 원자성 FAIL / lane 하나만 zero-fill하면 warmup FAIL / 스냅에서 상관 교체를 무시하면 M4.4 게이트 FAIL / `fixed_mimo` tap 거부를 지우면 M4.5 FAIL / **디바이스 그룹 업로드만 끄면 단위 테스트는 전부 green인데 `[9/9]`가 7.0049로 FAIL** — 단위 테스트가 볼 수 없는 회귀이고, 그 단계가 존재하는 이유다.
+
+**M4 완료.**
+
+---
+
 ## 세션 상태 (2026-08-15)
 
-**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7 완료.** 베이스라인 `bc88865` 이후 33 커밋.
+**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7, M4.1–M4.6 완료.** 베이스라인 `bc88865` 이후 40 커밋.
 
 | 마일스톤 | 상태 |
 |---|---|
@@ -741,17 +789,20 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 | M1 차원 + 고정 행렬 | **전 게이트 green** (라이브 1×1 attach 포함) |
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
 | M3 공간 상관 + coherent LOS | **전 게이트 green** (합성·단위 테스트 + perf 실측) |
-| M4 physical link 단위 runtime control | 계획 문서 작성 완료(M4.1), 구현 미착수 |
+| M4 physical link 단위 runtime control | **전 게이트 green** (라이브 컨트롤 플레인 포함) |
+| M5 라이브 통합 | 미착수 (`MIMO_MILESTONES.md` M5에 범위만 있음) |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
 ### 다음 세션 재개 지점
 
-**M4.2(`PhysicalLinkRuntime` 승격 + 링크당 1회 스냅 + base link key 주소)부터 시작한다.** 상세 설계는 [`docs/plans/m4-physical-link-runtime-control.md`](docs/plans/m4-physical-link-runtime-control.md).
+**M5 상세 계획부터 시작한다.** 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M5(라이브 통합). M0~M4가 모두 계획 문서를 먼저 썼다.
 
-**착수 전에 사용자 결정 3건**(계획 §6): (a) `fixed_mimo` 모델에 tap 스코프 런타임 갱신을 거부할지(권고: 거부 — 허용하면 REQ 한 번이 고정 행렬을 지운다), (b) 수신 모델 `<node>>rx`를 컨트롤 표면에서 제외할지(권고: 제외, CUDA 쪽에 맞춤 — 어느 쪽으로 정하든 한 백엔드의 동작이 바뀐다), (c) `R` 교체를 새 메시지 타입으로 할지 `profile_swap` 확장으로 할지(권고: 신규 — `R` 교체는 warmup이 필요 없어서 구분이 흐려진다).
+M4를 끝내며 **M5가 마주할 세 가지**:
 
-**M4.2의 게이트는 M3.3과 같은 형태다** — 소유권 이동은 동작을 바꾸지 않아야 하고, 그 증거는 이전 커밋과의 지문 A/B다(`ab_probe` 방식).
+1. **다중 포트 라디오를 실제 OCUDU와 연결한 적이 없다.** 지금까지의 라이브 검증은 전부 **1×1**이다(`run-ocudu-legacy-1x1.sh`). 다중 포트 MIMO는 합성 소스/싱크로만 브로커를 통과했다(`gpu-test-sequence [8/9]`). M5의 첫 질문은 OCUDU 쪽 다중 포트 ZMQ `device_args` 문법이고, **그건 아직 이 워크스페이스에서 소스로 확인된 적이 없다**(M0 블로커 목록에 그대로 있다).
+2. **M0의 라이브 부채가 여기서 만난다.** multi-UE / multi-gNB 라이브 게이트가 unprivileged LXC 때문에 막혀 있고, M5는 정의상 그 경로를 필요로 한다. 계획 단계에서 "어디서 돌릴 것인가"를 먼저 정해야 한다(RTX 워크스테이션 / 호스트 설정 변경 / 네이티브 하네스 확장).
+3. **컨트롤 플레인은 이제 라이브에서 검증된다.** `ocudu-control-req`와 `[9/9]`가 있으므로, M5의 시나리오(주행 중 채널 변경 등)를 스크립트로 짤 재료는 준비돼 있다.
 
 ### 환경 관련 (다음 세션에서 필요할 수 있음)
 
