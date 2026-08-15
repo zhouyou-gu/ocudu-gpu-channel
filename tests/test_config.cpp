@@ -2474,6 +2474,71 @@ models:
     f << model_blocks;
   };
 
+  // Same topology, but the tap carries a LOS specular so los_matrix rules are
+  // reachable.
+  const auto write_m3_los_config = [&](const char* model_blocks) {
+    std::ofstream f(m3_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+  - id: gnb_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3000
+    rx_endpoint: tcp://127.0.0.1:3001
+  - id: gnb_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3002
+    rx_endpoint: tcp://127.0.0.1:3003
+  - id: ue_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3004
+    rx_endpoint: tcp://127.0.0.1:3005
+  - id: ue_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3006
+    rx_endpoint: tcp://127.0.0.1:3007
+radio_nodes:
+  - id: gnb
+    tx_ports:
+      - gnb_a
+      - gnb_b
+    rx_ports:
+      - gnb_a
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+links:
+  - from: gnb
+    to: ue
+    model: h
+  - from: ue
+    to: gnb
+    model: h
+models:
+  h:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+            is_los: true
+            los_k_db: 10.0
+        fading:
+          f_d_max_hz: 100.0
+          grid_us: 100.0
+)yaml";
+    f << model_blocks;
+  };
+
   {
     // Happy path: both blocks round-trip with their values intact.
     write_m3_config(R"yaml(    spatial_correlation:
@@ -2598,6 +2663,16 @@ models:
           im: 0.0
 )yaml", "fixed_mimo and spatial_correlation together must be rejected: a model states H one way");
 
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+    chain_placeholder: 0
+)yaml", "an unknown key inside a model block must be rejected");
+
   m3_rejects(R"yaml(    los_matrix:
       coefficients:
         - rx: 0
@@ -2605,6 +2680,88 @@ models:
           re: 1.0
           im: 0.0
 )yaml", "a los_matrix on a chain with no LOS tap must be rejected as inert");
+
+  {
+    // A los_matrix that names only some lanes must be rejected. Filling the
+    // rest with the default would make a half-written matrix mean something,
+    // and it would mean it silently.
+    // The tap must be an LOS one, or the "no is_los tap" rule fires first and
+    // this case never reaches the coverage check it is named after.
+    write_m3_los_config(R"yaml(    los_matrix:
+      coefficients:
+        - rx: 0
+          tx: 0
+          re: 1.0
+          im: 0.0
+        - rx: 0
+          tx: 1
+          re: 0.0
+          im: 1.0
+)yaml");
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(m3_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, "a los_matrix that declares only some lanes must be rejected");
+  }
+
+  {
+    // The correlated-lane cap is shared with the device kernel, which holds a
+    // lane vector in registers. A topology above it must be rejected at load
+    // rather than reaching a kernel that cannot represent it. Built
+    // programmatically: 5 TX x 4 RX is 20 lanes, past the 16 cap.
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = 64;
+    cfg.runtime.queue_samples = 512;
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    int port = 9500;
+    const auto add_device = [&](const std::string& id) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = 23040000;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    };
+    for (int t = 0; t != 5; ++t) {
+      const std::string id = "gnb_t" + std::to_string(t);
+      add_device(id);
+      gnb.tx_ports.push_back(id);
+      gnb.rx_ports.push_back(id);
+    }
+    for (int r = 0; r != 4; ++r) {
+      const std::string id = "ue_r" + std::to_string(r);
+      add_device(id);
+      ue.rx_ports.push_back(id);
+      ue.tx_ports.push_back(id);
+    }
+    cfg.radio_nodes = {gnb, ue};
+    cfg.links = {{.from = "gnb", .to = "ue", .model = "h"},
+                 {.from = "ue", .to = "gnb", .model = "h"}};
+    ocg::ModelConfig m;
+    m.id = "h";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 100.0;
+    m.chain.push_back(step);
+    m.spatial_correlation.declared = true;
+    m.spatial_correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
+    m.spatial_correlation.rx = {{.i = 0, .j = 1, .re = 0.3, .im = 0.0}};
+    cfg.models.emplace("h", m);
+    require(!ocg::validate_config(cfg).empty(),
+            "a correlated link above the lane cap must be rejected at load");
+  }
 
   {
     // A perfectly correlated pair is singular but legitimate, and the
