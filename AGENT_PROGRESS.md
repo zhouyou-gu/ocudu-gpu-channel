@@ -20,6 +20,7 @@
 ## Workspace Artifacts
 
 - Control files: `AGENT.md`, `AGENT_GOAL.md`, `AGENT_HARNESS.md`, `AGENT_PROGRESS.md`.
+- Session resume aid: `HANDOVER.md`. It is a quickstart, NOT a control file -- it states outright that this file is canonical and that it loses any disagreement, per `AGENT.md`'s precedence rule. Refresh it when the resume point changes.
 - MIMO mission amendment: `AGENT_GOAL.mimo.md` is a duplicate of `AGENT_GOAL.md` carrying the user-instructed MIMO amendment (one Statement line changed, five bullets added across Scope / Non-Goals / Success Criteria / Constraints). `AGENT_GOAL.md` itself is unmodified. **Which of the two governs this workspace is an open user decision.**
 - MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and the per-milestone designs `docs/plans/m0-single-engine-refactor.md`, `m1-dimensions-and-fixed-matrix.md`, `m2-iid-stochastic-fading.md`, `m3-spatial-correlation-and-los.md`, `m4-physical-link-runtime-control.md`, `m5-live-integration.md`.
 - Local configuration: `.gitignore`, tracked `.config.example`, and ignored `.config`.
@@ -294,6 +295,12 @@ Progress entry template
 - [M3 perf] Measured on 4x RTX 5090 / 23.04 MS/s / batch 23040 / CUDA / 3 s: the generator split cut TDL-A kernel p99 from 61.856 to 53.599 us (1x1) and from 90.655 to 69.536 us (16 edges); correlation costs +4.2 us p99 on a 2x2. Added `examples/topology.mimo-2x2-correlated.cuda.yaml`.
 - [M3 tooling] Fixed `ocudu_gpu_channel_bench`, which had keyed destinations by device id since M1 and therefore span millions of empty iterations reporting a zero kernel count on every multi-port topology -- measuring nothing while exiting green.
 - [M4 plan] Added `docs/plans/m4-physical-link-runtime-control.md`: the five code facts M4 stands on (control is addressed by LANE key, so a 2x2 link is four endpoints and the address carries the `#r1t0` suffix M2 removed from seeding; the snap runs per lane with a per-lane slot counter, so cross-lane atomicity is a discipline rather than an invariant; the two backends expose DIFFERENT control key sets -- the CPU includes receiver-model rows, CUDA does not, so the same REQ succeeds on one and is rejected on the other; M3's correlation is prepare-fixed; the warmup zero-fill is per-lane), the `PhysicalLinkRuntime` promotion that makes lane-wide atomicity structural, the base-link-key addressing that leaves 1x1 deployments byte-identical, runtime `R` swaps factorised on the control thread with a targeted device-group upload, the rejection list, and a six-commit order whose M4.2 gate is a fingerprint A/B like M3.3's.
+- [M5.2] Restored `apps/ocudu_mimo_transport_peer.cpp` (two-port test peer, both ports in one process) and its CMake target; its four-socket self-test passes with 24192 marker checks and 0 mismatches.
+- [M5.3] Restored the two fixtures and adapted the topology to the post-M1 schema (`role:` off radio_nodes, `rx_ports`/`tx_ports` off fixed_mimo); the gNB fixture needed no change and still hashes to the audited value. Re-took the script's topology SHA pin with the reason recorded.
+- [M5.4] Gate FAILED and the cause is not established. Recorded evidence: the same gate passed twice on 2026-08-13 under the superseded coordinator broker with gNB overflow 0 and ~1180 pulls/s per port, against 331 pulls then a permanent freeze today -- with a byte-identical gNB config. Two hypotheses (uncoordinated sibling pulling; RX-ring run-ahead) and the cheapest experiments are in the M5.4 section.
+- [M5.4] Added cumulative `acquired=` to the puller's heartbeat and worker summary. Only a single-batch `last=` existed, so drift between a node's sibling ports was invisible; the 11,776-sample divergence at the freeze came from this.
+- [M5.4] Removed the coordinator-era assertions from `validate-mimo-2port-transport.py` (`group_prepares` / `group_commits` / `group_aborts` / `partial_group_aborts`, `event=radio_group_abort`), the same treatment M0 gave the 1x1 verifier, with the reasoning recorded in the file; the property the commit barrier guaranteed is judged instead by the sibling RX ports being served the same number of times.
+- [Handover] Added `HANDOVER.md`, a session-resume quickstart that defers to this file as canonical.
 - [M5 plan] Added `docs/plans/m5-live-integration.md`. The milestone turns out to be mostly recovery, not construction: `MIMO_MILESTONES.md` M5 already scopes it as (1) a 1x1 live regression -- done after M4 -- and (2) a multi-port OCUDU gNB against a SYNTHETIC 2-port peer, with independent srsUE processes explicitly named as not being one 2-port UE. Its precondition (verify the multi-port device_args syntax against source) is also now met. The gate script and validator are already in this tree; the peer app and the two fixtures are in the audit tree and are M1-era schema, so restoring them means adapting (radio_nodes has no `role`, fixed_mimo takes no `rx_ports`/`tx_ports` -- dimensions come from the node declaration) and updating the script's SHA pins with the reason recorded. The gNB fixture's device_args matches the syntax derived from source, so the source reading and a fixture that was actually run confirm each other.
 - [M4 control ownership] Promoted the runtime-control block, `live` view, slot counter and profile state from the lane to `PhysicalLinkRuntime`, with one snap per link per slot (shared by both backends via `snap_physical_link`). Control addressing moved to the physical link key: a 2x2 link pair is two endpoints instead of eight and no address carries a lane suffix, while 1x1 link_ids are unchanged. Receiver-model rows left the control surface, settling a pre-existing disagreement where the CPU exposed them and CUDA did not.
 - [M4 correlation swap] Added the `correlation_swap` message type: the LDL^H runs on the control thread during REQ validation (the same routine validate_config uses, so a matrix the loader would refuse cannot enter at runtime) and the shadow carries the factor; the snap swaps it in with no warmup, since correlation carries no cross-slot state. Opt-in is declaring a `spatial_correlation` block at load, even `kind: iid`. The device uploads one DeviceCorrelationGroup, found by link pointer.
@@ -827,33 +834,42 @@ event=node_stall node=gnb0 phase=output_room / node=peer0 phase=input_data
 
 수정 후 재실행하니 validator 잡음은 전부 사라지고 **gNB 정지에서 파생된 항목만** 남는다.
 
-### M5.4 원인 규명 — OCUDU ZMQ 라디오의 다중채널 자기 교착 (소스 확인)
+### M5.4 — 실패. **과거에는 통과한 게이트다** (2026-08-15 세션 종료 시점 상태)
 
-계측(`acquired=` 누적 취득량)과 스레드 상태, 그리고 소스로 기전을 특정했다. **우리 쪽 puller 조율 문제가 아니었다.**
+이 절은 세 번 결론이 바뀌었다. 최종 상태만 신뢰할 것.
 
-**관측**
-- 두 gNB 포트가 각각 `acquired≈11.35 M` 샘플까지 받고 **t≈2 s에 영구 정지**(t=2부터 t=19까지 카운터 불변). 두 포트 격차는 **정확히 11,776 샘플**.
-- 정지 중 gNB overflow가 **일정하게 18,000/s**, 그런데 **전 스레드 CPU 0.0%**.
-- gNB의 ZMQ 라디오는 **`radio` 스레드 하나**가 4개 채널을 전부 서비스한다(스레드 목록으로 확인).
-- 같은 기계·같은 브로커·같은 계측으로 **1×1은 224 M 샘플, ~21.5 MS/s를 끝까지 지속**한다.
+**① 확정 사실: 이 게이트는 2026-08-13에 두 번 통과했다.**
+`~/ocudu-native-workspace/results/reports/ocudu-mimo-2port-native/`에 `20260813T141202Z`, `20260813T144440Z`가 `status=passed`로 남아 있다. 당시 브로커는 **폐기된 MIMO 시도(`RadioNodeCoordinator`)** 빌드였다.
 
-**기전** (`~/ocudu-native-workspace/src/ocudu`, `a1916edcd`)
+| | 08-13 통과 (구 브로커) | 08-15 실패 (M0~M4 producer 브로커) |
+|---|---|---|
+| gnb 포트별 `pulls` | 23573 / 23482 (≈1180/s, 20 s) | 331 / 328 **후 영구 정지** |
+| gNB overflow | **0** | 약 2,000,000 |
+| broker strict counters | 전부 0 | starvation/overflow 발생 |
+| gNB 설정 | ←— **바이트 동일** (로그 경로만 다름) —→ | |
+| 토폴로지 | 스키마 적응분만 차이(§M5.3) | |
 
-1. `radio_zmq_tx_stream.cpp:14` — `TRANSMIT_TS_ALIGN_TIMEOUT = 0 ms`.
-2. `radio_zmq_tx_channel::align`(`:264-280`) — 타임아웃이 0이므로 조건변수 대기를 **건너뛰고** 곧바로 0-채움 루프로 간다: `while (sample_count < timestamp) transmit_samples(zeros);`
-3. `radio_zmq_tx_channel::transmit_samples` — 원형 버퍼가 가득 차면 `try_push`가 0을 반환하고 **`count`가 늘지 않는다.** 루프는 `count != data.size()`를 조건으로 하므로 **영원히 돈다.** 반복마다 OVERFLOW 이벤트를 올리고 조금 잔다(→ 18,000/s, CPU 0%).
-4. 그 루프를 도는 것이 **유일한 `radio` 스레드**다. 버퍼를 비우려면 같은 스레드가 ZMQ 소켓을 서비스해야 하는데 그 스레드가 갇혀 있다. **자기 교착.**
-5. **채널이 하나면 `align`이 필요 없다**(`sample_count >= timestamp` 조기 반환). 그래서 1×1은 이 경로를 밟지 않는다.
+**즉 바뀐 변수는 우리 브로커다.** gNB도, 그 설정도, 채널 행렬도 같다.
 
-**결론**: 이 정지는 gNB 안에서 완결되며, **안테나가 2개 이상일 때만 존재하는 경로**에서 발생한다. 기계 문제가 아니고(CPU 0%), 우리 브로커 문제도 아니다(격리 A: 합성 2-port peer 상대로 실시간 유지). 우리 쪽에서 더 빨리/균등하게 뽑아도 **버퍼가 한 번이라도 가득 차는 순간 라디오 스레드가 잡히므로** 구조적으로 회피를 보장할 수 없다.
+**② gNB 안의 기전은 실재한다 — 다만 그것은 "고장 모드"이지 "원인"이 아니다.**
+소스(`a1916edcd`)에서 확인한 경로: `TRANSMIT_TS_ALIGN_TIMEOUT = 0 ms`(`radio_zmq_tx_stream.cpp:14`) → `align()`이 대기를 건너뛰고 0-채움 루프로 진입(`radio_zmq_tx_channel.cpp:264-280`) → `transmit_samples`는 버퍼가 가득 차면 `try_push`가 0을 반환해 `count`가 늘지 않으므로 **영원히 재시도**(반복마다 OVERFLOW, 그래서 18,000/s에 CPU 0%). 그 루프를 도는 것이 4개 채널을 전부 서비스하는 **유일한 `radio` 스레드**라 자기 교착이 된다. 채널이 하나면 `align` 자체가 불필요해 1×1은 이 경로를 밟지 않는다.
+→ **버퍼가 가득 차야 발동한다.** 08-13에는 gNB overflow가 0이었으니 발동한 적이 없다.
 
-### M5.4의 선택지 (사용자 결정)
+**③ 따라서 남은 질문은 하나다: 왜 M0~M4 브로커에서는 gNB의 TX 버퍼가 차는가.**
 
-1. **상류 결함으로 기록하고 M5.4를 차단으로 남긴다** — 근거는 위와 같이 소스 수준으로 확보돼 있다. M0의 라이브 부채와 같은 취급.
-2. **다른 OCUDU 리비전에서 재현 확인** — 이 기전이 최신 upstream에서 고쳐졌는지 본다(핀은 `a1916edcd`).
-3. **gNB를 패치한다** — `TRANSMIT_TS_ALIGN_TIMEOUT`을 0이 아닌 값으로 두거나 `transmit_samples`의 무한 루프를 끊는다. **미션 범위 밖**이고 감사된 리비전을 바꾸는 일이다.
+유력 후보 둘(둘 다 다음 세션에서 검증할 것):
 
-권고는 **1 + 2**다. 우리 쪽 산출물(격리 A, 계측, validator 정리)은 이미 확보돼 있고, 2는 싸다.
+- **(a) 형제 포트 취득 비조율.** 구 설계의 코디네이터는 generation barrier로 형제 응답을 모아 커밋했다 — 즉 형제 진행을 묶었다. M0는 그것을 폐기하고 **수신 쪽(producer)** 만 공통 윈도우로 묶었다. **송신 취득(puller)은 포트마다 독립 스레드이고 서로를 조율하지 않는다.** 정지 시점 두 포트 격차가 **11,776 샘플**인 것이 이 방향을 가리킨다.
+- **(b) RX ring의 run-ahead 한도.** 구 설계는 RX ring이 없어 **요청 시점에 계산**했다. M0.4가 도입한 ring은 run-ahead가 1배치(`rx_ring_batches` 기본 2)이고, 정지 직전 gnb0 producer가 `state=wait_room`, `rx_ring=23040/46080`이었다. 2안테나 gNB의 요청 패턴이 버스트라면 이 한도가 진행을 막을 수 있다.
+
+**다음 세션의 첫 실험 (비용 순)**
+1. `runtime.rx_ring_batches`를 4 또는 8로 올려 게이트 재실행 — (b)를 30분 안에 확인/기각.
+2. audit 트리(`/home/ubuntu/ocudu-gpu-channel-audit`, `mimo-patched`)의 구 브로커를 빌드해 **오늘 fixture로** 실행 — "변수는 브로커"를 직접 확인.
+3. (a)라면 puller 조율 설계 — 공통 요청 크기 / 형제 대기 / producer가 취득 지휘.
+
+**계측은 이미 들어가 있다**: `event=heartbeat` / `event=worker_summary`의 puller에 누적 취득량 `acquired=`가 추가돼 있어(오늘 작업) 형제 간 격차를 바로 볼 수 있다.
+
+**이 세션에서 두 번 틀린 결론 (기록 보존)**: ① "RTX 워크스테이션에서 돌리면 된다" — 이 컨테이너가 곧 그 기계이고(`REMOTE_HOST=127.0.0.1`, Threadripper 7965WX + RTX 5090 ×4), 2안테나 통과 기록은 어느 기계에도 없었다. ② "브로커 없는 대조로 gNB가 2안테나를 못 감당함을 보였다" — 그 대조는 `ocudu-zmq-sink`로 gNB TX를 뽑았는데 그 도구는 srsRAN TX 소켓을 구동하지 못한다(1안테나로 반복하니 `requests=0`). 둘 다 근거 부족이었다.
 
 ### M5.4에서 함께 한 일
 
@@ -863,7 +879,7 @@ event=node_stall node=gnb0 phase=output_room / node=peer0 phase=input_data
 
 ## 세션 상태 (2026-08-15)
 
-**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7, M4.1–M4.6 완료.** 베이스라인 `bc88865` 이후 40 커밋.
+**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7, M4.1–M4.6 완료, M5.1–M5.3 완료.** 베이스라인 `bc88865` 이후 약 50 커밋.
 
 | 마일스톤 | 상태 |
 |---|---|
@@ -872,23 +888,20 @@ event=node_stall node=gnb0 phase=output_room / node=peer0 phase=input_data
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
 | M3 공간 상관 + coherent LOS | **전 게이트 green** (합성·단위 테스트 + perf 실측) |
 | M4 physical link 단위 runtime control | **전 게이트 green** (라이브 컨트롤 플레인 포함) |
-| M5 라이브 통합 | M5.1–M5.3 완료, **M5.4 gNB 쪽 환경 차단**. 1단계(1×1 라이브 회귀)는 통과 |
+| M5 라이브 통합 | M5.1–M5.3 완료, **M5.4 실패 — 원인 미규명**(08-13에는 통과한 게이트). 1단계(1×1 라이브 회귀)는 통과 |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
 ### 다음 세션 재개 지점
 
-**M5.2(2-port peer 앱 복원 + CMake)부터 시작한다.** 상세 설계는 [`docs/plans/m5-live-integration.md`](docs/plans/m5-live-integration.md).
+**M5.4 원인 규명부터 시작한다.** 재개용 요약은 [`HANDOVER.md`](HANDOVER.md), 정본은 이 파일의 **"M5.4 — 실패. 과거에는 통과한 게이트다"** 절이다.
 
-M5는 새 기계장치를 만들지 않는다 — **audit 트리에 있는 세 부속물을 현재 스키마로 적응시켜 되살리고 실행하는 일**이다:
+핵심: **같은 게이트가 2026-08-13에 통과했고, gNB 설정은 바이트 동일하며, 바뀐 변수는 우리 브로커다.** 가장 싼 실험 두 개 —
 
-1. `apps/ocudu_mimo_transport_peer.cpp` (989행, 두 포트를 한 프로세스에서 공통 윈도우로 구동)
-2. `examples/native/ocudu/gnb_zmq_b210_fdd_2port_no_core.yaml` (`nof_antennas_dl/ul: 2` + 4 엔드포인트)
-3. `examples/native/topology.ocudu.mimo-2port-transport.cuda.yaml` (dense 2×2 `fixed_mimo`)
+1. `runtime.rx_ring_batches`를 4~8로 올려 게이트 재실행 (RX ring run-ahead 가설, 30분)
+2. audit 트리의 구 코디네이터 브로커를 빌드해 오늘 fixture로 실행 ("변수는 브로커" 직접 확인)
 
-게이트 스크립트(`run-ocudu-mimo-2port-no-core.sh`)와 validator는 **이미 이 트리에 있다.** 스키마 적응이 필요한 지점과 SHA 핀 갱신 사유는 계획 §1.3~§1.4에 적어 두었다.
-
-**가장 큰 리스크는 "실제 gNB가 이 트리에서 2안테나로 뜬 적이 없다"는 것**이다(계획 §5). 라이브로 검증된 것은 1안테나 경로뿐이다.
+계측(`acquired=`)은 이미 들어가 있으므로 형제 포트 격차를 바로 읽을 수 있다.
 
 ### 환경 관련 (다음 세션에서 필요할 수 있음)
 
