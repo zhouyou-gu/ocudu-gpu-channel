@@ -21,7 +21,7 @@
 
 - Control files: `AGENT.md`, `AGENT_GOAL.md`, `AGENT_HARNESS.md`, `AGENT_PROGRESS.md`.
 - MIMO mission amendment: `AGENT_GOAL.mimo.md` is a duplicate of `AGENT_GOAL.md` carrying the user-instructed MIMO amendment (one Statement line changed, five bullets added across Scope / Non-Goals / Success Criteria / Constraints). `AGENT_GOAL.md` itself is unmodified. **Which of the two governs this workspace is an open user decision.**
-- MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and the per-milestone designs `docs/plans/m0-single-engine-refactor.md`, `m1-dimensions-and-fixed-matrix.md`, `m2-iid-stochastic-fading.md`, `m3-spatial-correlation-and-los.md`, `m4-physical-link-runtime-control.md`.
+- MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and the per-milestone designs `docs/plans/m0-single-engine-refactor.md`, `m1-dimensions-and-fixed-matrix.md`, `m2-iid-stochastic-fading.md`, `m3-spatial-correlation-and-los.md`, `m4-physical-link-runtime-control.md`, `m5-live-integration.md`.
 - Local configuration: `.gitignore`, tracked `.config.example`, and ignored `.config`.
 - Application scaffold: `CMakeLists.txt`, `apps/`, `include/`, `src/`, `tests/`, `examples/`, and `docs/` exist locally as uncommitted implementation work.
 - Local implementation includes C++20/CMake build plumbing, optional CUDA detection, libzmq integration, CPU and CUDA MVP channel processing, broker/runtime CLIs, synthetic ZMQ tools, config examples, docs, and regression tests.
@@ -294,6 +294,7 @@ Progress entry template
 - [M3 perf] Measured on 4x RTX 5090 / 23.04 MS/s / batch 23040 / CUDA / 3 s: the generator split cut TDL-A kernel p99 from 61.856 to 53.599 us (1x1) and from 90.655 to 69.536 us (16 edges); correlation costs +4.2 us p99 on a 2x2. Added `examples/topology.mimo-2x2-correlated.cuda.yaml`.
 - [M3 tooling] Fixed `ocudu_gpu_channel_bench`, which had keyed destinations by device id since M1 and therefore span millions of empty iterations reporting a zero kernel count on every multi-port topology -- measuring nothing while exiting green.
 - [M4 plan] Added `docs/plans/m4-physical-link-runtime-control.md`: the five code facts M4 stands on (control is addressed by LANE key, so a 2x2 link is four endpoints and the address carries the `#r1t0` suffix M2 removed from seeding; the snap runs per lane with a per-lane slot counter, so cross-lane atomicity is a discipline rather than an invariant; the two backends expose DIFFERENT control key sets -- the CPU includes receiver-model rows, CUDA does not, so the same REQ succeeds on one and is rejected on the other; M3's correlation is prepare-fixed; the warmup zero-fill is per-lane), the `PhysicalLinkRuntime` promotion that makes lane-wide atomicity structural, the base-link-key addressing that leaves 1x1 deployments byte-identical, runtime `R` swaps factorised on the control thread with a targeted device-group upload, the rejection list, and a six-commit order whose M4.2 gate is a fingerprint A/B like M3.3's.
+- [M5 plan] Added `docs/plans/m5-live-integration.md`. The milestone turns out to be mostly recovery, not construction: `MIMO_MILESTONES.md` M5 already scopes it as (1) a 1x1 live regression -- done after M4 -- and (2) a multi-port OCUDU gNB against a SYNTHETIC 2-port peer, with independent srsUE processes explicitly named as not being one 2-port UE. Its precondition (verify the multi-port device_args syntax against source) is also now met. The gate script and validator are already in this tree; the peer app and the two fixtures are in the audit tree and are M1-era schema, so restoring them means adapting (radio_nodes has no `role`, fixed_mimo takes no `rx_ports`/`tx_ports` -- dimensions come from the node declaration) and updating the script's SHA pins with the reason recorded. The gNB fixture's device_args matches the syntax derived from source, so the source reading and a fixture that was actually run confirm each other.
 - [M4 control ownership] Promoted the runtime-control block, `live` view, slot counter and profile state from the lane to `PhysicalLinkRuntime`, with one snap per link per slot (shared by both backends via `snap_physical_link`). Control addressing moved to the physical link key: a 2x2 link pair is two endpoints instead of eight and no address carries a lane suffix, while 1x1 link_ids are unchanged. Receiver-model rows left the control surface, settling a pre-existing disagreement where the CPU exposed them and CUDA did not.
 - [M4 correlation swap] Added the `correlation_swap` message type: the LDL^H runs on the control thread during REQ validation (the same routine validate_config uses, so a matrix the loader would refuse cannot enter at runtime) and the shadow carries the factor; the snap swaps it in with no warmup, since correlation carries no cross-slot state. Opt-in is declaring a `spatial_correlation` block at load, even `kind: iid`. The device uploads one DeviceCorrelationGroup, found by link pointer.
 - [M4 rejections] Tap-scope updates (`tap0_*`, `profile_swap`) refused on a fixed_mimo model, whose per-lane tap weights carry the matrix; scalar params stay allowed. Nt/Nr, port membership, sample rate and the fixed-vs-stochastic family are not addressable at all, now asserted so a future param has to confront it.
@@ -794,19 +795,23 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
 | M3 공간 상관 + coherent LOS | **전 게이트 green** (합성·단위 테스트 + perf 실측) |
 | M4 physical link 단위 runtime control | **전 게이트 green** (라이브 컨트롤 플레인 포함) |
-| M5 라이브 통합 | 미착수 (`MIMO_MILESTONES.md` M5에 범위만 있음) |
+| M5 라이브 통합 | 계획 문서 작성 완료(M5.1), 구현 미착수. 1단계(1×1 라이브 회귀)는 이미 통과 |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
 ### 다음 세션 재개 지점
 
-**M5 상세 계획부터 시작한다.** 상위 범위는 [`MIMO_MILESTONES.md`](MIMO_MILESTONES.md) M5(라이브 통합). M0~M4가 모두 계획 문서를 먼저 썼다.
+**M5.2(2-port peer 앱 복원 + CMake)부터 시작한다.** 상세 설계는 [`docs/plans/m5-live-integration.md`](docs/plans/m5-live-integration.md).
 
-M4를 끝내며 **M5가 마주할 세 가지**:
+M5는 새 기계장치를 만들지 않는다 — **audit 트리에 있는 세 부속물을 현재 스키마로 적응시켜 되살리고 실행하는 일**이다:
 
-1. **다중 포트 라디오를 실제 OCUDU와 연결한 적이 없다.** 지금까지의 라이브 검증은 전부 **1×1**이다(`run-ocudu-legacy-1x1.sh`). 다중 포트 MIMO는 합성 소스/싱크로만 브로커를 통과했다(`gpu-test-sequence [8/9]`). M5의 첫 질문은 OCUDU 쪽 다중 포트 ZMQ `device_args` 문법이고, **그건 아직 이 워크스페이스에서 소스로 확인된 적이 없다**(M0 블로커 목록에 그대로 있다).
-2. **M0의 라이브 부채가 여기서 만난다.** multi-UE / multi-gNB 라이브 게이트가 unprivileged LXC 때문에 막혀 있고, M5는 정의상 그 경로를 필요로 한다. 계획 단계에서 "어디서 돌릴 것인가"를 먼저 정해야 한다(RTX 워크스테이션 / 호스트 설정 변경 / 네이티브 하네스 확장).
-3. **컨트롤 플레인은 이제 라이브에서 검증된다.** `ocudu-control-req`와 `[9/9]`가 있으므로, M5의 시나리오(주행 중 채널 변경 등)를 스크립트로 짤 재료는 준비돼 있다.
+1. `apps/ocudu_mimo_transport_peer.cpp` (989행, 두 포트를 한 프로세스에서 공통 윈도우로 구동)
+2. `examples/native/ocudu/gnb_zmq_b210_fdd_2port_no_core.yaml` (`nof_antennas_dl/ul: 2` + 4 엔드포인트)
+3. `examples/native/topology.ocudu.mimo-2port-transport.cuda.yaml` (dense 2×2 `fixed_mimo`)
+
+게이트 스크립트(`run-ocudu-mimo-2port-no-core.sh`)와 validator는 **이미 이 트리에 있다.** 스키마 적응이 필요한 지점과 SHA 핀 갱신 사유는 계획 §1.3~§1.4에 적어 두었다.
+
+**가장 큰 리스크는 "실제 gNB가 이 트리에서 2안테나로 뜬 적이 없다"는 것**이다(계획 §5). 라이브로 검증된 것은 1안테나 경로뿐이다.
 
 ### 환경 관련 (다음 세션에서 필요할 수 있음)
 
