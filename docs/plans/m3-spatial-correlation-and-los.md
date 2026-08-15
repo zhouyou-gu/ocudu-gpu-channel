@@ -27,6 +27,8 @@ M2가 확률 생성기를 상관 없이 단독 검증했으므로, 여기서 통
 
 따라서 mixing에는 **링크별 lane 인덱스 테이블**이 따로 필요하다: `ℓ = r*Nt + t` → 노드 lane 배열에서의 위치. 정렬을 바꿔서 해결하려 들면 안 된다 — 그 정렬이 M1.6의 행 구간과 CPU↔CUDA 합산 순서 고정의 근거다.
 
+**그 테이블은 `ResolvedTopology`가 한 번만 만든다.** 백엔드마다 따로 계산하게 두면 안 된다 — 그것이 정확히 M1.4가 막으려던 실패다(`config.h`의 `ResolvedTopology` 주석: 세 소비자가 lane을 각자 유도하면 반드시 어긋나고 **그 어긋남은 조용하다**). 링크 그룹은 lane 집합의 두 번째 view이므로 lane 집합과 같은 자리에서 나와야 한다. 구체적으로 `ResolvedTopology`에 `struct LinkLaneGroup { std::string physical_link_key; int nt, nr; std::vector<int> lane_index; }`를 두고 `lane_index[ℓ] = lanes[] 안의 위치` (`ℓ = r*Nt + t`)로 채운다. 이 자리는 M3.3의 첫 커밋에 포함된다.
+
 ### 1.3 `fixed_mimo`는 계수 0인 lane을 아예 만들지 않는다
 
 `src/config.cpp:1408`에서 live하지 않은 lane은 `continue`로 건너뛴다. M1.5b의 의도적 설계다("생략 lane은 0이지 1이 아니다"). 그런데 상관 행렬은 **전체 `Nt·Nr` lane 벡터** 위에 정의된다. 둘을 함께 선언하면 `H`를 두 가지 방식으로 동시에 말하는 셈이 된다 — 하나는 결정론적 고정 행렬, 하나는 확률 행렬의 공분산. §2.6에서 처리한다.
@@ -133,6 +135,8 @@ H_ℓ = sqrt(P_ℓ/(K+1))·H_NLOS,corr + sqrt(P_ℓ·K/(K+1))·H_LOS,coh
 
 **validator가 `fixed_mimo` + `kind != iid` 조합을 거부한다.** 수학적으로는 살릴 수 있다(줄어든 lane 집합의 공분산은 `R`의 해당 부분행렬이므로 marginal로는 정당하다). 그러나 살리는 순간 "선언한 `R`과 일치한다"는 exit 게이트가 "선언한 `R`의 어떤 부분행렬과 일치한다"로 약해진다. 뒤집기 쉬운 결정이므로 §7에 열어 둔다.
 
+**이 거부는 문제를 푸는 것이 아니라 경계를 긋는 것이다.** 그리고 M3이 `los_matrix`(§2.4)를 들여오면 워크스페이스에 **lane별 복소 행렬을 YAML로 선언하는 knob이 둘**이 된다 — `fixed_mimo`(결정론적 `H` 자체)와 `los_matrix`(`H`의 LOS 성분). 둘은 "페이딩이 곱해지는가"만 다르다. 지금 합치지 않는 이유는 `fixed_mimo`가 M1의 해석적 게이트(identity / swap / known `H`)를 지탱하는 **검증 도구**이고 그 게이트를 흔들 이유가 없어서다. 그러나 knob 두 개가 같은 것을 두 방식으로 말하는 상태는 그대로 두면 굳는다. **M3 종료 시점에 통합 여부를 한 번 재검토하고, 미룬다면 왜 미루는지 기록한다.**
+
 ---
 
 ## 3. 어디서 상관을 곱하는가 — 대안 비교
@@ -153,7 +157,7 @@ H_ℓ = sqrt(P_ℓ/(K+1))·H_NLOS,corr + sqrt(P_ℓ·K/(K+1))·H_LOS,coh
 |---|---|---|
 | M3.1 | 이 문서 | — |
 | M3.2 | `spatial_correlation` / `los_matrix` 스키마 + validator + LDLᴴ 인수분해 | `ctest` 8/8, 거부 경로 단위 테스트(비-Hermitian / 비-PSD / 대각≠1 / 차원 불일치 / fading 없는 모델) |
-| M3.3 | **생성기 분리만.** mixing 없음(`L = I`) | **출력이 M2와 bit-exact**여야 한다. 이 커밋의 유일한 게이트가 그것이다 |
+| M3.3 | **생성기 분리만.** mixing 없음(`L = I`). `ResolvedTopology`의 링크별 lane 인덱스 그룹(§1.2)도 여기서 만든다 | **출력이 M2와 bit-exact**여야 한다. 이 커밋의 유일한 게이트가 그것이다 |
 | M3.4 | mixing 적용 — CPU 참조 먼저, 그다음 CUDA | 공분산 게이트, CPU↔CUDA parity 1e-3, `iid` 경로는 여전히 M2와 bit-exact |
 | M3.5 | coherent LOS | LOS 위상 게이트, TDL-D/E 출력 변경 명시 |
 | M3.6 | 통계 게이트 + 뮤테이션 프로브 정리 | Exit 게이트 전체 |
