@@ -279,6 +279,110 @@ int main()
       {1.0F, 0.0F}, {0.0F, 1.0F}, {1.0F, 1.0F}, {0.5F, -0.5F},
       {-1.0F, 0.0F}, {0.0F, -1.0F}, {1.0F, -1.0F}, {-0.5F, 0.5F}};
 
+  // ── M4.3: a swap lands on every lane in the SAME slot ──────────────────
+  //
+  // The two things M4 has to guarantee about a 2x2 swap, checked at once.
+  //
+  // The profile replaces a tap at delay 0 with one at delay 3, and the input is
+  // DC. So after the swap the first three samples of the slot are read from the
+  // cross-slot ring: zero if the ring was cleared, and the PREVIOUS profile's
+  // DC tail (1.0) if it was not. That makes the per-lane zero-fill directly
+  // observable instead of inferred.
+  //
+  // All four lanes are observed by driving TX port 0 in one processor and TX
+  // port 1 in another, so each output row is one lane. Both processors are
+  // handed the same take_effect_at_slot, which is the mechanism under test: if
+  // the snap were still per lane, a lane could take the swap in a different
+  // slot and its first three samples would be 1.0 while its sibling's were 0.
+  {
+    auto cfg = make_2x2_topology(ocg::Backend::Cpu);
+    const ocg::ModelConfig& model = cfg.models["chain"];
+    const auto resolved = ocg::resolve_topology(cfg);
+    constexpr std::size_t batch = 8;
+    const ocg::IqBuffer dc(batch, ocg::IqSample{1.0F, 0.0F});
+    const ocg::IqBuffer silent(batch, ocg::IqSample{0.0F, 0.0F});
+
+    const auto lanes_for = [&](int live_tx) {
+      std::vector<ocg::SuperpositionInput> lanes;
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != "ue") {
+          continue;
+        }
+        lanes.push_back({.link_key = lane.key,
+                         .model = ocg::find_model(cfg, lane.model_id),
+                         .samples = lane.tx_port == live_tx
+                                        ? std::span<const ocg::IqSample>(dc)
+                                        : std::span<const ocg::IqSample>(silent),
+                         .rx_port = lane.rx_port,
+                         .tx_port = lane.tx_port});
+      }
+      return lanes;
+    };
+
+    ocg::CpuChannelProcessor proc_tx0;
+    ocg::CpuChannelProcessor proc_tx1;
+    proc_tx0.prepare(cfg);
+    proc_tx1.prepare(cfg);
+    const auto lanes_tx0 = lanes_for(0);
+    const auto lanes_tx1 = lanes_for(1);
+
+    const auto run = [&](ocg::CpuChannelProcessor& proc,
+                         const std::vector<ocg::SuperpositionInput>& lanes) {
+      std::vector<ocg::IqBuffer> rows(2, ocg::IqBuffer(batch));
+      std::span<ocg::IqSample> spans[2] = {rows[0], rows[1]};
+      proc.process_superposition("ue", lanes, nullptr, 23040000,
+                                 std::span<std::span<ocg::IqSample>>(spans));
+      return rows;
+    };
+
+    // Slot 0: the YAML profile, a unit tap at delay 0.
+    for (const auto& rows : {run(proc_tx0, lanes_tx0), run(proc_tx1, lanes_tx1)}) {
+      for (const auto& row : rows) {
+        require(near_float(row[0].i, 1.0F), "M4.3: slot 0 passes DC through");
+      }
+    }
+
+    // Swap in a single tap at delay 3, scheduled for slot 1 on both processors.
+    // Addressed by the physical link's own key -- the point of M4.2.
+    const std::string link_id = ocg::link_key({.from = "gnb", .to = "ue", .model = model.id});
+    for (auto* proc : {&proc_tx0, &proc_tx1}) {
+      auto map = proc->collect_control_links();
+      auto it = map.find(link_id);
+      require(it != map.end() && it->second != nullptr, "M4.3: the link is addressable");
+      ocg::BrokerLinkControl* ctl = it->second;
+      ocg::ProfileShadow& sp = ctl->shadow_profile;
+      sp.n_taps = 1;
+      sp.taps[0].delay_samples = 3.0;
+      sp.taps[0].gain_db = 0.0;
+      sp.taps[0].phase_rad = 0.0;
+      sp.taps[0].is_los = false;
+      sp.fading_enabled = false;
+      sp.force = false;
+      ctl->profile_pending = true;
+      ctl->take_effect_at_slot = 1;
+      ctl->seqno.fetch_add(1, std::memory_order_release);
+    }
+
+    const auto rows_tx0 = run(proc_tx0, lanes_tx0);
+    const auto rows_tx1 = run(proc_tx1, lanes_tx1);
+    int lane = 0;
+    for (const auto* rows : {&rows_tx0, &rows_tx1}) {
+      for (const auto& row : *rows) {
+        // Samples 0..2 read the ring. Zero means this lane's ring was cleared
+        // in this slot; 1.0 means it kept the previous profile's tail.
+        for (std::size_t n = 0; n != 3; ++n) {
+          require(near_float(row[n].i, 0.0F),
+                  "M4.3: every lane's cross-slot ring is zeroed in the swap slot");
+        }
+        // From sample 3 the delayed tap reaches this slot's own DC.
+        require(near_float(row[3].i, 1.0F),
+                "M4.3: every lane runs the NEW tap layout in the swap slot");
+        ++lane;
+      }
+    }
+    require(lane == 4, "M4.3: all four lanes were observed");
+  }
+
   // ── M4.2: what the control plane addresses ─────────────────────────────
   //
   // A 2x2 link used to appear as four control endpoints, each addressed by a
