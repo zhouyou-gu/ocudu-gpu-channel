@@ -1,4 +1,5 @@
 #include "ocudu_gpu_channel/broker.h"
+#include "ocudu_gpu_channel/pacing.h"
 #include "ocudu_gpu_channel/ring.h"
 #include <algorithm>
 #include <array>
@@ -6,6 +7,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -212,6 +214,17 @@ struct PortRuntime {
   std::mutex rx_mutex;
   std::uint64_t rx_cursor = 0;   // PortRepWorker read cursor
   std::size_t rx_high_water = 0; // producer run-ahead bound, in samples
+  // Serve boundaries, in ring order. The producer records the length of every
+  // window it publishes here, and the PortRepWorker answers a request with
+  // exactly one such window. This is what carries the node's common window all
+  // the way to the wire: the producer writes the SAME count to every sibling
+  // port in one loop, so consuming those counts in order makes sibling replies
+  // identically sized by construction, with no coordination between the REP
+  // workers. Sizing a reply from the ring occupancy instead -- the obvious
+  // `min(batch, available)` -- reads a quantity that two sibling threads sample
+  // at two different instants, and a producer push landing between them splits
+  // one common window into two different replies.
+  std::deque<std::size_t> rx_slots;
   // High-water occupancy actually reached, sampled by the producer under the
   // ring lock right after each push. The heartbeat samples occupancy once a
   // second, which would miss the peaks that set the real added latency.
@@ -706,14 +719,14 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
       const ModelConfig* rx_model = node.rx_model;
 
       const std::uint64_t rate = std::max<std::uint64_t>(1, node.sample_rate_hz);
-      std::chrono::steady_clock::time_point throttle_anchor{};
-      std::uint64_t served = 0;
-      bool throttle_anchored = false;
       bool epoch_set = false;
       const auto batch_duration = std::chrono::nanoseconds(
           (node.batch * 1000000000ULL) /
           std::max<std::uint64_t>(1, node.sample_rate_hz));
       const auto starvation_deadline = batch_duration * 5;
+      // One batch is the whole run-ahead the RX ring grants (`rx_high_water`),
+      // so it is also the most lateness this producer may ever spend at once.
+      RealTimePacer pacer(rate, batch_duration);
 
       while (!stop_requested.load()) {
         // (A) Output room. Every RX row must be able to take at least one
@@ -814,7 +827,13 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             diag.state.store("wait_data");
             diag.blocked_iters.fetch_add(1);
             const auto now = std::chrono::steady_clock::now();
-            if (served > 0 && !starvation_counted && now - wait_start > starvation_deadline) {
+            // Only a node that has already produced can be starved; the first
+            // wait is the relay filling, not a real-time miss. The slot counter
+            // states that directly -- the throttle bookkeeping this used to
+            // read was rebased to zero once a second, so a starvation landing
+            // in that one slot went uncounted.
+            if (diag.progress.load() > 0 && !starvation_counted &&
+                now - wait_start > starvation_deadline) {
               stats.rx_starvations.fetch_add(1);
               starvation_counted = true;
             }
@@ -879,14 +898,16 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         }
 
         // (G) Throttle: cap the production cadence at the node sample rate so
-        // the lock-step radio runs at real time, not faster.
-        if (!throttle_anchored) {
-          throttle_anchor = std::chrono::steady_clock::now();
-          throttle_anchored = true;
-        } else {
+        // the lock-step radio runs at real time, not faster. The pacer refuses
+        // to carry more than one batch of lateness, because a producer that
+        // waited on (A) for the radio to start requesting would otherwise be
+        // owed that entire idle period and would spend it as a burst -- and a
+        // multi-port ZMQ radio dead-locks on a burst rather than absorbing it.
+        // See `pacing.h` for the OCUDU-side mechanism.
+        const auto due = pacer.charge(std::chrono::steady_clock::now(), count);
+        if (due > std::chrono::steady_clock::now()) {
           diag.state.store("throttle");
-          const auto target = throttle_anchor + std::chrono::nanoseconds((served * 1000000000ULL) / rate);
-          std::this_thread::sleep_until(target);
+          std::this_thread::sleep_until(due);
         }
         const auto t_push_start = std::chrono::steady_clock::now();
         const double throttle_us =
@@ -901,6 +922,9 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           if (!out.rx_ring.push(std::span<const IqSample>(rows[r].data(), count))) {
             throw std::runtime_error("RX output ring rejected a reserved push: " + out.config->id);
           }
+          // Publish the window boundary with the samples, under the same lock,
+          // so a queued boundary always has its samples already in the ring.
+          out.rx_slots.push_back(count);
           const std::size_t occupancy = out.rx_ring.size();
           if (occupancy > out.rx_peak_occupancy.load(std::memory_order_relaxed)) {
             out.rx_peak_occupancy.store(occupancy, std::memory_order_relaxed);
@@ -916,13 +940,6 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         store_us(diag.stage_us_bits[kProducerStageProcess], process_us);
         store_us(diag.stage_us_bits[kProducerStageThrottle], throttle_us);
         store_us(diag.stage_us_bits[kProducerStagePush], push_us);
-        served += count;
-        // Re-base the throttle origin every ~1 s of served IQ so the
-        // (served * 1e9) product cannot overflow on a long-running relay.
-        if (served >= rate) {
-          throttle_anchor += std::chrono::nanoseconds((served * 1000000000ULL) / rate);
-          served = 0;
-        }
         diag.last_samples.store(count);
         diag.progress.fetch_add(1);
       }
@@ -966,14 +983,17 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         while (!stop_requested.load()) {
           {
             std::lock_guard<std::mutex> lk(port.rx_mutex);
-            const std::uint64_t avail = port.rx_ring.next_sequence() - port.rx_cursor;
-            take = std::min<std::size_t>(port.batch, static_cast<std::size_t>(avail));
-            if (take > 0) {
+            if (!port.rx_slots.empty()) {
+              // One producer window, whole. Never two, and never part of one:
+              // both would size this reply off this thread's arrival time
+              // rather than off the window the node published.
+              take = port.rx_slots.front();
               if (!port.rx_ring.read(port.rx_cursor, std::span<IqSample>(reply_buf.data(), take))) {
                 throw std::runtime_error("RX output window vanished from ring: " + port.config->id);
               }
               port.rx_cursor += take;
               port.rx_ring.discard_before(port.rx_cursor);
+              port.rx_slots.pop_front();
             }
           }
           if (take > 0) {

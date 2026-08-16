@@ -272,16 +272,30 @@ def main() -> int:
         require(match is not None, f"broker stop line is missing {name}")
         counters[name] = int(match.group(1)) if match else -1
 
+    # The `server[serves=... data_spin=...]` group this used to read belonged to
+    # the pre-M0 broker, which had one request-driven server thread per device.
+    # M0 split that thread into a per-node producer and a per-port REP worker
+    # and renamed the summary accordingly, so the old pattern matched nothing
+    # and every check below it silently measured an empty dict. `serves` is the
+    # REP worker's reply count, which is what the old `serves` counted; the
+    # producer's slot count is a per-node quantity and is deliberately not read
+    # as a per-port one. `acquired` is new: the cumulative sample count a
+    # port's puller has taken off its peer.
     worker_pattern = re.compile(
         r"^event=worker_summary dev=([^ ]+) "
-        r"puller\[pulls=([0-9]+) idle=[0-9]+ room_stall=[0-9]+\] "
-        r"server\[serves=([0-9]+) idle=[0-9]+ data_spin=[0-9]+\]$",
+        r"puller\[pulls=([0-9]+) idle=[0-9]+ room_stall=[0-9]+ acquired=([0-9]+)\] "
+        r"producer\[slots=[0-9]+ stall=[0-9]+\] "
+        r"rep\[replies=([0-9]+) idle=[0-9]+ row_spin=[0-9]+\]$",
         re.MULTILINE,
     )
     workers: dict[str, dict[str, int]] = {}
-    for device, pulls, serves in worker_pattern.findall(broker_log):
+    for device, pulls, acquired, serves in worker_pattern.findall(broker_log):
         require(device not in workers, f"duplicate worker summary for {device}")
-        workers[device] = {"pulls": int(pulls), "serves": int(serves)}
+        workers[device] = {
+            "pulls": int(pulls),
+            "acquired": int(acquired),
+            "serves": int(serves),
+        }
 
     expected_devices = ["gnb0_p0", "gnb0_p1", "peer0_p0", "peer0_p1"]
     require(set(workers) == set(expected_devices), "worker summaries do not match all four ports")
@@ -342,6 +356,23 @@ def main() -> int:
             workers["peer0_p0"]["serves"] == workers["peer0_p1"]["serves"],
             "peer sibling RX transaction counts differ",
         )
+        # Sibling TX acquisition skew. The pullers are independent threads, so
+        # this is not exactly zero by construction the way the serve counts are:
+        # a summary can catch one sibling having just landed a message the other
+        # has not. What it must not show is a DRIFT -- the two ports of one
+        # radio carry one sample epoch, so their cumulative acquisitions cannot
+        # separate by more than the run's message granularity. One batch is that
+        # bound -- the largest window the node ever publishes.
+        #
+        # This is a drift guard, not the detector for the 2026-08-15 freeze: the
+        # skew that run left behind was 11 776 samples, inside this bound, and
+        # the freeze was caught by the peer status and the broker counters. The
+        # number is reported on every run so the next reader sees the actual
+        # margin rather than only the verdict.
+        for node in ("gnb0", "peer0"):
+            skew = abs(workers[f"{node}_p0"]["acquired"] - workers[f"{node}_p1"]["acquired"])
+            print(f"measured {node}_sibling_acquired_skew_samples={skew} bound=23040")
+            require(skew <= 23040, f"{node} sibling TX acquisition drifted apart")
 
     require(peer.get("schema") == "ocudu-mimo-transport-peer/v1", "peer summary schema mismatch")
     require(peer.get("status") == "passed", "peer summary did not pass")

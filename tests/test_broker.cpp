@@ -16,6 +16,7 @@
 #include "ocudu_gpu_channel/broker.h"
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/iq.h"
+#include "ocudu_gpu_channel/pacing.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -351,10 +352,64 @@ void scenario_multi_ue_lockstep()
   require(ue1_received.load() > 0, "ue1 RX received no downlink");
 }
 
+// M5.4 regression: the producer's real-time pacer must not convert an idle
+// period into the right to burst. The broker is the clock of a lock-step ZMQ
+// radio, and OCUDU's multi-port RX path dead-locks (rather than back-pressures)
+// when a burst overruns its circular buffer -- see `pacing.h`. The scenario the
+// two-port live gate hit is reproduced here on a synthetic clock: the producer
+// publishes one batch, then blocks for a second waiting for the radio to start
+// requesting, then resumes.
+//
+// This scenario is graded on WHEN the pacer stops granting free slots, not on
+// wall-clock timing, so it is deterministic and does not sleep.
+void scenario_pacer_drops_unrecoverable_debt()
+{
+  using Clock = ocg::RealTimePacer::Clock;
+  const std::uint64_t rate = 23040000; // 23.04 MS/s
+  const std::size_t batch = 23040;     // 1 ms
+  const auto batch_duration = std::chrono::nanoseconds(1000000);
+
+  ocg::RealTimePacer pacer(rate, batch_duration);
+  require(pacer.duration_for(batch) == batch_duration,
+          "a full batch must occupy exactly one batch duration at the node rate");
+
+  const Clock::time_point epoch{};
+  require(pacer.charge(epoch, batch) <= epoch, "the first slot must not be made to wait");
+
+  // The producer is now blocked on output room for a second: this is the wait
+  // for the radio to start requesting, and it is the wait that the pre-fix
+  // pacer capitalised into ~1000 free batches.
+  const Clock::time_point resumed = epoch + std::chrono::seconds(1);
+  std::size_t free_slots = 0;
+  for (std::size_t i = 0; i != 4000; ++i) {
+    if (pacer.charge(resumed, batch) > resumed) {
+      break; // the pacer now demands a wait: the burst is over
+    }
+    ++free_slots;
+  }
+
+  std::cout << "pacer_debt free_slots=" << free_slots << " stall_ms=1000"
+            << " max_debt_ms=1\n";
+
+  // One batch of debt plus the slot being charged. A catch-up pacer would have
+  // released the whole stall -- about a thousand batches -- back to back.
+  require(free_slots == 2, "pacer released a burst proportional to the stall it sat out");
+
+  // Steady state must still be paced at exactly the node rate: no drift, and
+  // no free slot once the schedule has caught up with the clock.
+  Clock::time_point now = resumed + batch_duration * 2;
+  for (std::size_t i = 0; i != 100; ++i) {
+    const auto due = pacer.charge(now, batch);
+    require(due == now, "steady-state slot did not land on its paced deadline");
+    now = due + batch_duration;
+  }
+}
+
 } // namespace
 
 int main()
 {
+  scenario_pacer_drops_unrecoverable_debt();
   scenario_loopback();
   scenario_multi_ue_lockstep();
   std::cout << "test_broker OK\n";

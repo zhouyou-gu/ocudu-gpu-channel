@@ -300,6 +300,14 @@ Progress entry template
 - [M5.4] Gate FAILED and the cause is not established. Recorded evidence: the same gate passed twice on 2026-08-13 under the superseded coordinator broker with gNB overflow 0 and ~1180 pulls/s per port, against 331 pulls then a permanent freeze today -- with a byte-identical gNB config. Two hypotheses (uncoordinated sibling pulling; RX-ring run-ahead) and the cheapest experiments are in the M5.4 section.
 - [M5.4] Added cumulative `acquired=` to the puller's heartbeat and worker summary. Only a single-batch `last=` existed, so drift between a node's sibling ports was invisible; the 11,776-sample divergence at the freeze came from this.
 - [M5.4] Removed the coordinator-era assertions from `validate-mimo-2port-transport.py` (`group_prepares` / `group_commits` / `group_aborts` / `partial_group_aborts`, `event=radio_group_abort`), the same treatment M0 gave the 1x1 verifier, with the reasoning recorded in the file; the property the commit barrier guaranteed is judged instead by the sibling RX ports being served the same number of times.
+- [M5.4] **Cause established from OCUDU source and the run's own timeline: the broker was feeding the gNB above real time, and a multi-port ZMQ radio dead-locks on that rather than absorbing it.** `radio_zmq_rx_channel.cpp:172-193` retries a full circular buffer in place with a 1 us sleep, on the single `radio` worker thread that serves every TX and RX channel (`worker_manager.cpp:541` `create_prio_worker` -> `single_worker`; `ru_sdr_executor_mapper.cpp:65`), while `radio_zmq_rx_stream.cpp:84-92` pops the ports in sequence -- so one full port captures the thread its starved sibling needs, the PHY blocks on the sibling, and the full port is never drained. One port makes the same loop self-clearing, which is why 1x1 never saw it. Buffer capacity is 2^20 samples, not the nominal 614400: `blocking_queue` is a `ring_buffer<T, true>` and `ring_buffer.h:143` rounds the size up to the next power of two -- which is also why the frozen run's last TX reply was exactly 1048576 samples.
+- [M5.4] Broker fix: `include/ocudu_gpu_channel/pacing.h` (`RealTimePacer`) replaces the producer's open-ended catch-up throttle. The old throttle anchored on the first produced slot and slept until `anchor + served/rate`, so every second the producer spent blocked in (A) waiting for the radio to start requesting became a second's worth of slots it was owed and would emit back to back. Measured on the failing run: the gNB started at 12:53:40.742 and the first overflow landed 332 ms later, by which time the broker had served 583 batches (13.43 M samples, 40.5 MS/s = 1.76x the configured 23.04 MS/s). The pacer refuses to carry more than one batch of lateness.
+- [M5.4] Broker fix: sibling RX replies are now cut on the producer's window boundaries. `PortRuntime` carries an `rx_slots` queue that the producer appends to under the same lock as the ring push, and the REP worker answers with exactly one queued window. The previous `min(batch, available)` sized a reply from ring occupancy, which two sibling threads sample at two different instants -- a producer push landing between them split one common window into two differently sized replies (4 groups in 23 483 on the first post-pacer run). This carries the node's common window to the wire, which is `AGENT_GOAL.mimo.md`'s success criterion, without the REP workers coordinating at serve time.
+- [M5.4] Repaired the producer's starvation guard, which read the throttle's `served` counter -- rebased to zero once a second, so a starvation landing in that slot went uncounted. It now reads the monotonic slot count.
+- [M5.4] Repaired `validate-mimo-2port-transport.py`'s `event=worker_summary` regex, which still expected the pre-M0 `server[serves=... data_spin=...]` group and therefore matched nothing: the four-port set, the global-vs-per-port sums and the sibling serve-count equality below it had all been checking an empty dict. Added a sibling TX acquisition-skew report and bound (one batch), labelled in-file as a drift guard rather than the freeze detector -- the frozen run's 11 776-sample skew is inside the bound.
+- [M5.4] **Gate PASSES.** `20260816T085031Z` and `20260816T085346Z`, both `status=passed`: 20 s, ~1174 groups/s, `sibling_size_mismatches=0`, sibling acquisition skew 0 on both nodes, every strict broker counter 0, and 0 gNB `Real-time failure in RF: overflow` -- the same overflow-free profile as the 2026-08-13 coordinator-broker runs.
+- [M5.4 gates] `ctest` 8/8 on both trees, `gpu-test-sequence.sh` 9/9, live 1x1 attach re-run (`20260816T085255Z`, `status=passed`, `rrc_connected=1` / `pdu_session_established=1` / `ping_ok=1`, `rx_starvations=4` -- unchanged from the pre-fix run's 4 and inside the historical 3-5).
+- [M5.4 tests] New `scenario_pacer_drops_unrecoverable_debt` in `tests/test_broker.cpp` grades the pacer on a synthetic clock: after a 1 s stall it must release 2 free slots (one batch of debt plus the slot being charged), and steady state must land on the paced deadline with no drift. Mutation probe: disabling the clamp releases **1000** free slots and the test fails -- the same burst shape the live gate saw.
 - [Handover] Added `HANDOVER.md`, a session-resume quickstart that defers to this file as canonical.
 - [M5 plan] Added `docs/plans/m5-live-integration.md`. The milestone turns out to be mostly recovery, not construction: `MIMO_MILESTONES.md` M5 already scopes it as (1) a 1x1 live regression -- done after M4 -- and (2) a multi-port OCUDU gNB against a SYNTHETIC 2-port peer, with independent srsUE processes explicitly named as not being one 2-port UE. Its precondition (verify the multi-port device_args syntax against source) is also now met. The gate script and validator are already in this tree; the peer app and the two fixtures are in the audit tree and are M1-era schema, so restoring them means adapting (radio_nodes has no `role`, fixed_mimo takes no `rx_ports`/`tx_ports` -- dimensions come from the node declaration) and updating the script's SHA pins with the reason recorded. The gNB fixture's device_args matches the syntax derived from source, so the source reading and a fixture that was actually run confirm each other.
 - [M4 control ownership] Promoted the runtime-control block, `live` view, slot counter and profile state from the lane to `PhysicalLinkRuntime`, with one snap per link per slot (shared by both backends via `snap_physical_link`). Control addressing moved to the physical link key: a 2x2 link pair is two endpoints instead of eight and no address carries a lane suffix, while 1x1 link_ids are unchanged. Receiver-model rows left the control surface, settling a pre-existing disagreement where the CPU exposed them and CUDA did not.
@@ -791,7 +799,7 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 
 ---
 
-## M5 — 라이브 통합 (진행 중: M5.1–M5.3 완료, M5.4 환경 차단)
+## M5 — 라이브 통합 (완료: M5.1–M5.4)
 
 > 상세 설계: [`docs/plans/m5-live-integration.md`](docs/plans/m5-live-integration.md)
 
@@ -800,9 +808,36 @@ mixing 비용은 2×2에서 **+4.2 µs (59.615 → 63.776 µs p99)**, 슬롯 예
 | M5.1 계획 문서 | `c94ebf6` | ✅ |
 | M5.2 2-port peer 앱 복원 | (M5.2 커밋) | ✅ 셀프테스트 마커 24192회, 불일치 0 |
 | M5.3 fixture 복원 + 스키마 적응 + 핀 갱신 | `5bcf562` | ✅ 두 노드 `implicit=false`로 2포트 resolve |
-| M5.4 라이브 게이트 | — | ❌ **gNB 쪽 환경 차단** (아래) |
+| M5.4 라이브 게이트 | (M5.4 커밋) | ✅ **통과** (2026-08-16, 연속 2회) |
 
-### M5.4 — 게이트 실패. 원인은 **아직 규명되지 않았다**
+### M5.4 — 원인 규명 완료, 게이트 통과 (2026-08-16)
+
+**아래의 "실패" 절들은 2026-08-15 시점의 기록이며 역사로 보존한다. 결론은 이 절이다.**
+
+**한 줄**: 브로커가 gNB를 **실시간보다 빠르게 먹이고 있었고**, 다중 포트 ZMQ 라디오는 그것을 흡수하지 못하고 **교착한다.**
+
+**gNB 쪽 기전 (소스 확인, 핀 `a1916edcd`)**
+- `radio_zmq_rx_channel.cpp:172-193` — 수신한 메시지를 원형 버퍼에 밀어 넣다 가득 차면 **제자리에서 1 µs 슬립으로 재시도**하며 매 회 OVERFLOW를 올린다.
+- 그 루프가 도는 스레드는 세션의 **모든 TX/RX 채널을 서비스하는 단 하나의 `radio` 워커**다 (`worker_manager.cpp:541` `create_prio_worker` → `single_worker`, `ru_sdr_executor_mapper.cpp:65`).
+- `radio_zmq_rx_stream.cpp:84-92`는 채널을 **순차로** pop한다. 따라서 한 포트가 가득 차면 그 포트가 형제 포트에 필요한 스레드를 붙잡고, PHY는 굶은 형제에서 블록하며, 가득 찬 포트는 **영원히 배수되지 않는다.** 포트가 하나면 같은 루프가 스스로 풀리는 백프레셔라 1×1은 이 경로를 밟지 않는다.
+- 버퍼 용량은 명목 614400이 아니라 **2^20 = 1,048,576**이다. `blocking_queue`는 `ring_buffer<T,true>`이고 `ring_buffer.h:143`이 크기를 2의 거듭제곱으로 올림한다 — 정지한 실행의 마지막 TX 응답이 정확히 1,048,576 샘플이었던 이유도 이것이다.
+
+**우리 쪽 원인 (계측으로 확인)**
+producer의 throttle이 **무한 캐치업**이었다. 첫 슬롯에서 anchor를 잡고 `anchor + served/rate`까지 자므로, (A)에서 라디오가 요청을 시작하기를 기다리며 막혀 있던 시간이 전부 "빚"이 되어 그만큼을 **연속으로 몰아서** 내보낸다. 실패 실행의 수치: gNB 기동 12:53:40.742 → 첫 overflow 12:53:41.074(332 ms 뒤), 그 사이 브로커가 **583 배치 = 13.43 M 샘플 = 40.5 MS/s = 설정 23.04 MS/s의 1.76배**를 밀어 넣었다.
+
+**수정 (2건)**
+1. `include/ocudu_gpu_channel/pacing.h`의 `RealTimePacer` — **한 배치를 넘는 지각은 버린다.** 유닛 테스트의 뮤테이션 프로브가 이 절의 근거다: 클램프를 끄면 1 s 정지 뒤 **1000 슬롯**을 연속 방출한다(라이브에서 본 버스트와 같은 모양), 켜면 2 슬롯.
+2. **형제 RX 응답을 producer의 윈도 경계로 자른다.** `PortRuntime.rx_slots` 큐에 producer가 push와 같은 락 안에서 윈도 길이를 적고, REP 워커는 **정확히 한 윈도**로 답한다. 기존 `min(batch, available)`은 링 점유량을 읽었고, 그 값은 형제 스레드 둘이 **서로 다른 순간에** 표본한다 — 그 사이에 push가 끼면 공통 윈도 하나가 크기가 다른 두 응답으로 쪼개졌다(pacer 수정 직후 실행에서 23,483 그룹 중 4건).
+
+**결과** — `20260816T085031Z`, `20260816T085346Z` 연속 2회 `status=passed`. 20 s, ≈1174 group/s, `sibling_size_mismatches=0`, 형제 취득 격차 0, strict counter 전부 0, **gNB overflow 0** (2026-08-13 구 브로커 통과 실행과 같은 프로필).
+
+**부수 수정**: producer의 starvation 가드가 1초마다 0으로 리베이스되는 `served`를 읽고 있었다(그 슬롯에 걸린 starvation은 세지 못했다) → 단조 슬롯 카운터로 교체. validator의 `event=worker_summary` 정규식이 pre-M0 포맷(`server[serves=...]`)을 기대해 **아무것도 매치하지 않고 있었고**, 그 아래 4포트 검사·전역합 검사·형제 서브 횟수 검사가 전부 빈 dict를 채점하고 있었다 → 현행 포맷으로 수정.
+
+**M5.4의 두 가설에 대한 판정**
+- (b) RX ring run-ahead — **기각.** `rx_ring_batches`는 용량만 키우고 `rx_high_water = batch`는 그대로이므로 producer의 run-ahead를 바꿀 수 없다(코드상 무효인 실험이었다).
+- (a) 형제 puller 비조율 — **증상이지 원인이 아니었다.** 정지 시 11,776 샘플 격차는 두 puller가 각자의 버스트 중 서로 다른 지점에서 얼어붙어 생긴 것이고, 페이서 수정 후 격차는 0이다.
+
+### (역사) M5.4 — 게이트 실패. 원인은 **아직 규명되지 않았다**
 
 첫 실행이 실패했다. 격리 실험 두 번을 돌렸는데, **하나는 유효하고 하나는 무효였다.** 무효인 쪽에서 먼저 내린 결론("원인은 에뮬레이터 밖")은 **철회한다.**
 
@@ -877,9 +912,9 @@ event=node_stall node=gnb0 phase=output_room / node=peer0 phase=input_data
 
 ---
 
-## 세션 상태 (2026-08-15)
+## 세션 상태 (2026-08-16)
 
-**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7, M4.1–M4.6 완료, M5.1–M5.3 완료.** 베이스라인 `bc88865` 이후 약 50 커밋.
+**M0.1–M0.6, M1.1–M1.7, M2.1–M2.4, M3.1–M3.7, M4.1–M4.6, M5.1–M5.4 완료.** 베이스라인 `bc88865` 이후 약 50 커밋.
 
 | 마일스톤 | 상태 |
 |---|---|
@@ -888,20 +923,22 @@ event=node_stall node=gnb0 phase=output_room / node=peer0 phase=input_data
 | M2 IID 확률적 페이딩 | **전 게이트 green** (합성·단위 테스트 + `gpu-test-sequence` 7/7) |
 | M3 공간 상관 + coherent LOS | **전 게이트 green** (합성·단위 테스트 + perf 실측) |
 | M4 physical link 단위 runtime control | **전 게이트 green** (라이브 컨트롤 플레인 포함) |
-| M5 라이브 통합 | M5.1–M5.3 완료, **M5.4 실패 — 원인 미규명**(08-13에는 통과한 게이트). 1단계(1×1 라이브 회귀)는 통과 |
+| M5 라이브 통합 | **M5.1–M5.4 완료 — 전 게이트 green** (2026-08-16) |
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
-### 다음 세션 재개 지점
+### 다음 세션 재개 지점 (2026-08-16 갱신)
 
-**M5.4 원인 규명부터 시작한다.** 재개용 요약은 [`HANDOVER.md`](HANDOVER.md), 정본은 이 파일의 **"M5.4 — 실패. 과거에는 통과한 게이트다"** 절이다.
+**M0~M5의 모든 게이트가 green이다.** M5.4는 원인 규명 후 수정되어 연속 2회 통과했다(위 "M5.4 — 원인 규명 완료" 절이 정본).
 
-핵심: **같은 게이트가 2026-08-13에 통과했고, gNB 설정은 바이트 동일하며, 바뀐 변수는 우리 브로커다.** 가장 싼 실험 두 개 —
+상시 게이트: `ctest` 8/8 (두 트리), `gpu-test-sequence.sh` 9/9, 라이브 1×1 attach `status=passed`, 라이브 2-port transport `status=passed`.
 
-1. `runtime.rx_ring_batches`를 4~8로 올려 게이트 재실행 (RX ring run-ahead 가설, 30분)
-2. audit 트리의 구 코디네이터 브로커를 빌드해 오늘 fixture로 실행 ("변수는 브로커" 직접 확인)
+**열려 있는 것은 코드가 아니라 사용자 결정과 문서다.** 우선순위 순으로:
 
-계측(`acquired=`)은 이미 들어가 있으므로 형제 포트 격차를 바로 읽을 수 있다.
+1. **`docs/index.html`에 MIMO가 없다.** 출하 기술 문서가 pre-MIMO 시스템(SISO 에뮬레이터)을 설명하며, M0~M5가 문서에 존재하지 않는다. 코드는 끝났고 문서는 다섯 마일스톤만큼 뒤쳐져 있으므로, 지금은 이것이 가장 큰 격차다.
+2. **지배 mission 파일 미확정** — `AGENT_GOAL.md` vs `AGENT_GOAL.mimo.md`. 실질은 `.mimo`가 지배해 왔다. 에이전트는 자율로 정하지 않는다.
+3. **M0의 라이브 부채 2건**(multi-UE / multi-gNB) — unprivileged LXC 환경 차단이며 베이스라인에서도 동일 재현된다.
+4. `fixed_mimo`와 `los_matrix`의 통합 여부(M3 종료 시 보류, `docs/plans/m3-*.md` §2.6).
 
 ### 환경 관련 (다음 세션에서 필요할 수 있음)
 
