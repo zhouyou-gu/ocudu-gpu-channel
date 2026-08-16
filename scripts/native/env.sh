@@ -32,3 +32,28 @@ export PKG_CONFIG_PATH="${OCUDU_NATIVE_GNUTLS}/lib/pkgconfig:${OCUDU_NATIVE_SYSR
 # The custom GnuTLS pkg-config file has an absolute user prefix. A sysroot
 # rewrite would incorrectly prepend the sysroot to that prefix.
 unset PKG_CONFIG_SYSROOT_DIR
+
+# --- autotools relocation (M6.1) -------------------------------------------
+# Debian's autoconf/automake/libtool bake absolute /usr/share paths into their
+# scripts, so extracting them into the user-space sysroot is not enough: the
+# tools must be told where they were actually put. Three files carry paths that
+# have no environment override and are patched in place in the sysroot
+# (`aclocal-1.16` search dirs, `autom4te.cfg` --prepend-include, `libtoolize`
+# prefix/datadir/pkgauxdir/pkgltdldir/aclocaldir); everything else is settable
+# here. OAI needs this because its build compiles asn1c from source through
+# `autoreconf -i` (`CMakeLists.txt` ExternalProject `asn1c_gen`).
+if [[ -x "${OCUDU_NATIVE_SYSROOT}/usr/bin/autoreconf" ]]; then
+  export PERL5LIB="${OCUDU_NATIVE_SYSROOT}/usr/share/autoconf:${OCUDU_NATIVE_SYSROOT}/usr/share/automake-1.16${PERL5LIB:+:${PERL5LIB}}"
+  export AUTOMAKE_LIBDIR="${OCUDU_NATIVE_SYSROOT}/usr/share/automake-1.16"
+  export ACLOCAL_PATH="${OCUDU_NATIVE_SYSROOT}/usr/share/aclocal"
+  export AUTOM4TE_CFG="${OCUDU_NATIVE_SYSROOT}/usr/share/autoconf/autom4te.cfg"
+  export autom4te_perllibdir="${OCUDU_NATIVE_SYSROOT}/usr/share/autoconf"
+  export trailer_m4="${OCUDU_NATIVE_SYSROOT}/usr/share/autoconf/autoconf/trailer.m4"
+  export AUTOM4TE="${OCUDU_NATIVE_SYSROOT}/usr/bin/autom4te"
+  export AUTOCONF="${OCUDU_NATIVE_SYSROOT}/usr/bin/autoconf"
+  export AUTOHEADER="${OCUDU_NATIVE_SYSROOT}/usr/bin/autoheader"
+  export AUTOMAKE="${OCUDU_NATIVE_SYSROOT}/usr/bin/automake"
+  export ACLOCAL="${OCUDU_NATIVE_SYSROOT}/usr/bin/aclocal"
+  export LIBTOOLIZE="${OCUDU_NATIVE_SYSROOT}/usr/bin/libtoolize"
+  export M4="${OCUDU_NATIVE_SYSROOT}/usr/bin/m4"
+fi

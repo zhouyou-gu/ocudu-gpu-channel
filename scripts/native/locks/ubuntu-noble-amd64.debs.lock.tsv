@@ -1,4 +1,7 @@
 # package	version	architecture	bytes	sha256	repository_path	cache_path
+autoconf	2.71-3	all	338946	cc3f9f7a1e576173fb59c36652c0a67c6426feae752b352404ba92dfcb1b26c9	pool/main/a/autoconf/autoconf_2.71-3_all.deb	tools/debs/archives/autoconf_2.71-3_all.deb
+automake	1:1.16.5-1.3ubuntu1	all	558172	5ae9a98e73545002cd891f028859941af2a3c760cb6190e635c7ef36953912de	pool/main/a/automake-1.16/automake_1.16.5-1.3ubuntu1_all.deb	tools/debs/archives/automake_1%3a1.16.5-1.3ubuntu1_all.deb
+autotools-dev	20220109.1	all	44886	d909f0327b09d9a9136239caca975df89782fa28efd721c4eb4caea422d3fc5a	pool/main/a/autotools-dev/autotools-dev_20220109.1_all.deb	tools/debs/archives/autotools-dev_20220109.1_all.deb
 bison	2:3.8.2+dfsg-1build2	amd64	748688	18f487c400da3e968a44ecb3783a443641bcd14e2b080ed9ed1167f4aa2c1612	pool/main/b/bison/bison_3.8.2+dfsg-1build2_amd64.deb	tools/debs/archives/bison_2%3a3.8.2+dfsg-1build2_amd64.deb
 flex	2.6.4-8.2build1	amd64	300754	c5604f55827b50e3f568b4731b7799f86b147454c867be02bc141d9d8ce561ff	pool/main/f/flex/flex_2.6.4-8.2build1_amd64.deb	tools/debs/archives/flex_2.6.4-8.2build1_amd64.deb
 gettext	0.21-14ubuntu2	amd64	864338	5338a17b0c7da20280097d5730ab640c8fcc2b4547acdda29361b27675b937c6	pool/main/g/gettext/gettext_0.21-14ubuntu2_amd64.deb	tools/debs/archives/gettext_0.21-14ubuntu2_amd64.deb
@@ -69,6 +72,7 @@ libtalloc2	2.4.2-1build2	amd64	27260	c9728388084bdccdbcfb3e97358535431855f4ce579
 libtasn1-6-dev	4.19.0-3ubuntu0.24.04.2	amd64	90780	73ade6977fbfa51a825cb8456c5648c1123d3af93430b54196a7c4ff9657588c	pool/main/libt/libtasn1-6/libtasn1-6-dev_4.19.0-3ubuntu0.24.04.2_amd64.deb	tools/debs/archives/libtasn1-6-dev_4.19.0-3ubuntu0.24.04.2_amd64.deb
 libtins-dev	4.5-1build2	amd64	118926	227611584bb1e338cff306eeac2c20c0c550e1a17cd5691c7429c5b88c86be2a	pool/universe/libt/libtins/libtins-dev_4.5-1build2_amd64.deb	tools/debs/archives/libtins-dev_4.5-1build2_amd64.deb
 libtins4.5	4.5-1build2	amd64	229134	07601ad51827312ec19fa68ccffdc23fe1dd10732b80291478a0791c74100520	pool/universe/libt/libtins/libtins4.5_4.5-1build2_amd64.deb	tools/debs/archives/libtins4.5_4.5-1build2_amd64.deb
+libtool	2.4.7-7build1	all	166404	9d1d707179675d38e024bb13613b1d99e0d33fa6c45e5f3bcba19340781781d3	pool/main/libt/libtool/libtool_2.4.7-7build1_all.deb	tools/debs/archives/libtool_2.4.7-7build1_all.deb
 libunbound8	1.19.2-1ubuntu3.8	amd64	445120	7bd17364c7445950eff25dd77d82dca1f7c43cc66a19d42afb965eb781453a44	pool/main/u/unbound/libunbound8_1.19.2-1ubuntu3.8_amd64.deb	tools/debs/archives/libunbound8_1.19.2-1ubuntu3.8_amd64.deb
 libutf8proc-dev	2.9.0-1build1	amd64	74116	ef82f3d0429cfb500d8503d28b6fd59958d481914bdf70202e6d6ef7014357ff	pool/universe/u/utf8proc/libutf8proc-dev_2.9.0-1build1_amd64.deb	tools/debs/archives/libutf8proc-dev_2.9.0-1build1_amd64.deb
 libutf8proc3	2.9.0-1build1	amd64	70606	994bfddf2f971a6c314d478647f319f128d4949d8c00169f00e45ec7a96e5b62	pool/universe/u/utf8proc/libutf8proc3_2.9.0-1build1_amd64.deb	tools/debs/archives/libutf8proc3_2.9.0-1build1_amd64.deb
