@@ -66,17 +66,29 @@
         "-DOAI_ZMQ=ON",
         "-DENABLE_WERROR=OFF",
         "-DAUTO_DOWNLOAD_ASN1C=ON",
+        "-DAVX512=OFF",
         "-DCMAKE_PREFIX_PATH=<root>/install/sysroot/usr"
       ],
       "notes": [
         "CMAKE_PREFIX_PATH is required: find_library/find_path do not read CPATH or LIBRARY_PATH, so without it libsctp is reported missing even though the sysroot has it.",
         "libcap is optional -- CMakeLists.txt:688 guards its use with if(cap_FOUND), so the pkg-config warning is expected and harmless.",
-        "AUTO_DOWNLOAD_ASN1C builds asn1c from source via autoreconf, which is why the autotools overlay and the relocation patches below exist."
+        "AUTO_DOWNLOAD_ASN1C builds asn1c from source via autoreconf, which is why the autotools overlay and the relocation patches below exist.",
+        "AVX512=OFF is required on this host, not a performance choice made lightly. Zen 4 defines __AVX512F__, so radio/zmq/zmq_simd.h takes its AVX-512 branch, and the only SIMDe in the Ubuntu noble archive is 0.7.2 which lacks simde_mm512_cvtepi16_epi32 / cvtepi32_ps / cvtps_epi32. OAI's own -DAVX512=OFF switches the build to -mno-avx512f -march=native and the branch compiles out. The alternative is vendoring a newer header-only SIMDe; revisit only if UE PHY throughput ever becomes the limit, which it is not at 23.04 MS/s over ZMQ."
       ],
       "source": "src/oai",
       "targets": [
         "nr-uesoftmodem",
         "oai_zmqdevif"
+      ],
+      "transitive_pins": [
+        {
+          "commit": "940dd5fa9f3917913fd487b13dfddfacd0ded06e",
+          "materialises_at": "builds/oai-zmq-release/asn1c_gen-prefix/src/asn1c_gen",
+          "name": "asn1c",
+          "note": "Recorded so the transitive source is not invisible, but deliberately NOT a git_sources entry: it only exists after the OAI build runs, so requiring it would make the workspace check fail on a clean tree.",
+          "pinned_by": "OAI CMakeLists.txt ExternalProject_Add(asn1c_gen)",
+          "url": "https://github.com/mouse07410/asn1c"
+        }
       ]
     },
     "ocudu": {
@@ -129,7 +141,7 @@
     "verified_now": "locked cached inputs and current Ubuntu-24.04 user-space overlay"
   },
   "debian_overlay": {
-    "bytes": 21728,
+    "bytes": 21925,
     "cache_root": "tools/debs",
     "closure": "user-space-overlay-only",
     "download_template": "apt-get download <package>:<architecture>=<version>",
@@ -148,8 +160,8 @@
       ],
       "why": "Debian autoconf/automake/libtool bake absolute /usr/share paths that have no environment override. Extracting them into the user-space sysroot is not sufficient; these files are edited in place after extraction."
     },
-    "rows": 93,
-    "sha256": "6193ed6fc90858ec03a11657848b3fa4e84652de114f1de750b0d5fa652924e8"
+    "rows": 94,
+    "sha256": "9e534b6bca86afd344767c0e9de265445a8b5aaea5ba1f0a9f80abd3ad173839"
   },
   "git_sources": [
     {
@@ -206,14 +218,6 @@
       "name": "oai",
       "path": "src/oai",
       "url": "https://github.com/OPENAIRINTERFACE/openairinterface5g.git"
-    },
-    {
-      "commit": "940dd5fa9f3917913fd487b13dfddfacd0ded06e",
-      "label": "OAI CMakeLists ExternalProject pin",
-      "name": "asn1c",
-      "note": "fetched by OAI's own ExternalProject (AUTO_DOWNLOAD_ASN1C=ON); the pin is OAI's, recorded here so the transitive source is not invisible",
-      "path": "builds/oai-zmq-release/asn1c_gen-prefix",
-      "url": "https://github.com/mouse07410/asn1c"
     }
   ],
   "host_contract": {

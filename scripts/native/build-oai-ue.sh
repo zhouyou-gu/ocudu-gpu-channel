@@ -3,11 +3,13 @@ set -euo pipefail
 
 # M6.1 -- build the OAI nrUE against the pinned workspace toolchain.
 #
-# This is the long step of M6.1 and is meant to be run in tmux. Everything it
-# needs was prepared and verified beforehand: the source is cloned at the pin,
-# the autotools overlay is extracted and relocated, and `cmake` configure was
-# already proven to succeed with these exact flags. What is left here is the
-# compile, plus the asn1c ExternalProject that OAI builds from source.
+# Measured on the Threadripper PRO 7965WX (24C/48T) at -j48: the whole thing,
+# including the asn1c bootstrap and 9 730 compile units, finishes in about two
+# and a half minutes. It was budgeted as a long tmux job and is not one.
+#
+# Everything it needs was prepared and verified beforehand: the source is
+# cloned at the pin, the autotools overlay is extracted and relocated, and
+# both the configure and a full build were proven with these exact flags.
 #
 # It builds only what the UE side needs -- `nr-uesoftmodem` and the ZMQ radio
 # device `oai_zmqdevif`. The gNB stays OCUDU; nothing here touches it.
@@ -70,12 +72,18 @@ printf 'jobs=%s\n' "${jobs}"
 # CPATH and LIBRARY_PATH, so without it the sysroot's libsctp is invisible.
 # The `libcap` pkg-config warning during configure is expected -- CMakeLists.txt
 # guards its use with if(cap_FOUND).
+#
+# AVX512=OFF is forced by the host, not chosen for taste: Zen 4 defines
+# __AVX512F__, so radio/zmq/zmq_simd.h takes its AVX-512 branch, and the only
+# SIMDe in the Ubuntu noble archive (0.7.2) does not have the intrinsics that
+# branch calls. OAI's own switch compiles the branch out.
 echo "== configure =="
 cmake -S "${src_dir}" -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DOAI_ZMQ=ON \
   -DENABLE_WERROR=OFF \
   -DAUTO_DOWNLOAD_ASN1C=ON \
+  -DAVX512=OFF \
   -DCMAKE_PREFIX_PATH="${OCUDU_NATIVE_SYSROOT}/usr" \
   >"${log_dir}/cmake-configure.log" 2>&1 || {
     tail -30 "${log_dir}/cmake-configure.log" >&2
