@@ -254,6 +254,10 @@ wire payload에는 타임스탬프가 없다. `IqSample`은 `{float i, float q}`
 
 ### M6 — rank-2 SU-MIMO 라이브 acceptance (2026-08-16 추가)
 
+> 상세 설계: [`docs/plans/m6-rank2-su-mimo-live.md`](docs/plans/m6-rank2-su-mimo-live.md)
+>
+> **OAI 핀: `2026.w33` = `2b69bde6aeafe892cda1531a0f0cbba2e37792cd`.** 조사 시점의 `develop` tip과 동일한 커밋이므로, 아래 근거는 전부 핀된 커밋 자체에서 확인한 것이다.
+
 **왜 추가되는가**
 
 M0~M5는 성공 기준을 **transport 수준**으로 잡았다. 그 결과 전 게이트가 green이면서도 "선언한 `H`가 실제로 rank-2 전송을 나르는가"를 요구하는 게이트가 하나도 없었다. 사용자 목표는 **rank-2 SU-MIMO가 동작하는 채널 에뮬레이터**이고, 최종적으로는 massive MIMO다. M6은 그 격차를 닫는다.
