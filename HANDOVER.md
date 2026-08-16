@@ -19,13 +19,13 @@
 | M2 IID 확률적 페이딩 | **전 게이트 green** |
 | M3 공간 상관 + coherent LOS | **전 게이트 green** |
 | M4 physical link 단위 runtime control | **전 게이트 green** |
-| M5 라이브 통합 | **전 게이트 green** (M5.4 포함, 2026-08-16 해결) |
+| M5 라이브 통합 | **전 게이트 green** — M5.4 해결 + M5.5 행렬 게이트 (2026-08-16) |
 
 **상시 게이트 상태** (전부 2026-08-16에 통과):
 - `ctest` 8/8 — CPU 트리(`build/`)와 CUDA 트리(`build-cuda/`) 양쪽
 - `scripts/remote/gpu-test-sequence.sh` **9/9**
 - `scripts/native/run-ocudu-legacy-1x1.sh` — 라이브 1×1 attach `status=passed`
-- `scripts/native/run-ocudu-mimo-2port-no-core.sh` — 라이브 2-port transport `status=passed` (연속 2회)
+- `scripts/native/run-ocudu-mimo-2port-no-core.sh` — 라이브 2-port `status=passed`. **행렬 검증 포함**: 캡처한 두 wire에서 `y = Hx`를 독립 재계산, max 오차 DL 4.1e-08 / UL 1.5e-07 (허용 1e-4), 행별 교차항 기여 0.12~0.77
 
 ## 2. 지난 세션에 닫은 것: M5.4
 
@@ -35,12 +35,18 @@
 
 소스 근거·측정치·뮤테이션 프로브는 `AGENT_PROGRESS.md`의 **"M5.4 — 원인 규명 완료, 게이트 통과 (2026-08-16)"** 절에 있다.
 
+## 2b. 같은 날 닫은 것: M5.5 — 게이트가 "옮긴 것"만 채점하고 있었다
+
+M5 exit 게이트 표의 핵심 행(**각 수신 행이 두 송신 포트 모두에 의존**)이 라이브에서 판정되지 않고 있었다. peer의 마커 오라클이 `--self-test` 경로에만 있어서, 라이브 실행은 `marker_checks=0` 옆에 `marker_mismatches=0`을 적고 통과했다. 지금은 브로커가 포트별로 **두 wire를 소켓 경계에서** 유한 구간 캡처하고(`--wire-capture-dir/-samples/-skip`), `scripts/native/verify-mimo-matrix-capture.py`가 토폴로지 YAML에서 읽은 `H`로 `y = Hx`를 독립 재계산해 비교한다. 뮤테이션 프로브 3개(대각 행렬 / lane 1개 제거 / 형제 epoch를 **1샘플** 어긋내기) 전부 FAIL 확인.
+
 ## 3. 다음에 손댈 것 (우선순위)
 
-1. **`docs/index.html`에 MIMO가 없다.** 출하 문서가 pre-MIMO(SISO) 시스템을 설명한다 — M0~M5가 문서에 존재하지 않는다. **코드는 끝났고 문서만 다섯 마일스톤 뒤쳐져 있으므로 지금은 이것이 가장 큰 격차다.**
-2. 지배 mission 파일 확정(§0) — 사용자 결정.
-3. M0 라이브 부채 2건 — 환경 차단, 베이스라인에서도 동일 재현.
-4. `fixed_mimo`와 `los_matrix` 통합 여부(M3에서 보류).
+**남은 것은 코드가 아니라 사용자 결정이다.**
+
+1. **지배 mission 파일 확정**(§0) — 에이전트가 자율로 정하지 않는다. 이것이 유일하게 막혀 있는 항목이다.
+2. M0 라이브 부채 2건(multi-UE / multi-gNB) — unprivileged LXC 환경 차단이고 베이스라인에서도 동일 재현되므로 M0 결함이 아니다. 호스트 설정이 바뀌지 않으면 풀 수 없다.
+3. GH Pages 공개 — 워크플로는 `workflow_dispatch` 게이트 상태이고 레포는 private. 사용자가 공개를 결정하면 켠다.
+4. CDL(TR 38.901 §7.7.1) — 빔포밍 use case가 생기면. 오늘의 행렬은 선언하거나 뽑는 것이지 배열 기하에서 합성하지 않는다.
 
 ## 4. 명령어
 
@@ -84,5 +90,5 @@ bash scripts/native/run-ocudu-mimo-2port-no-core.sh
 ## 7. 알려진 부채
 
 - **M0 라이브 게이트 2개**(multi-UE / multi-gNB) — unprivileged LXC + lock-step 가상시간의 지터 부재. 베이스라인에서도 동일 재현되므로 M0 결함이 아니다.
-- **`docs/index.html`에 MIMO가 없다** — §3의 1번 항목.
+- ~~`docs/index.html`에 MIMO가 없다~~ — **해소됨(2026-08-16)**. Part VII(§22–§25)이 다중 포트 오버레이 전체를 다루고, §1/§2/§4/§8/§9의 거짓이 된 서술을 고쳤으며, §18.4(다중 포트 게이트)와 §20.1(다중 포트 실측)을 추가했다. 내부 앵커 94개 전부 resolve.
 - **`fixed_mimo`와 `los_matrix`** — lane별 복소 행렬을 선언하는 knob이 둘이다. 없는 항목의 의미가 정반대(0 vs 에러)라 M3 종료 시 통합하지 않기로 판단했다(`docs/plans/m3-*.md` §2.6).
