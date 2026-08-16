@@ -338,6 +338,8 @@
       <span class="sep">&middot;</span>
       <a href="#runtime-mutability">Runtime control plane</a>
       <span class="sep">&middot;</span>
+      <a href="#part-vii">Multi-port &amp; the matrix channel</a>
+      <span class="sep">&middot;</span>
       <a href="#scope">Scope &amp; planned work</a>
     </p>
   </div>
@@ -379,6 +381,17 @@
   the 5G&nbsp;NR slot deadline. This doc is the implementation reference — it assumes you
   have already read the <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel#readme"><code>README</code></a> for positioning and
   quick-start.</p>
+  <p><b>Single-antenna radios and multi-port radios.</b> Parts&nbsp;I&ndash;VI describe the
+  engine on a graph of single-antenna radios, where one radio is one ZMQ endpoint pair and
+  one edge is one scalar channel. That is the whole system for a 1&times;1 deployment and it
+  is where a first reading should start. <a href="#part-vii">Part&nbsp;VII</a> adds the
+  overlay for radios with several antenna ports: several ports are grouped into one radio
+  node, a link between two such radios carries an
+  <span class="mono">Nt&nbsp;&times;&nbsp;Nr</span> matrix, and every coefficient of that
+  matrix belongs to one sample epoch. There is no second engine underneath &mdash; a
+  multi-port link expands into ordinary per-edge lanes, and a single-port topology is the
+  <span class="mono">Nt&nbsp;=&nbsp;Nr&nbsp;=&nbsp;1</span> case of the same path, byte for
+  byte.</p>
   <p class="note"><b>Slot length and SCS.</b> The slot deadline depends on the subcarrier
   spacing: <b>1&nbsp;ms at 15&nbsp;kHz SCS</b>, <b>500&nbsp;µs at 30&nbsp;kHz SCS</b> (the
   bench default and the <a href="#perf">§20</a> measurement frame), and 250&nbsp;µs at
@@ -406,7 +419,12 @@
   <b>Part&nbsp;VI (§18–§21)</b> is engineering: validation (Diagram TA),
   profiling instrumentation (Diagram N), measured performance (Diagrams O,
   T, U, W), and the latency-gate verdict.
-  <b>Part&nbsp;VII (§22)</b> is forward-looking scope and planned work.</p>
+  <b>Part&nbsp;VII (§22&ndash;§25)</b> is the multi-port radio overlay: radio
+  nodes and the matrix index (§22), the one-sample-epoch discipline and why
+  the broker must not outrun a lock-step radio (§23), the three ways to
+  declare <span class="mono">H</span> (§24), and the live evidence with its
+  claim boundary (§25).
+  <b>Part&nbsp;VIII (§26)</b> is forward-looking scope and planned work.</p>
   <p><b>Reader paths.</b> Cover-to-cover works, but most readers don't need
   it. Three shortcuts that hit most use cases:
   <b>(1)&nbsp;Fast tour</b> &mdash; <a href="#part-i">Part&nbsp;I</a> + the
@@ -431,7 +449,12 @@
   <h3>Topology</h3>
   <table>
     <tr><th>Term</th><th>Meaning</th></tr>
-    <tr><td class="mono">node</td><td>a device in the graph (a gNB or a UE); the broker serves one RX signal per node, per slot</td></tr>
+    <tr><td class="mono">node</td><td>a device in the graph (a gNB or a UE); the broker serves one RX signal per node, per slot. On a multi-port radio the node is the <b>radio</b> and the endpoint pair is a <b>port</b> &mdash; see <a href="#mimo-nodes">&sect;22</a></td></tr>
+    <tr><td class="mono">port</td><td>one ZMQ endpoint pair, its TX ring and its puller. A single-antenna radio has exactly one, and then "port" and "node" name the same thing</td></tr>
+    <tr><td class="mono">radio node</td><td>one or more ports that are one radio: they share a sample epoch, a throttle, a cursor set and one channel call. Declared under <code>radio_nodes:</code>, where <b>writing order is the matrix index</b> (<a href="#mimo-nodes">&sect;22</a>)</td></tr>
+    <tr><td class="mono">physical link</td><td>the directed pair of radio nodes, and the owner of one channel realization: one seed, one absolute-time origin, one correlation factor (<a href="#mimo-matrix">&sect;24</a>)</td></tr>
+    <tr><td class="mono">lane</td><td>one <span class="mono">(rx_port, tx_port)</span> coefficient of a physical link, and an ordinary edge to the engine. A physical link expands to <span class="mono">Nt&nbsp;&times;&nbsp;Nr</span> lanes</td></tr>
+    <tr><td class="mono">Nt / Nr</td><td>transmit / receive port counts of a physical link's two radios, taken from the node declarations rather than from any matrix block</td></tr>
     <tr><td class="mono">edge</td><td>a directed channel from one node to another, configured under <code>links:</code> in the YAML topology with a named <code>model</code>. <b>This doc says "edge" in prose</b> (a node's "incoming edges" are the edges pointing at it); the YAML key <code>links:</code> and the runtime identifiers <code>link_id</code> / <code>link_key</code> keep the word "link" because they are API names</td></tr>
     <tr><td class="mono">incoming edges</td><td>for destination node <span class="mono">d</span>, the subset of links where <span class="mono">link.to == d</span>. Resolved once per server thread at broker startup (<code>src/broker.cpp</code>); this list is the index space for cursors (§9), staged slots (§10), per-edge <code>stage_link()</code> calls (§11), and the kernel's per-thread edge loop (§12)</td></tr>
     <tr><td class="mono">model</td><td>a chain of channel steps (tdl, path_loss, phase, CFO, AWGN) applied per-edge under <code>models:</code> in the YAML</td></tr>
@@ -491,7 +514,7 @@
     <tr><td class="mono">superpose_kernel</td><td>multi-edge superposition kernel — one thread per output sample, walks every edge, sums into <code>dst[idx]</code></td></tr>
     <tr><td class="mono">stage_link()</td><td>host-side fallback helper that runs the chain-leading <code>tdl</code> step (multi-tap convolution via <code>apply_tdl_step{_fading}</code> in <code>delay.h</code>) before the H2D copy. The production path is <code>apply_channel_kernel</code> on device (§11 Diagram S); <code>stage_link()</code> runs only when the per-node dispatch gate doesn't fire (mixed-edge or non-tdl-leading topologies), and as the CPU-backend reference</td></tr>
     <tr><td class="mono">apply_channel_kernel</td><td>device-side per-edge channel kernel in <code>src/device_channel.cu</code> — runs the multi-tap convolution + Jakes Doppler + Rician LOS on the GPU, materialising the per-tap coarse grid in block shared memory at slot start. Production path for all-leading-tdl topologies; landed Phase 2 D3</td></tr>
-    <tr><td class="mono">process_superposition</td><td>the sole CPU / CUDA processor entry point; called by the broker for N-edge fan-in and by the benchmark / tests for the N=1 single-edge case (an earlier <code>process_into</code> API was unified away — see §20.1)</td></tr>
+    <tr><td class="mono">process_superposition</td><td>the sole CPU / CUDA processor entry point; called by the broker for N-edge fan-in and by the benchmark / tests for the N=1 single-edge case (an earlier <code>process_into</code> API was unified away — see §20.2)</td></tr>
     <tr><td class="mono">serve</td><td>one broker iteration for a destination node: read inputs from each source's ring, stage them, run the kernel, send the result over ZMQ</td></tr>
     <tr><td class="mono">cursor</td><td>per-edge <code>std::atomic&lt;uint64_t&gt;</code> pointing into its source's IQ ring; co-initialised across edges so superposition aligns every edge's same virtual instant</td></tr>
     <tr><td class="mono">pinned memory</td><td>host memory allocated with <code>cudaHostAlloc</code>; required for <code>cudaMemcpyAsync</code> to actually run async over PCIe DMA</td></tr>
@@ -621,9 +644,16 @@
   <p class="sub">Everything the user writes in YAML &mdash; the topology graph, the channel chain, and the physics the chain encodes.</p>
 
   <h2 id="topology">4. Topology graph and YAML model</h2>
+  <p class="note"><b>This section describes single-antenna radios.</b> A radio with several
+  antenna ports groups its ports under <code>radio_nodes:</code> and its links then connect
+  radios rather than sockets; the schema, the matrix-index rule and the load-time rejections
+  are in <a href="#mimo-nodes">&sect;22</a>. Everything below still holds &mdash; a
+  single-port radio is the <span class="mono">Nt&nbsp;=&nbsp;Nr&nbsp;=&nbsp;1</span> case,
+  and a topology that declares no <code>radio_nodes:</code> keeps exactly the behaviour and
+  the link keys described here.</p>
   <p>The topology is a directed graph: nodes are devices (gNBs and UEs); edges are channel
   edges between them, each with a named <code>model</code>. The broker reads
-  <code>examples/topology.*.yaml</code>, builds one server thread per node, and one
+  <code>examples/topology.*.yaml</code> and builds one
   <code>CudaLinkSlot</code> per edge. The 3-node example below
   (<code>examples/topology.graph.cuda.yaml</code>) carries both <b>desired</b> edges (downlink
   + uplink) and <b>crosstalk</b> edges (UE↔UE leakage).</p>
@@ -1132,11 +1162,20 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   (kernels and pipeline, with op-order in §11.0). The §2 glossary defines every term used here as a
   one-liner, so a first read can proceed top-to-bottom; the deeper "why" for
   each named component lives in the cross-referenced section.</p>
-  <p>The broker spawns one <b>server thread per destination node</b>. Each thread owns a
-  ZMQ REP socket; when a downstream radio issues a request, the thread reads the common
+  <p class="note"><b>Thread structure, stated once.</b> The per-slot work of a destination
+  node is split across two threads rather than one: a <b>producer</b> per radio node chooses
+  the window, runs the pipeline and publishes each output row, and a thin <b>REP worker</b>
+  per port owns only the socket state machine. The split is what makes a multi-port radio's
+  ports share one window by construction, and its reasoning is in
+  <a href="#mimo-epoch">&sect;23</a>. For a single-port radio the two threads do between them
+  exactly what the single server thread described below did, in the same order, so this
+  section reads correctly either way &mdash; "the server thread" below means "the producer,
+  then its REP worker".</p>
+  <p>The broker runs one <b>producer per destination node</b>. It reads the common
   window of samples available across all of the node's incoming edges, stages them into
-  pinned memory, runs the GPU pipeline, and replies with the processed IQ. Two threads
-  for the same node never coexist; threads for different nodes run in parallel and use
+  pinned memory, runs the GPU pipeline, and hands the processed IQ to the node's REP
+  worker(s), which reply to the downstream radio's requests. Two producers
+  for the same node never coexist; producers for different nodes run in parallel and use
   independent CUDA streams (see <a href="#stream-concurrency">§16</a>).</p>
   <p>Receive-side rings are written by a separate set of RX threads — one per source —
   that pull TX packets from each source's PUB socket and append samples (with a monotonic
@@ -1457,8 +1496,16 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         with continuity preserved across slot boundaries via a per-edge
         <code>delay_line</code> ring (in <code>DeviceLinkState</code> global memory
         on the device path, in <code>LinkModelState</code> on the host fallback).</li>
-    <li><b>Wall-clock throttle</b> — the server thread sleeps to pace serves at exactly
-        the sample rate, so virtual time = real time.</li>
+    <li><b>Wall-clock throttle</b> — the producer sleeps to pace serves at exactly
+        the sample rate, so virtual time = real time. It paces to that rate and no faster,
+        and it will not make up time it lost while blocked: a lock-step radio has no clock
+        of its own, so the emulator is its clock, and a burst of catch-up is what a
+        multi-port ZMQ radio dead-locks on rather than absorbs
+        (<a href="#mimo-pacing">&sect;23.1</a>).</li>
+    <li><b>One epoch per radio</b> — on a multi-port radio, all ports advance on the same
+        window, chosen once by one thread and cut on the same boundaries all the way to the
+        wire (<a href="#mimo-epoch">&sect;23</a>). Per-port state that can drift
+        independently is not an acceptable implementation of a matrix channel.</li>
   </ol>
   <figure>
   <svg viewBox="0 0 1000 250" font-family="SF Mono,Menlo,monospace" font-size="12">
@@ -1797,7 +1844,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   (clock drift, slot misalignment that grows over time, sample-rate mismatch between
   endpoints) is out of scope. d<sub>k</sub> is constant for the life of a serve and
   changes only when the YAML is reloaded — drift would require a runtime-mutable
-  per-edge delay, which is on the planned list in <a href="#scope">§22</a>.</p>
+  per-edge delay, which is on the planned list in <a href="#scope">§26</a>.</p>
 
   <p class="key"><b>What this stage guarantees for everything downstream:</b> after this
   step, the broker holds <span class="mono">N</span> per-edge sample arrays that are
@@ -1889,7 +1936,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <p class="key"><b>Per-edge invariant.</b> Multipath and Doppler are applied independently per edge, with each edge's own delay-line ring and Jakes sub-ray state, before aggregation. The channel <span class="mono">h<sub>(src→dst)</sub>(t, τ)</span> is a property of the edge, not the receiver — summing raw IQ before applying the channel would collapse the per-edge statistics and is mathematically wrong.</p>
 
-  <p>The default path is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3 + D4, landed): per-edge state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_source_iq[s->src_index · count + read_idx]</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>src_index indirection (D4)</b> means edges sharing a source share a single input slot — the host packs each unique source once. H2D bandwidth therefore scales with source count rather than edge count <i>when multiple edges share a source</i>; for current production topologies (one edge per (from, to) pair) the byte count is unchanged. See <a href="#perf-pcie">§20.5</a> for the empirical confirmation. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a>; the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in §6 (Diagrams P / Q / R).</p>
+  <p>The default path is the <b>device kernel</b> <code>apply_channel_kernel</code> in <code>src/device_channel.cu</code> (Phase 2 D2b + D3 + D4, landed): per-edge state lives in <code>DeviceLinkState</code> in GPU global memory, the per-tap Jakes coarse grid is materialised cooperatively in block shared memory at each slot's start, and each output sample is computed by one CUDA thread reading <code>device_source_iq[s->src_index · count + read_idx]</code> + interpolating <span class="mono">g<sub>k</sub>(t<sub>idx</sub>)</span>. The <b>src_index indirection (D4)</b> means edges sharing a source share a single input slot — the host packs each unique source once. H2D bandwidth therefore scales with source count rather than edge count <i>when multiple edges share a source</i>; for current production topologies (one edge per (from, to) pair) the byte count is unchanged. See <a href="#perf-pcie">§20.6</a> for the empirical confirmation. The <b>host fallback</b> is <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> — used when the per-node dispatch gate (<code>CudaSuperposeState::use_device_channel</code>, set in <code>prepare()</code>) doesn't fire, i.e. when an incoming edge has no leading <code>tdl</code> step. Both paths share one numerical specification in <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/include/ocudu_gpu_channel/delay.h"><code>delay.h</code></a>; the CPU↔CUDA fading bit-exact test asserts agreement at <span class="mono">1e-3</span> tolerance. The math itself lives in §6 (Diagrams P / Q / R).</p>
 
   <h3 id="pipeline">11.0 Pipeline op order — what each stream actually launches</h3>
   <p>Before the per-component deep dives (Diagram S below, then dispatch
@@ -2742,7 +2789,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <p>Total device footprint for an 8-incoming-edge node at 23.04 MS/s fits
   comfortably in any GPU's L2 (50 MB on H100, 128 MB on B200), and even the
   full 16-edge stress topology stays in L2. Bandwidth, not capacity, is the
-  working constraint — quantified in <a href="#perf-pcie">§20.5</a>.</p>
+  working constraint — quantified in <a href="#perf-pcie">§20.6</a>.</p>
 
   <!-- ============ DIAGRAM I : multi-stream concurrency ============ -->
   <h2 id="stream-concurrency">16. Multi-stream concurrency — overlapping serves</h2>
@@ -3040,7 +3087,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
 
   <h2>18. Validation</h2>
   <p>Three layers, each progressively closer to a live radio integration. The
-  detailed test surface is mapped in <a href="#test-architecture">§18.4
+  detailed test surface is mapped in <a href="#test-architecture">§18.5
   Diagram TA</a> below.</p>
   <p class="key"><b>Which layer is the testing target for what.</b> The
   <b>unit tests</b> (§18.1) and the <b>synthetic GPU validation</b> (§18.2)
@@ -3133,7 +3180,39 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   Milestone C). Detailed runbook at
   <a href="https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/main/docs/ocudu-interop.md"><code>docs/ocudu-interop.md</code></a>.</p>
 
-  <h3 id="test-architecture">18.4 Test architecture — what each layer guards</h3>
+  <h3 id="test-layer-mimo">18.4 Multi-port gates</h3>
+  <p>Three of the standing gates exist specifically to judge multi-port behaviour, and they
+  divide by what they can see:</p>
+  <ul class="tight">
+    <li><b>Synthetic, through the broker</b> &mdash; <code>gpu-test-sequence.sh</code> steps
+        8 and 9 relay a declared 2&times;2 correlated topology through a running broker and
+        compare the received power against the analytic expectation (measured 9.542 against
+        an expected 9.71, with an iid control at 6.964 against 6.94), then swap the
+        correlation matrix on a <b>live</b> broker over the control plane and confirm the
+        received power moves off the iid value. A milestone whose gates all call the
+        processor directly proves the processor and nothing above it; these run the
+        capability through the layer that ships it.</li>
+    <li><b>Live transport</b> &mdash; <code>run-ocudu-mimo-2port-no-core.sh</code>: a real
+        2-antenna OCUDU gNB at a pinned revision, a byte-pinned fixture, four ZMQ endpoints,
+        no Docker and no core. It judges four-endpoint flow, sibling reply sizes, sibling
+        acquisition skew, the gNB's own real-time failure count and the strict broker
+        counters.</li>
+    <li><b>Live matrix</b> &mdash; <code>verify-mimo-matrix-capture.py</code>, run by the
+        same gate against the broker's wire capture. This is the one that judges what the
+        emulator <i>computed</i>: it reads <span class="mono">H</span> from the topology and
+        compares <span class="mono">y</span> against
+        <span class="mono">Hx</span> sample by sample, in both directions, reporting the
+        off-diagonal share of each row. Numbers and mutation probes in
+        <a href="#mimo-evidence">&sect;25</a>.</li>
+  </ul>
+  <p class="note"><b>A zero count satisfies every threshold.</b> Each of these gates asserts
+  that its instrument recorded work &mdash; samples compared, markers checked, kernels
+  launched &mdash; before it asserts anything about the values. That rule was written after a
+  benchmark reported millions of iterations and a kernel count of zero and exited green, and
+  after this very gate reported <span class="mono">marker_mismatches=0</span> beside
+  <span class="mono">marker_checks=0</span>.</p>
+
+  <h3 id="test-architecture">18.5 Test architecture — what each layer guards</h3>
   <figure>
   <svg viewBox="0 0 1000 180" font-family="SF Mono,Menlo,monospace" font-size="11">
     <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram TA · three test layers, fast → slow, narrow → broad</text>
@@ -3461,10 +3540,32 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <p>The headline tdl-a_E16 measurement called out elsewhere in this doc
   (1 gNB + 8 UEs, TDL-A 23-tap + Jakes 100 Hz on all 16 edges, <b>58 430 µs
   host → 319 µs device — 183×</b>) is the same kernel under heavier fan-in.
-  §20.3–§20.7 below use the older single-tap baseline data; treat those as
+  §20.4–§20.8 below use the older single-tap baseline data; treat those as
   the <b>fan-in scaling reference</b> rather than as the headline.</p>
 
-  <h3 id="perf-method">20.1 Methodology and test matrices</h3>
+  <h3 id="perf-mimo">20.1 Multi-port cost &mdash; what a matrix channel adds</h3>
+  <p>Measured on <b>4&times;RTX&nbsp;5090</b> (driver 570.211.01, CUDA 12.8.93, sm_120), at
+  <b>23.04&nbsp;MS/s</b> with a <b>23040-sample batch</b>, <b>CUDA</b> backend, over a
+  <b>3&nbsp;s</b> run, <span class="mono">p99</span>:</p>
+  <table>
+    <tr><th>Topology / chain</th><th>Kernel p99</th><th>Note</th></tr>
+    <tr><td>1&times;1, TDL-A 23-tap + Jakes 100&nbsp;Hz</td><td>53.599&nbsp;µs</td><td>after the generator split; was 61.856&nbsp;µs before</td></tr>
+    <tr><td>16 edges, TDL-A 23-tap + Jakes 100&nbsp;Hz</td><td>69.536&nbsp;µs</td><td>was 90.655&nbsp;µs before</td></tr>
+    <tr><td>2&times;2 spatial correlation, on top of the above</td><td>+4.2&nbsp;µs</td><td>the mixing factor is computed once at load, not per slot</td></tr>
+  </table>
+  <p>The shape to take from that table: a physical link's cost scales with its
+  <b>lanes</b>, because a lane is an ordinary edge to the kernel &mdash; a 2&times;2 is four
+  edges, not a new kind of work &mdash; and the correlation mixing is a per-slot cost of a few
+  microseconds because its LDL<sup>H</sup> factor is computed once when the topology loads.</p>
+  <p>On the live two-port gate (real OCUDU gNB, four ZMQ endpoints, 20&nbsp;s, same rate and
+  batch), the channel-processor call is sampled once per second by the broker's heartbeat:
+  <b>median 104.4&nbsp;µs</b> against the 1&nbsp;ms slot of the fixture's 15&nbsp;kHz SCS,
+  with H2D / kernel / D2H medians of 36.8 / 12.9 / 27.4&nbsp;µs. The observed maximum in
+  those samples reaches ~1.4&nbsp;ms; that tail is host scheduling and driver submit-or-sync
+  rather than the channel path, it reproduces without the matrix, and the gate records it
+  instead of scoring the host on it.</p>
+
+  <h3 id="perf-method">20.2 Methodology and test matrices</h3>
   <p>Two complementary test matrices are run. The <b>baseline matrix</b>
   (5 configs) covers the topology shapes used elsewhere in the project; the
   <b>fan-in sweep</b> (21 configs, generated by
@@ -3502,7 +3603,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   per-node calls on independent CUDA streams (Diagram I) that overlap on
   the GPU and overlap with ZMQ I/O on the host. <b>The bench is a per-call
   cost ceiling; the broker's per-slot wall-clock cost is always &le; the
-  bench's worst call.</b> §20.6 demonstrates this empirically.</p>
+  bench's worst call.</b> §20.7 demonstrates this empirically.</p>
 
   <p class="key"><b>API-unification note</b>: the bench's earlier
   <code>--mode per-edge</code> flag drove a now-removed
@@ -3511,7 +3612,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   single-edge call is just
   <code>process_superposition(dst, {edge}, nullptr, …)</code>.</p>
 
-  <h3 id="perf-cpu-cuda">20.2 CPU vs CUDA — the baseline matrix + fan-in sweep</h3>
+  <h3 id="perf-cpu-cuda">20.3 CPU vs CUDA — the baseline matrix + fan-in sweep</h3>
   <p>Two views of the same comparison. The <b>baseline matrix</b> (left) runs
   five named topologies that recur elsewhere in the project; the <b>fan-in
   sweep</b> (right) isolates how a single RX node's per-call cost scales as
@@ -3558,7 +3659,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   reaches 4 and grows roughly linearly with N (~140 µs per edge). CUDA
   stays green through N = 2, yellow through N = 16, and crosses red at
   N = 32 because H2D — not the kernel — saturates the PCIe (PCI Express) 5.0 x4 link
-  (<a href="#perf-pcie">§20.5</a>, <a href="#perf-pcie">Diagram W</a>).
+  (<a href="#perf-pcie">§20.6</a>, <a href="#perf-pcie">Diagram W</a>).
   The kernel itself only grows from 13 µs at N = 1 to 74 µs at N = 64
   — the channel work scales but stays well within budget; the
   bottleneck is the link, not the math. Speedup widens from 5.2× at
@@ -3657,7 +3758,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   CUDA path fuses all edges into one launch while CPU loops linearly.</figcaption>
   </figure>
 
-  <h3 id="perf-bottleneck">20.3 Where the latency goes — per-phase breakdown</h3>
+  <h3 id="perf-bottleneck">20.4 Where the latency goes — per-phase breakdown</h3>
   <p>The CUDA per-call cost decomposes into three components that scale
   differently with edge count:</p>
   <ul class="tight">
@@ -3665,13 +3766,13 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         <span class="mono">N × 23 040 × 8 B</span>; transfer time grows
         ~1:1 with edge count (26 µs at N=1 → 119 µs at N=8 → 884 µs at N=64).
         At large N it saturates the PCIe link
-        (<a href="#perf-pcie">§20.5</a>).</li>
+        (<a href="#perf-pcie">§20.6</a>).</li>
     <li><b>Kernel grows sub-linearly</b> — one fused launch per RX node;
         each thread loops N incoming edges in registers. The reported
         <code>kernel_us</code> p99 grows 5 µs → 11 µs → 54 µs as N goes
         1 → 8 → 64, but most of that is queueing behind the H2D — actual
         kernel runtime measured by nsys is 1.7 µs median at N=8 (see
-        <a href="#perf-resource">§20.4</a>).</li>
+        <a href="#perf-resource">§20.5</a>).</li>
     <li><b>D2H is a fixed floor</b> ≈ 19 µs — the output is one batch
         regardless of N.</li>
     <li><b>CPU backend</b> grows linearly with incoming-edge count
@@ -3783,7 +3884,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   first red (810 µs)</b>.</figcaption>
   </figure>
 
-  <h3 id="perf-resource">20.4 Compute &amp; memory utilisation — the GPU is half idle</h3>
+  <h3 id="perf-resource">20.5 Compute &amp; memory utilisation — the GPU is half idle</h3>
   <p>A deep profile run on the stress-16 config (16-edge fan-in at one sink)
   measures what's actually limiting the GPU. Captured via
   <code>scripts/remote/perf-deep-profile.sh</code> with
@@ -3830,7 +3931,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <code>nsys profile</code> + <code>nvidia-smi dmon</code>, which work
   unprivileged.</p>
 
-  <h3 id="perf-pcie">20.5 The PCIe bottleneck — host↔device link is the wall</h3>
+  <h3 id="perf-pcie">20.6 The PCIe bottleneck — host↔device link is the wall</h3>
   <p class="key"><b>Hardware finding: the link negotiated as gen 5 x4, not x16</b>,
   on this workstation. The RTX 5090 silicon supports x16 (sysfs
   <code>max_link_width = 16</code>), so the cap is the slot's electrical
@@ -3944,12 +4045,12 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   effective ceiling</b>. Per-byte cost flattens; doubling N doubles H2D µs
   almost exactly. A gen 5 x16 link would lift the ceiling to ~504 Gbps and
   unlock another ~2× of headroom; the current workstation is capped here.
-  (See the §20.5 prose above for why D4 source-rebuffering doesn't shift
+  (See the §20.6 prose above for why D4 source-rebuffering doesn't shift
   this curve on the one-to-N topology.)</figcaption>
   </figure>
 
-  <h3 id="perf-fanin">20.6 What the bench measures — and what it can't</h3>
-  <p>§20.1 noted that the bench is single-threaded and runs each RX node's
+  <h3 id="perf-fanin">20.7 What the bench measures — and what it can't</h3>
+  <p>§20.2 noted that the bench is single-threaded and runs each RX node's
   <code>process_superposition</code> call sequentially, so its
   <code>p99</code> is the cost of the <i>worst single call</i> rather than
   the per-slot wall-clock. The 21-config fan-in sweep proves this
@@ -4067,7 +4168,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   oversubscribing the GPU and gets idle time from the throttle between
   slots.</p>
 
-  <h3 id="perf-boundary">20.7 Boundary synthesis on RTX 5090</h3>
+  <h3 id="perf-boundary">20.8 Boundary synthesis on RTX 5090</h3>
   <p>Pulling everything together — what's realtime, what isn't, and where
   the wall is:</p>
   <ul class="tight">
@@ -4092,17 +4193,17 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
         ~15 µs per staged-buffer edge under the x4 link. Kernel stays
         ≤ 15 µs even at N = 64 (per-thread inner loop only). D2H is a
         fixed ~19 µs floor. Compute is wildly underused (56 % SM,
-        9 % power — see <a href="#perf-resource">§20.4</a>).</li>
+        9 % power — see <a href="#perf-resource">§20.5</a>).</li>
     <li><b>Memory is never the constraint</b> — busiest config uses
         ~3 MiB per RX node in live working set; total bench footprint
         under 30 MiB. The 514 MiB device alloc is mostly CUDA runtime
-        context overhead (<a href="#perf-resource">§20.4</a>).</li>
+        context overhead (<a href="#perf-resource">§20.5</a>).</li>
     <li><b>What unlocks more headroom</b>: <b>(a) a gen 5 x16 link</b> —
         4× the H2D ceiling, lifts the bench boundary from N ≈ 16 to
         N ≈ 64 (the GPU has the compute for it, the link is the only
         thing in the way). <b>(b) H2D pipelining</b> (split staged buffer
         + ping-pong copy) — overlaps copy with the previous slot's
-        kernel; listed in <a href="#scope">§22</a> planned work for
+        kernel; listed in <a href="#scope">§26</a> planned work for
         single-mega-node topologies if such a workload becomes interesting.
         <b>(c) Heavier per-edge chains</b> — adds compute work that the
         GPU has lots of headroom for, doesn't grow PCIe traffic.</li>
@@ -4209,11 +4310,298 @@ docker run --rm --gpus all --entrypoint bash ocudu-gpu-channel:build \
 
 
   <!-- ============ PART VII: Scope ============ -->
-  <h2 class="part-divider" id="part-vii">Part VII &mdash; Scope</h2>
+  <h2 class="part-divider" id="part-vii">Part VII &mdash; Multi-port radios and the matrix channel</h2>
+  <p class="sub">How a radio with several antenna ports is declared, why its ports share one
+  sample epoch, how the <span class="mono">Nt&times;Nr</span> matrix is applied, and what the
+  live evidence does and does not claim.</p>
+
+  <h2 id="mimo-nodes">22. Radio nodes &mdash; a radio is not its socket</h2>
+  <p class="key">Everything before this part describes a graph whose vertices are ZMQ
+  endpoint pairs. That is exactly right for a single-antenna radio and exactly wrong for a
+  radio with two. A 2T2R OCUDU gNB opens <b>four</b> ZMQ sockets, and the four are not four
+  radios: they carry one PHY's sample stream, split across ports. This part is the overlay
+  that says so.</p>
+
+  <p>The vocabulary gains one level. A <b>port</b> is what §4 called a node &mdash; a ZMQ
+  endpoint pair, its TX ring, and its puller. A <b>radio node</b> owns one or more ports and
+  everything with timing in it: the sample epoch, the source cursors, the single channel
+  call, the throttle, and the output rows. A <b>physical link</b> is the directed pair of
+  radio nodes; a <b>lane</b> is one <span class="mono">(rx_port, tx_port)</span> coefficient
+  inside it. A physical link between an <span class="mono">Nt</span>-port transmitter and an
+  <span class="mono">Nr</span>-port receiver expands to <span class="mono">Nt&nbsp;&times;&nbsp;Nr</span>
+  lanes, and each lane is an ordinary edge of the engine described in Parts&nbsp;III&ndash;IV.
+  There is no second channel engine for MIMO: <code>process_superposition()</code> takes
+  <span class="mono">Nr</span> output rows instead of one, and a single-port topology is the
+  <span class="mono">Nt&nbsp;=&nbsp;Nr&nbsp;=&nbsp;1</span> case of the same path.</p>
+
+  <p>Ports are grouped in YAML under <code>radio_nodes:</code>, and <b>writing order is the
+  matrix index</b>. There is no suffix parsing and no sorting: the first entry of
+  <code>tx_ports</code> is column&nbsp;0 of <span class="mono">H</span>, the first entry of
+  <code>rx_ports</code> is row&nbsp;0. Links then name nodes rather than ports.</p>
+
+  <pre><code>radio_nodes:
+  - id: gnb0
+    tx_ports: [gnb0_p0, gnb0_p1]     # column 0, column 1
+    rx_ports: [gnb0_p0, gnb0_p1]     # row 0, row 1
+  - id: ue0
+    tx_ports: [ue0_p0, ue0_p1]
+    rx_ports: [ue0_p0, ue0_p1]
+
+links:
+  - from: gnb0                        # a link connects RADIOS, not sockets
+    to: ue0
+    model: dl_2x2</code></pre>
+
+  <p>Three properties of that schema are load-time rules rather than conventions:</p>
+  <ul class="tight">
+    <li><b>Declaration is all-or-nothing.</b> A topology that declares some radios and
+        leaves others implicit is rejected. Partial declaration would leave the remaining
+        matrix indices decided by parse order rather than by the author.</li>
+    <li><b>A port belongs to one node, in one role at most.</b> A port that is a TX port and
+        not an RX port simply gets no REP worker, because a REP worker on a port the
+        producer never writes does not error &mdash; it waits forever on an empty ring, which
+        is a silent hang.</li>
+    <li><b>Siblings must agree</b> on sample rate, TX timing offset and receiver model. These
+        are properties of a radio, and a per-port disagreement is a topology that cannot mean
+        what it says.</li>
+  </ul>
+
+  <p>Omitting <code>radio_nodes:</code> entirely is still valid and still means what it
+  always meant: every device lowers to an implicit single-port radio, and the resulting
+  <span class="mono">link_key</span> keeps its pre-MIMO form with no lane suffix. That
+  exception lives in one function, so "a 1&times;1 topology is byte-identical to before" is a
+  property of the code rather than of a promise.</p>
+
+  <p class="note"><b>Where the resolution is recorded.</b> The broker prints what it
+  resolved, in matrix order, at startup:
+  <span class="mono">event=radio_node_resolved id=gnb0 tx[0]=gnb0_p0 tx[1]=gnb0_p1
+  rx[0]=gnb0_p0 rx[1]=gnb0_p1 implicit=false</span>. Port order is the one thing a reader
+  cannot check from a coefficient table, so it is logged rather than inferred.</p>
+
+  <h2 id="mimo-epoch">23. One sample epoch per radio</h2>
+  <p class="key">A matrix channel is a statement about simultaneity: every coefficient of
+  <span class="mono">H</span> relates signals from <b>one instant</b>. Two sockets that
+  advance independently do not describe a matrix channel no matter how correct the
+  arithmetic is. This section is how the broker makes that unrepresentable rather than
+  merely unlikely.</p>
+
+  <p>The per-slot data path splits into three thread roles, <span class="mono">nodes +
+  2&nbsp;&times;&nbsp;ports</span> in total:</p>
+  <ul class="tight">
+    <li><b>A puller per port</b> drains its peer's TX into that port's ring. Unchanged from
+        Parts&nbsp;III&ndash;IV.</li>
+    <li><b>A producer per radio node</b> chooses the serve window <b>once</b>, reads every
+        incoming lane at that window, calls the channel exactly once, advances every source
+        cursor by the same count in one loop, paces to the node sample rate, and pushes each
+        output row into its RX port's ring.</li>
+    <li><b>A REP worker per port</b> owns only the socket state machine: receive a request,
+        pop one window, reply. It selects nothing.</li>
+  </ul>
+
+  <p>The window choice moving out of the request-driven thread is the whole point. In the
+  single-antenna design each destination's server thread picked its own window at its own
+  instant; with two such threads owning the two rows of one radio, they could pick different
+  counts and drift apart permanently. With one producer per node there is no second thread
+  that <i>could</i> pick a different window, so sibling ports consuming different sample
+  ranges is not a state the design can reach.</p>
+
+  <p>That guarantee has to survive the last hop to the wire. The producer publishes a window
+  to every sibling ring in one loop; the REP workers then answer <b>with exactly one such
+  window</b>, taken from a queue of boundaries the producer wrote under the same lock as the
+  samples. Sizing a reply the obvious way instead &mdash;
+  <span class="mono">min(batch, available)</span> &mdash; reads ring occupancy, and two
+  sibling threads sample that at two different instants, so a producer push landing between
+  them splits one common window into two differently-sized replies. That is not a
+  hypothetical: it happened, at a rate of 4 groups in 23&nbsp;483, and it is what the
+  two-port test peer's <span class="mono">sibling_size_mismatches</span> counter exists to
+  see.</p>
+
+  <p>Nothing zero-fills. An empty ring means the REP worker holds the request until real
+  processed IQ exists, exactly as the single-antenna server did, which is also how OCUDU's
+  own gNB TX behaves when its buffer is empty.</p>
+
+  <h3 id="mimo-pacing">23.1 The broker is the radio's clock, and must not run fast</h3>
+  <p>A ZMQ radio has no clock of its own. It advances only as fast as the broker exchanges
+  samples with it, which makes the broker its time base &mdash; and a time base that runs
+  <i>fast</i> is not a harmless inefficiency on a multi-port radio. It is a deadlock, and the
+  mechanism is worth stating because it is invisible from our side of the socket:</p>
+  <ul class="tight">
+    <li>OCUDU's ZMQ RX channel pushes each received message into a fixed circular buffer and,
+        when that buffer is full, <b>retries in place</b> with a 1&nbsp;µs sleep
+        (<span class="mono">radio_zmq_rx_channel.cpp</span>).</li>
+    <li>That retry runs on the single <span class="mono">radio</span> worker thread that
+        serves <b>every</b> TX and RX channel of the session
+        (<span class="mono">worker_manager.cpp</span>, <span class="mono">create_prio_worker</span>
+        &rarr; <span class="mono">single_worker</span>).</li>
+    <li>The RX stream pops its ports <b>in sequence</b>. So one full port captures the thread
+        its starved sibling needs, the PHY blocks on the sibling, and the full port is never
+        drained.</li>
+  </ul>
+  <p>On a single-port radio that same loop is self-clearing back pressure &mdash; the PHY
+  keeps popping the one buffer being pushed. From two ports up it is a hard deadlock, in
+  both directions at once, at 0% CPU. The emulator must therefore never hand a radio samples
+  faster than its nominal rate, and "never" includes recovering from its own idle time: a
+  pacer that sleeps until <span class="mono">anchor + produced/rate</span> is not a rate
+  limiter while it is behind. Every second the producer spent blocked waiting for the radio
+  to start requesting becomes a second's worth of slots it is owed, and it emits them back to
+  back. The pacer therefore <b>drops lateness beyond one batch</b> rather than spending it
+  (<span class="mono">include/ocudu_gpu_channel/pacing.h</span>). Under-feeding is safe &mdash;
+  a lock-step radio simply waits &mdash; and over-feeding is not.</p>
+
+  <h2 id="mimo-matrix">24. The matrix channel &mdash; fixed, correlated, and coherent LOS</h2>
+  <p class="key">Three ways to say what <span class="mono">H</span> is, in increasing order
+  of physical content. All three expand to lanes and run on the per-edge kernel of §11
+  without a MIMO-specific code path.</p>
+
+  <h3>24.1 <span class="mono">fixed_mimo</span> &mdash; a deterministic matrix</h3>
+  <p>A dense complex matrix, declared coefficient by coefficient, folded at load time into
+  each lane's leading tap gain and phase. A tap already carries
+  <span class="mono">a&middot;e<sup>j&phi;</sup></span>, so this needs no runtime field and
+  no backend change. Two consequences are worth knowing before writing one:</p>
+  <ul class="tight">
+    <li>A unit coefficient adds exactly 0&nbsp;dB and 0&nbsp;rad, so identity and permutation
+        matrices are <b>bit-exact</b>.</li>
+    <li>A coefficient that is <b>absent is zero, and is not generated at all</b>. Decibels
+        cannot express an exact zero, so a zero lane is dropped rather than attenuated
+        &mdash; which is both exactly zero and cheaper. Sparse means what it reads as: an
+        omitted lane is 0, not 1, and there is no implicit
+        <span class="mono">1/&radic;Nt</span> normalisation anywhere.</li>
+  </ul>
+
+  <pre><code>models:
+  dl_2x2:
+    fixed_mimo:
+      coefficients:
+        - { tap: 0, rx: 0, tx: 0, real: 0.80, imag:  0.10 }
+        - { tap: 0, rx: 0, tx: 1, real: 0.25, imag: -0.15 }
+        - { tap: 0, rx: 1, tx: 0, real: -0.20, imag: 0.30 }
+        - { tap: 0, rx: 1, tx: 1, real: 0.90, imag: -0.05 }
+    chain:
+      - type: tdl
+        taps: [{ delay_samples: 0.0, gain_db: 0.0, phase_rad: 0.0 }]</code></pre>
+
+  <h3>24.2 Stochastic lanes &mdash; independent realizations of one channel</h3>
+  <p>With a fading <code>tdl</code> chain and no matrix declared, each lane is an independent
+  realization: the lanes of one physical link are <span class="mono">Nt&times;Nr</span>
+  independent draws of the same channel. Two ownership rules make that reproducible and
+  physically coherent:</p>
+  <ul class="tight">
+    <li><b>Seeds are derived arithmetically, not from strings.</b> A physical link seed feeds
+        <span class="mono">lane_fading_seed(link_seed, r, t, step)</span>. Renaming a key or
+        editing a matrix does not re-roll the channel, and the mixing function is written out
+        rather than taken from <span class="mono">std::hash</span>, so reproducibility
+        survives a change of standard library.</li>
+    <li><b>Absolute time belongs to the physical link, not the lane.</b> A lane cannot hold a
+        clock &mdash; the field was deleted from the fading state and the fading routine takes
+        time as an argument instead of advancing it. All
+        <span class="mono">Nt&times;Nr</span> lanes of a link therefore share one time origin
+        by construction, which is the second half of "one channel realization".</li>
+  </ul>
+
+  <h3>24.3 <span class="mono">spatial_correlation</span> and <span class="mono">los_matrix</span></h3>
+  <p>Independent lanes are the <span class="mono">iid</span> case. A Kronecker declaration
+  <span class="mono">E[h h<sup>H</sup>] = R<sub>rx</sub> &otimes; R<sub>tx</sub></span> mixes
+  the lanes' generators through an LDL<sup>H</sup> factor computed once at load, and the same
+  routine decides positive semidefiniteness and produces the factor &mdash; a matrix the
+  loader would refuse cannot enter through the runtime path either. Only upper-triangle
+  entries are accepted, which makes a non-Hermitian or non-unit-diagonal matrix
+  unrepresentable rather than merely rejected.</p>
+  <pre><code>    spatial_correlation:
+      kind: kronecker          # or: iid
+      rx: [{ i: 0, j: 1, re: 0.7, im: 0.0 }]
+      tx: [{ i: 0, j: 1, re: 0.4, im: 0.0 }]</code></pre>
+  <p><code>los_matrix:</code> gives the Rician specular its phase relationship across lanes,
+  replacing a per-lane random draw &mdash; a coherent LOS component is what makes a
+  line-of-sight MIMO channel rank-deficient, so drawing its phase per lane was quietly wrong.
+  Undeclared means all-ones (rank-1, phase 0 everywhere); <b>declared means fully declared</b>,
+  because a partially specified LOS matrix has no defensible completion. Note the deliberate
+  asymmetry with <span class="mono">fixed_mimo</span>, where an absent entry means zero: the
+  two knobs look alike and their missing-entry semantics are opposites, which is why they
+  have not been merged.</p>
+
+  <p class="note"><b>Rejections are part of the interface.</b>
+  <span class="mono">fixed_mimo</span> alongside a non-iid correlation is refused (two
+  declarations of the same thing); so is <span class="mono">kind: full</span> (deferred, and
+  the parser says so by name), a correlated link above the 16-lane cap, and a correlation
+  block on a chain that does not lead with a fading <code>tdl</code>. At runtime,
+  tap-scope updates and profile swaps are refused on a <span class="mono">fixed_mimo</span>
+  link, because that link's matrix <i>is</i> its tap weights.</p>
+
+  <h3 id="mimo-kernel">24.4 On the GPU &mdash; rows are a grid axis</h3>
+  <p>Lane expansion needed no new kernel. <code>apply_channel_kernel</code> was already
+  per-edge parallel on <span class="mono">grid.y</span>, so four lanes of a 2&times;2 are four
+  edges. Superposition gained the second dimension:
+  <span class="mono">grid.y = Nr</span> with a <span class="mono">row_begin[]</span> index, so
+  row <span class="mono">r</span> sums exactly the lanes in
+  <span class="mono">[row_begin[r], row_begin[r+1])</span>. That interval is only well-formed
+  because lanes are <b>stably sorted</b> by <span class="mono">(destination node, rx_port)</span>
+  when the topology is resolved &mdash; and the same stability fixes floating-point summation
+  order, which is what makes the CPU&harr;CUDA parity contract of §14 hold on multi-port
+  topologies. The receiver model is applied per row with its own state, so sibling rows never
+  share a CFO phase accumulator or an AWGN counter.</p>
+  <p class="note"><b>One resolver, three consumers.</b> The broker, the CPU backend and the
+  CUDA backend all used to walk <code>config.links</code> and derive lanes independently.
+  Three independent derivations of the same lane set will eventually disagree, and the
+  disagreement is <b>silent</b> &mdash; the relay keeps emitting IQ, it just stops being the
+  <span class="mono">y = Hx</span> the topology describes. The lane set, lane order and
+  per-lane state keys are computed once by <code>resolve_topology()</code> and the three
+  consumers read it.</p>
+
+  <h2 id="mimo-evidence">25. Live evidence, and the line it stops at</h2>
+  <p class="key">What has actually been run against a real radio, and what that does
+  <b>not</b> license anyone to claim.</p>
+
+  <p>The standing live gate is a real 2-antenna OCUDU gNB (four ZMQ endpoints, pinned
+  revision, byte-pinned fixture) exchanging IQ with the CUDA broker and a two-port synthetic
+  peer, with no Docker and no 5G core. Over a 20&nbsp;s run it holds ~1&nbsp;174 four-endpoint
+  groups per second with every strict broker counter at zero, zero
+  <span class="mono">Real-time failure in RF</span> in the gNB's own log, sibling reply sizes
+  identical, and sibling TX acquisition skew of 0 samples.</p>
+
+  <p>Those are transport facts. On their own they would also be satisfied by a broker that
+  passed each port straight through, so the gate additionally judges <b>what the emulator
+  computed</b>. The broker records a bounded window of both wires per port &mdash; what it
+  pulled off the peer's TX and what it replied with on its own RX, at the socket boundary
+  &mdash; and an independent checker reads <span class="mono">H</span> from the topology YAML,
+  recomputes <span class="mono">y<sub>r</sub> = &Sigma;<sub>t</sub> H[r][t]&nbsp;x<sub>t</sub></span>,
+  and compares:</p>
+  <table>
+    <tr><th>Measured on the live gate</th><th>Downlink (real gNB signal)</th><th>Uplink (marked peer signal)</th></tr>
+    <tr><td>max <span class="mono">|y &minus; Hx|</span>, row 0 / row 1</td><td>4.1e&minus;08 / 2.6e&minus;08</td><td>1.5e&minus;07 / 1.2e&minus;07</td></tr>
+    <tr><td>tolerance</td><td colspan="2">1e&minus;04 (the <span class="mono">fixed_mimo</span> dB/rad round trip costs ~1e&minus;07)</td></tr>
+    <tr><td>share of row amplitude from the <b>other</b> transmit port</td><td>0.12 / 0.768</td><td>0.331 / 0.508</td></tr>
+    <tr><td>analytic marker mismatches, 230&nbsp;400 samples/port</td><td>&mdash;</td><td>0</td></tr>
+  </table>
+  <p>The last two rows are the ones that carry the MIMO claim. The off-diagonal share makes
+  "each received row depends on both transmit ports" a measurement rather than an assertion:
+  a relay running two independent 1&times;1 lanes scores zero there. The marker check compares
+  the captured uplink columns against a closed form of
+  <span class="mono">(port, ordinal)</span>, which pins the common sample epoch &mdash; sibling
+  columns read from different origins fail it even when the matrix arithmetic on them is
+  self-consistent.</p>
+  <p>Three mutation probes confirm the check fails when it should: a <b>diagonal</b> matrix
+  fails all four rows (0.052&ndash;0.284); <b>one lane removed</b> fails row&nbsp;1 in both
+  directions while row&nbsp;0 still matches at 1e&minus;07, so detection is localised to the
+  removed lane; and skewing one sibling column's epoch by a <b>single sample</b> fails all
+  four rows while the markers still pass.</p>
+
+  <p class="note"><b>The claim boundary, stated as plainly as the code states it.</b> The
+  gate's own report carries <span class="mono">transport_only: true</span>,
+  <span class="mono">ue_decode: false</span>, <span class="mono">rank2_claim: false</span>.
+  A live rank&gt;1 link needs a UE PHY that jointly estimates and decodes a matrix channel,
+  and the srsUE build this project integrates does not: its NR receiver reads antenna&nbsp;0
+  only (<span class="mono">ue_dl_nr.c</span> passes <span class="mono">sf_symbols[0]</span> to
+  PDCCH, PDSCH and CSI-RS estimation). Several independent single-port UE processes are not
+  one multi-port UE. <b>Multi-port transport flow is not a rank-2 claim, and this project
+  does not make one.</b> What is live-demonstrable today is a 2-port gNB whose ports the
+  emulator combines through a declared matrix, and an uplink the gNB equalises across both of
+  its receive ports.</p>
+
+  <h2 class="part-divider" id="part-viii">Part VIII &mdash; Scope</h2>
   <p class="sub">What's in today, what's planned, and the conditions that gate planned work.</p>
 
-  <h2 id="scope">22. Scope and planned work</h2>
-  <p class="key">Closing section. Parts&nbsp;I&ndash;VI (§1&ndash;§21)
+  <h2 id="scope">26. Scope and planned work</h2>
+  <p class="key">Closing section. Parts&nbsp;I&ndash;VII (§1&ndash;§25)
   covered what the project does today, end-to-end; this section names what
   it deliberately does not yet do, and what is queued. Items are grouped by category and prioritised — operational
   flexibility first (planned but not blocked on workload demand), performance
@@ -4249,6 +4637,23 @@ docker run --rm --gpus all --entrypoint bash ocudu-gpu-channel:build \
         <code>process_into()</code> API was unified away in this branch
         (it was the <span class="mono">N=1, rx_model=nullptr</span> case
         of superposition).</li>
+    <li><b>Multi-port radios and the matrix channel are in.</b> Ports group
+        into radio nodes under <code>radio_nodes:</code>, a link between two
+        such radios carries an <span class="mono">Nt&times;Nr</span> matrix,
+        and the matrix can be deterministic
+        (<code>fixed_mimo</code>), stochastic with independent lanes, or
+        spatially correlated with a coherent LOS component
+        (<code>spatial_correlation</code>, <code>los_matrix</code>). All of it
+        expands to per-edge lanes on the existing kernel; a single-port
+        topology stays byte-identical. See <a href="#part-vii">Part&nbsp;VII</a>.</li>
+    <li><b>Live rank&nbsp;&gt;&nbsp;1 is NOT in, and is not claimed.</b> Multi-port
+        IQ flow through the emulator is transport evidence; a rank-2 claim needs a
+        UE PHY that jointly estimates and decodes a matrix channel, which the
+        integrated srsUE does not do (<a href="#mimo-evidence">&sect;25</a>).
+        Several single-port UE processes are not one multi-port UE.</li>
+    <li>Antenna-array geometry, beamforming, precoder selection and TR 38.901
+        CDL are out of scope. The matrix here is declared or drawn, not
+        synthesised from a geometry.</li>
     <li>Broker is a standalone external process, not a patch into OCUDU
         or srsRAN.</li>
     <li>Scale claims depend on topology, sample rate, model chain, and
@@ -4296,7 +4701,7 @@ docker run --rm --gpus all --entrypoint bash ocudu-gpu-channel:build \
 
   <h3>Planned — performance frontier (only if we hit the wall)</h3>
   <p>The actual hardware fix for the PCIe bottleneck is a true gen-5 x16
-  slot (<a href="#perf-pcie">§20.5</a>). The software levers below are
+  slot (<a href="#perf-pcie">§20.6</a>). The software levers below are
   worth pursuing only if the hardware can't change; listed in priority
   order. <b>Post Phase 2 D3 + D4</b>: the channel runs on the GPU; H2D
   bytes per slot are indexed via <code>DeviceLinkState::src_index</code>
@@ -4305,7 +4710,7 @@ docker run --rm --gpus all --entrypoint bash ocudu-gpu-channel:build \
   the dominant per-call latency is gone for any all-leading-tdl
   topology. The per-edge PCIe duplication is gone in principle, but
   doesn't reduce bytes in current production topologies because each
-  (from, to) pair has at most one edge (see <a href="#perf-pcie">§20.5</a>).
+  (from, to) pair has at most one edge (see <a href="#perf-pcie">§20.6</a>).
   The remaining frontier work is now smaller per-µs trims. See
   <code>docs/plans/device-channel-pipeline.md</code> for the measured
   pre / post numbers.</p>
@@ -4325,7 +4730,7 @@ docker run --rm --gpus all --entrypoint bash ocudu-gpu-channel:build \
         ~10 µs/call of host-side dispatch overhead
         (<code>cudaLaunchKernel</code> + four <code>cudaEventRecord</code>s
         + three <code>cudaMemcpyAsync</code>s, totals in
-        <a href="#perf-resource">§20.4</a>). Biggest impact at small N
+        <a href="#perf-resource">§20.5</a>). Biggest impact at small N
         where the 10 µs is a large fraction of total per-call cost; at
         N = 1 (mvp-2-edge), that's 10 / 65 µs ≈ 15 % gain. Cheap to
         prototype, no kernel changes.</li>

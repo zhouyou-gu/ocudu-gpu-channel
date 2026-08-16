@@ -6,7 +6,9 @@ Author: **Zhouyou Gu**, SUTD
 Drops between two ZMQ radios, routes `cf32` IQ across multi-gNB / multi-UE
 topologies, and applies CUDA channel models inside the 5G&nbsp;NR slot
 deadline (1&nbsp;ms at 15&nbsp;kHz SCS, 500&nbsp;µs at 30&nbsp;kHz SCS — the
-bench default).
+bench default). Radios may have several antenna ports: their ports group into
+one radio node sharing one sample epoch, and the link between two such radios
+carries an `Nt×Nr` matrix channel.
 
 This is the project landing page. For architecture, broker internals, GPU
 kernel design, profiling, and performance numbers, see the
@@ -44,6 +46,21 @@ the **unit tests** (`ctest`) and the **synthetic GPU validation**
   on all 16 edges) from **58 430 µs → 319 µs** (≈183×) — well inside the 1 ms
   slot budget.
 
+- **Multi-port radios and the matrix channel.** Ports group under
+  `radio_nodes:` (writing order is the matrix index) and a link between two
+  radios carries an `Nt×Nr` matrix: deterministic (`fixed_mimo`), stochastic
+  with independent lanes, or spatially correlated with a coherent LOS
+  component (`spatial_correlation`, `los_matrix`). Live gate: a real
+  2-antenna OCUDU gNB over four ZMQ endpoints, 20 s, ~1174 four-endpoint
+  groups/s, every strict counter zero, 0 gNB `Real-time failure in RF`, and an
+  independent check that recomputes `y = Hx` from the captured wires — max
+  `|y − Hx|` of 4.1e−08 (DL) and 1.5e−07 (UL) against a 1e−4 tolerance, with
+  12–77% of each row's amplitude coming from the *other* transmit port.
+  **This is transport and channel evidence, not a rank-2 claim** — a live
+  rank > 1 link needs a UE PHY that jointly decodes a matrix channel, and the
+  integrated srsUE reads antenna 0 only. See
+  [technical reference Part VII](docs/index.html#part-vii).
+
 **Supported chain steps today:** `tdl` (tapped delay line — covers
 scalar gain, integer or fractional sample delay, full multi-tap multipath,
 and per-tap Doppler-shaped fading with optional Rician LOS specular via the
@@ -53,9 +70,10 @@ as [`examples/topology.tdl-{a..e}.cuda.yaml`](examples/) and all run on the
 device kernel by default.
 
 **Next:** full CDL (TR 38.901 §7.7.1) with per-cluster angles, polarisation,
-and antenna array response, once a real MIMO / beamforming use case
-surfaces. See
-[technical reference §22](docs/index.html#scope) for the
+and antenna array response, once a beamforming use case surfaces — the matrix
+channel that ships today is declared or drawn, not synthesised from an array
+geometry. See
+[technical reference §26](docs/index.html#scope) for the
 architecture and decisions; the Phase 2 device pipeline plan + measured
 record lives in
 [`docs/plans/device-channel-pipeline.md`](docs/plans/device-channel-pipeline.md).
