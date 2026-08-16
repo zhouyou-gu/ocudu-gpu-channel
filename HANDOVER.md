@@ -4,92 +4,118 @@
 
 ## 0. 먼저 읽을 것
 
-`AGENT.md` → `AGENT_GOAL.mimo.md` → `AGENT_HARNESS.md` → `AGENT_PROGRESS.md` 순서(`AGENT.md`가 강제하는 순서). 그다음 이 파일.
+`AGENT.md` → `AGENT_GOAL.mimo.md` → `AGENT_HARNESS.md` → `AGENT_PROGRESS.md` 순서(`AGENT.md`가 강제). 그다음 이 파일. M6 작업이면 [`docs/plans/m6-rank2-su-mimo-live.md`](docs/plans/m6-rank2-su-mimo-live.md)까지.
 
-**미해결 사용자 결정**: `AGENT_GOAL.md`(원본)와 `AGENT_GOAL.mimo.md`(MIMO 조항) 중 **어느 것이 이 워크스페이스를 지배하는지 아직 미확정**이다. 실질은 `.mimo`가 지배해 왔다(M1~M5의 설계 판단이 그 파일의 Constraints에서 나왔다). 에이전트는 이 파일을 자율로 수정하지 않는다.
+**미해결 사용자 결정**: `AGENT_GOAL.md`(원본)와 `AGENT_GOAL.mimo.md`(MIMO 조항) 중 어느 것이 지배하는지 미확정. 실질은 `.mimo`가 지배해 왔다. 에이전트는 자율로 정하지 않는다. **M6은 이 결정과 무관하게 진행 가능하다**(§3).
 
 ## 1. 지금 어디까지 왔나
 
-베이스라인 `bc88865` 이후 약 51 커밋. **M0~M5의 코드 작업이 끝났다.**
+베이스라인 `bc88865` 이후 **59 커밋**. 트리 clean.
 
 | | 상태 |
 |---|---|
-| M0 단일 엔진 리팩터 | green 5 / **환경 차단 2** (multi-UE·multi-gNB Docker 게이트, unprivileged LXC) |
-| M1 차원 + 고정 행렬 | **전 게이트 green** |
-| M2 IID 확률적 페이딩 | **전 게이트 green** |
-| M3 공간 상관 + coherent LOS | **전 게이트 green** |
-| M4 physical link 단위 runtime control | **전 게이트 green** |
-| M5 라이브 통합 | **전 게이트 green** — M5.4 해결 + M5.5 행렬 게이트 (2026-08-16) |
+| M0 단일 엔진 리팩터 | green 5 / **환경 차단 2** (multi-UE·multi-gNB, unprivileged LXC) |
+| M1 차원 + 고정 행렬 | 전 게이트 green |
+| M2 IID 확률적 페이딩 | 전 게이트 green |
+| M3 공간 상관 + coherent LOS | 전 게이트 green |
+| M4 physical link 단위 runtime control | 전 게이트 green |
+| M5 라이브 통합 (transport + **행렬 검증**) | 전 게이트 green |
+| **M6 rank-2 SU-MIMO 라이브 acceptance** | **M6.1 완료. M6.2부터가 다음 작업** |
+| M7 massive MIMO | 계획만, 전제 확인 필요 |
 
-**상시 게이트 상태** (전부 2026-08-16에 통과):
-- `ctest` 8/8 — CPU 트리(`build/`)와 CUDA 트리(`build-cuda/`) 양쪽
+**상시 게이트** (전부 2026-08-16 통과):
+- `ctest` 8/8 — CPU 트리(`build/`) + CUDA 트리(`build-cuda/`)
 - `scripts/remote/gpu-test-sequence.sh` **9/9**
-- `scripts/native/run-ocudu-legacy-1x1.sh` — 라이브 1×1 attach `status=passed`
-- `scripts/native/run-ocudu-mimo-2port-no-core.sh` — 라이브 2-port `status=passed`. **행렬 검증 포함**: 캡처한 두 wire에서 `y = Hx`를 독립 재계산, max 오차 DL 4.1e-08 / UL 1.5e-07 (허용 1e-4), 행별 교차항 기여 0.12~0.77
+- `scripts/native/run-ocudu-legacy-1x1.sh` — 라이브 1×1 attach `result=pass`
+- `scripts/native/run-ocudu-mimo-2port-no-core.sh` — 라이브 2-port `status=passed`, **행렬 검증 포함**
+- `scripts/native/check-workspace.sh` — `lock_validation=ok debs=94 archives=3 git_sources=8`
 
-## 2. 지난 세션에 닫은 것: M5.4
+## 2. 이번 세션에 한 일 (커밋 순)
 
-**원인**: 브로커가 gNB를 **실시간보다 빠르게 먹였고**(측정: 332 ms 동안 1.76배), 다중 포트 ZMQ 라디오는 그것을 흡수하지 못하고 교착한다. OCUDU의 RX 채널은 가득 찬 원형 버퍼를 **제자리에서 재시도**하는데, 그 스레드가 세션의 모든 TX/RX 채널을 서비스하는 **단 하나의 `radio` 워커**이고 RX 스트림은 포트를 **순차로** pop한다 — 그래서 가득 찬 포트가 굶은 형제 포트에 필요한 스레드를 붙잡고 영원히 배수되지 않는다. 포트가 하나면 같은 루프가 스스로 풀린다(1×1이 멀쩡했던 이유).
+| 커밋 | 내용 |
+|---|---|
+| `8679bca` | **M5.4 해결.** 2-port 게이트 정지의 원인은 우리였다 — producer throttle의 무한 캐치업이 라디오를 실시간보다 1.76배 빠르게 먹였고, 다중 포트 ZMQ 라디오는 그걸 흡수 못 하고 교착한다. `RealTimePacer`(한 배치 넘는 지각은 버림) + REP 응답을 producer 윈도 경계로 자르기 |
+| `040b2a3` | **M5.5.** 게이트가 "옮긴 것"만 채점하고 있었다(`marker_checks=0` 옆의 `marker_mismatches=0`). 브로커 wire capture + 독립 checker가 토폴로지에서 읽은 `H`로 `y=Hx`를 재계산. 뮤테이션 프로브 3건 |
+| `83d6e9e` | `docs/index.html`이 드디어 MIMO를 설명한다. Part VII(§22–§25) 신규 + 거짓이 된 §1/§2/§4/§8/§9 수정 |
+| `c9dbb74`, `c97541b` | **M6/M7 계획.** M6 상세 설계 문서, OAI 핀 `2026.w33` |
+| `dab400c`, `0d5c5a2` | **M6.1 완료.** OAI nrUE 빌드 성공 (2분 09초) |
 
-**수정 2건** — (1) `RealTimePacer`(`include/ocudu_gpu_channel/pacing.h`): producer throttle이 한 배치를 넘는 지각을 버린다. (2) REP 응답을 producer의 윈도 경계로 자른다(`PortRuntime.rx_slots`) — 형제 응답 크기가 구조적으로 같아진다.
+## 3. 다음 작업: M6.2 — 1×1로 OAI 회귀
 
-소스 근거·측정치·뮤테이션 프로브는 `AGENT_PROGRESS.md`의 **"M5.4 — 원인 규명 완료, 게이트 통과 (2026-08-16)"** 절에 있다.
+**정본은 [`docs/plans/m6-rank2-su-mimo-live.md`](docs/plans/m6-rank2-su-mimo-live.md).** 요지만:
 
-## 2b. 같은 날 닫은 것: M5.5 — 게이트가 "옮긴 것"만 채점하고 있었다
+**왜 rank 2가 지금까지 안 됐나** — 막힌 계층은 UE 하나다. gNB(OCUDU)도 에뮬레이터도 이미 rank 2를 한다. srsUE만 못 하고, 그것도 **두 층이 동시에** 막혀 있다: `rrc_nr.cc:105`의 `max_mimo_layers = 1` 하드코딩(→ gNB가 애초에 rank 2를 스케줄 안 함) + `pdsch_nr.c:537`의 `// Antenna port demapping ... Not implemented`. 어느 한쪽만 고쳐선 우회 불가.
 
-M5 exit 게이트 표의 핵심 행(**각 수신 행이 두 송신 포트 모두에 의존**)이 라이브에서 판정되지 않고 있었다. peer의 마커 오라클이 `--self-test` 경로에만 있어서, 라이브 실행은 `marker_checks=0` 옆에 `marker_mismatches=0`을 적고 통과했다. 지금은 브로커가 포트별로 **두 wire를 소켓 경계에서** 유한 구간 캡처하고(`--wire-capture-dir/-samples/-skip`), `scripts/native/verify-mimo-matrix-capture.py`가 토폴로지 YAML에서 읽은 `H`로 `y = Hx`를 독립 재계산해 비교한다. 뮤테이션 프로브 3개(대각 행렬 / lane 1개 제거 / 형제 epoch를 **1샘플** 어긋내기) 전부 FAIL 확인.
+**수정안** — srsUE를 패치하지 않고 **OAI nrUE를 추가**한다. 핀 커밋에서 직접 확인했다: ZMQ 라디오 다채널 지원(채널당 폴 스레드), 와이어 프로토콜 바이트 동일(1바이트 더미 요청 → 헤더 없는 cf32), `nr_dlsch_demodulation.c`에 실제 2×2 MMSE + layer demapping. **이 저장소 C++는 0줄 바뀐다** — 에뮬레이터 코어에 srsUE 결합이 아예 없다(주석 4줄뿐).
 
-## 3. 다음에 손댈 것 (우선순위)
+**M6.2가 할 일** — OCUDU gNB 1T1R ↔ 브로커 ↔ **OAI nrUE 1R** 회귀 게이트. **UE 교체 자체를 rank 2와 분리해서 검증한다**(M5.4가 두 변수를 동시에 바꾼 대가를 이미 치렀다).
 
-**M6이 열려 있다 — `MIMO_MILESTONES.md`의 M6/M7 절이 정본.**
+필요한 것:
+- OAI UE conf 템플릿 (srsUE ini와 형식이 다름)
+- 로그 판정 토큰 — OAI는 `RRC Connected` / `PDU Session Establishment successful`과 **다른 문자열**을 쓴다
+- TUN 인터페이스 이름 (srsUE는 `tun_srsue`, OAI는 `oaitun_ue1` 계열)
+- USIM 값(imsi/k/opc)을 open5gs `subscriber.csv`와 정합
+- 게이트 스크립트 + 산출물 검증
 
-0. **M6 rank-2 SU-MIMO 라이브 acceptance.** 막힌 곳은 UE이고 이 저장소가 아니다(gNB도 에뮬레이터도 이미 rank 2를 한다). 수정안: srsUE를 패치하지 않고 **OAI nrUE를 추가**한다 — ZMQ 라디오 다채널·와이어 프로토콜 바이트 동일·nrUE의 2×2 MMSE와 layer demapping을 전부 소스로 확인했다. **이 저장소 C++는 0줄 바뀐다.** 단계는 M6.1 빌드 → M6.2 1×1 회귀 → M6.3 2포트 → M6.4 acceptance.
-1. **지배 mission 파일 확정**(§0) — 에이전트가 자율로 정하지 않는다.
-2. M0 라이브 부채 2건(multi-UE / multi-gNB) — unprivileged LXC 환경 차단이고 베이스라인에서도 동일 재현되므로 M0 결함이 아니다. 호스트 설정이 바뀌지 않으면 풀 수 없다.
-3. GH Pages 공개 — 워크플로는 `workflow_dispatch` 게이트 상태이고 레포는 private. 사용자가 공개를 결정하면 켠다.
-4. CDL(TR 38.901 §7.7.1) — 빔포밍 use case가 생기면. 오늘의 행렬은 선언하거나 뽑는 것이지 배열 기하에서 합성하지 않는다.
+**srsUE 1×1 게이트는 그대로 유지한다** — 회귀 안전망. `git_sources`가 배열이라 OAI는 **추가**된 것이지 교체가 아니다.
 
 ## 4. 명령어
 
 ```bash
 cd /home/ubuntu/ocudu-gpu-channel-mimo-claude
-source ~/ocudu-loopback-workspace/tools/env.sh   # CUDA 12.8 툴체인 PATH
+source scripts/native/env.sh          # 네이티브 툴체인 + autotools 재배치
+source ~/ocudu-loopback-workspace/tools/env.sh   # CUDA 12.8 (GPU 시퀀스용)
 
 # 빌드 + 단위 테스트 (두 트리)
 cmake --build build -j8      && ctest --test-dir build --output-on-failure
 cmake --build build-cuda -j8 && ctest --test-dir build-cuda --output-on-failure
 
-# 상시 GPU 시퀀스 9/9 (약 2분, loopback 러너)
+# 상시 GPU 시퀀스 9/9 (약 2분)
 bash scripts/remote/gpu-test-sequence.sh
 
-# 라이브 1×1 attach (Docker 불필요, 약 2분)
+# 라이브 1×1 attach — srsUE (약 2분)
 bash scripts/native/run-ocudu-legacy-1x1.sh
 
-# 라이브 2-port transport 게이트 (약 1분)
+# 라이브 2-port + 행렬 검증 (약 1분)
 bash scripts/native/run-ocudu-mimo-2port-no-core.sh
-# 결과: ~/ocudu-native-workspace/results/{reports,logs}/ocudu-mimo-2port-native/<타임스탬프>/
+
+# OAI nrUE 재빌드 (약 2분, tmux 불필요)
+bash scripts/native/build-oai-ue.sh
+
+# 워크스페이스 무결성
+bash scripts/native/check-workspace.sh
 ```
 
 ## 5. 환경
 
-- 이 컨테이너 = **Threadripper PRO 7965WX (24C/48T) + RTX 5090 ×4**. `.config`의 `REMOTE_HOST=127.0.0.1` — **"remote"가 곧 이 기계다.** 별도의 RTX 워크스테이션을 찾을 필요 없다.
-- **Docker는 이 컨테이너에서 불가**(unprivileged LXC). 네이티브 하네스(rootless netns)를 쓴다.
-- OCUDU/srsRAN 소스: `~/ocudu-native-workspace/src/{ocudu,srsRAN_4G}` (핀: `a1916edcd`, `eea87b1`). gNB 바이너리: `~/ocudu-native-workspace/builds/ocudu-zmq-release/apps/gnb/gnb`.
-- 폐기된 MIMO 시도(참조용): `/home/ubuntu/ocudu-gpu-channel-audit`, 브랜치 `mimo-patched`.
+- 이 컨테이너 = **Threadripper PRO 7965WX (24C/48T) + RTX 5090 ×4**. `.config`의 `REMOTE_HOST=127.0.0.1` — **"remote"가 곧 이 기계다.**
+- **Docker 불가**(unprivileged LXC). 네이티브 하네스(rootless netns)를 쓴다.
+- 핀된 외부 소스 (`native-workspace.lock.json`, `git_sources` 8개):
+  - OCUDU gNB `a1916edcd` — **수정 금지** (미션 Non-Goal + 게이트가 실행 전 거부)
+  - srsRAN_4G `eea87b1` (release_23_11)
+  - **OAI `2026.w33` = `2b69bde6aeafe892cda1531a0f0cbba2e37792cd`** ← 신규. **이 커밋이 소스 리뷰한 커밋과 동일하다** (근거와 핀이 같은 물건)
+- **OAI 빌드에서 알아둘 것 세 가지** (전부 lock과 스크립트에 기록됨):
+  - `-DCMAKE_PREFIX_PATH=<sysroot>/usr` **필수** — CMake의 `find_library`/`find_path`가 `CPATH`/`LIBRARY_PATH`를 안 읽어서, sysroot에 **처음부터 있던** `libsctp.so`가 없는 것처럼 보인다
+  - `-DAVX512=OFF` **필수** — Zen4가 `__AVX512F__`를 켜서 `zmq_simd.h`가 AVX-512 분기를 타는데 Ubuntu noble의 SIMDe는 0.7.2뿐이라 함수가 없다. 대안은 최신 SIMDe vendoring(23.04 MS/s에서 UE PHY는 병목이 아니므로 지금은 불필요)
+  - **autotools 재배치** — OAI가 asn1c를 `autoreconf`로 빌드하는데 Debian autoconf/automake/libtool이 절대경로를 박아 넣는다. env로 되는 건 `scripts/native/env.sh`에, 안 되는 3개 파일은 sysroot 사본을 in-place 패치(`debian_overlay.relocation_patches`에 기록). **sudo 안 씀** — deb는 `apt-get download`로 user-space 오버레이에
+- 폐기된 MIMO 시도(참조용): `/home/ubuntu/ocudu-gpu-channel-audit`, 브랜치 `mimo-patched`
 
 ## 6. 이 프로젝트에서 반복해서 값을 한 규율
 
-`AGENT_HARNESS.md`에 durable rule로 승격해 두었다. 요지만:
+`AGENT_HARNESS.md`에 durable rule로 승격돼 있다. 요지만:
 
 - **새 테스트는 실패시켜 보기 전까지 아무것도 증명하지 않는다.**
-- **통과하던 기존 테스트도 아무것도 검증하지 않고 있을 수 있다** (M2: 시드 운을 채점하던 Bessel 게이트, M5.4: 아무것도 매치하지 않던 validator 정규식).
-- **계기가 실제로 측정했는지 먼저 확인하라** (M3.7: 커널 카운트 0으로 초록색으로 끝나던 벤치).
-- **소유권을 옮길 땐 "옛 소유자마다 뭐가 달랐나"를 먼저 물어라** (M4.2).
-- **대조 실험의 도구가 그 일을 할 수 있는지 먼저 확인하라** (M5.4의 무효한 격리 실험).
-- **peer를 탓하기 전에 그 peer의 단일 스레드 지점을 읽어라** (M5.4: 하나뿐인 `radio` 워커).
+- **통과하던 기존 검사도 아무것도 안 재고 있을 수 있다** — M2의 시드 운 Bessel 게이트, M5.4의 아무것도 매치 못 하던 validator 정규식, M5.5의 `marker_checks=0`
+- **계기가 실제로 측정했는지 먼저 확인하라.** 0은 모든 임계를 만족한다
+- **peer를 탓하기 전에 그 peer의 단일 스레드 지점을 읽어라** (M5.4: 하나뿐인 `radio` 워커)
+- **트래픽을 세는 게이트는 연산을 채점한 것이 아니다** (M5.5)
+- **추정으로 넘기지 말고 재라** — M6.1을 "긴 tmux 작업"으로 넘길 뻔했는데 실측 2분 9초였고, 재는 김에 돌려보니 **두 군데서 빌드가 깨져 있었다**(SIMDe 부재, AVX-512 분기)
+- **최종 acceptance 경로를 먼저 정찰하고 시작하라** — M0~M5는 성공 기준이 transport 수준이라 rank 2를 요구하는 게이트가 없었고, 그걸 복호할 UE가 존재하는지는 한 시간이면 확인됐을 일을 다섯 마일스톤 뒤에 물었다
 
-## 7. 알려진 부채
+## 7. 알려진 부채 / 열려 있는 결정
 
-- **M0 라이브 게이트 2개**(multi-UE / multi-gNB) — unprivileged LXC + lock-step 가상시간의 지터 부재. 베이스라인에서도 동일 재현되므로 M0 결함이 아니다.
-- ~~`docs/index.html`에 MIMO가 없다~~ — **해소됨(2026-08-16)**. Part VII(§22–§25)이 다중 포트 오버레이 전체를 다루고, §1/§2/§4/§8/§9의 거짓이 된 서술을 고쳤으며, §18.4(다중 포트 게이트)와 §20.1(다중 포트 실측)을 추가했다. 내부 앵커 94개 전부 resolve.
-- **`fixed_mimo`와 `los_matrix`** — lane별 복소 행렬을 선언하는 knob이 둘이다. 없는 항목의 의미가 정반대(0 vs 에러)라 M3 종료 시 통합하지 않기로 판단했다(`docs/plans/m3-*.md` §2.6).
+- **M0 라이브 게이트 2건**(multi-UE / multi-gNB) — 환경 차단. multi-UE는 **베이스라인 커밋에서도 동일 재현**을 확인했으므로 MIMO 회귀가 아니다(lock-step 가상시간에 실지터가 없음). 미검증 완화안 하나가 기록돼 있다: UE별 `[rf] freq_offset`
+- **지배 mission 파일 미확정** — 사용자 결정
+- **GH Pages 미공개** — 레포 private, 워크플로는 `workflow_dispatch` 게이트
+- **`fixed_mimo`와 `los_matrix`** — 없는 항목의 의미가 정반대(0 vs 에러)라 M3 종료 시 통합하지 않기로 판단(`docs/plans/m3-*.md` §2.6)
+- **M7 착수 전 필수 실측** — 합성 peer로 포트 8→16→32에서 ZMQ가 언제 무너지는지. `kMaxCorrelatedLanes=16`(4×4 상한), 184.32 MB/s/포트/방향, 그리고 **OCUDU의 단일 `radio` 워커**(M5.4의 그 벽)가 한계다

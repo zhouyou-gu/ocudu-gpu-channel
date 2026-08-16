@@ -953,9 +953,17 @@ event=node_stall node=gnb0 phase=output_room / node=peer0 phase=input_data
 
 M0의 라이브 부채는 M2가 줄여주지 않는다 — 그대로 남아 있다(위 M0 섹션).
 
-### 다음 세션 재개 지점 (2026-08-16 갱신)
+### 다음 세션 재개 지점 (2026-08-16 세션 종료 시점)
 
-**M0~M5의 모든 게이트가 green이다.** M5.4는 원인 규명 후 수정되어 연속 2회 통과했다(위 "M5.4 — 원인 규명 완료" 절이 정본).
+**M6.2부터 시작한다.** 재개용 요약은 [`HANDOVER.md`](HANDOVER.md), M6의 정본은 [`docs/plans/m6-rank2-su-mimo-live.md`](docs/plans/m6-rank2-su-mimo-live.md)이다.
+
+M6.1은 끝났다 -- OAI nrUE가 핀 `2026.w33`에서 빌드되고 워크스페이스 lock이 그것을 검증한다. M6.2는 OCUDU gNB 1T1R <-> 브로커 <-> **OAI nrUE 1R** 회귀 게이트로, UE 교체 자체를 rank 2와 분리해 검증하는 단계다. 필요한 것은 전부 하네스 계층이다: OAI conf 템플릿, OAI의 (srsUE와 다른) 로그 판정 토큰, TUN 인터페이스 이름, USIM/subscriber 정합, 게이트 스크립트. **에뮬레이터 C++는 바뀌지 않는다.**
+
+srsUE 1x1 게이트는 회귀 안전망으로 유지한다. OAI는 교체가 아니라 추가다.
+
+---
+
+**아래는 M6.1 이전 시점의 기록이다. M0~M5의 모든 게이트가 green이다.** M5.4는 원인 규명 후 수정되어 연속 2회 통과했다(위 "M5.4 — 원인 규명 완료" 절이 정본).
 
 상시 게이트: `ctest` 8/8 (두 트리), `gpu-test-sequence.sh` 9/9, 라이브 1×1 attach `status=passed`, 라이브 2-port transport `status=passed`.
 
