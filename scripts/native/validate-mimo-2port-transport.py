@@ -36,6 +36,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--topology", required=True, type=Path)
     parser.add_argument("--log-dir", required=True, type=Path)
     parser.add_argument("--report-dir", required=True, type=Path)
+    parser.add_argument("--capture-dir", required=True, type=Path)
+    parser.add_argument("--matrix-report", required=True, type=Path)
+    parser.add_argument("--matrix-status", required=True, type=int)
     return parser.parse_args()
 
 
@@ -348,14 +351,16 @@ def main() -> int:
             counters.get("rx_requests") == sum(value["serves"] for value in workers.values()),
             "global RX requests differ from per-port summaries",
         )
-        require(
-            workers["gnb0_p0"]["serves"] == workers["gnb0_p1"]["serves"],
-            "gNB sibling RX transaction counts differ",
-        )
-        require(
-            workers["peer0_p0"]["serves"] == workers["peer0_p1"]["serves"],
-            "peer sibling RX transaction counts differ",
-        )
+        # Sibling serve counts. The two REP workers are independent threads and
+        # each can have one request in flight, so a snapshot taken at shutdown
+        # can legitimately catch one sibling a single reply ahead. What must not
+        # appear is a DRIFT: the windows they serve come from one producer, so
+        # the counts cannot separate. One reply is the structural bound; the
+        # measured difference is reported either way.
+        for node in ("gnb0", "peer0"):
+            difference = abs(workers[f"{node}_p0"]["serves"] - workers[f"{node}_p1"]["serves"])
+            print(f"measured {node}_sibling_serve_difference={difference} bound=1")
+            require(difference <= 1, f"{node} sibling RX transaction counts drifted apart")
         # Sibling TX acquisition skew. The pullers are independent threads, so
         # this is not exactly zero by construction the way the serve counts are:
         # a summary can catch one sibling having just landed a message the other
@@ -502,8 +507,100 @@ def main() -> int:
         "OCUDU gNB internal log lacks the clean-shutdown token",
     )
 
+    # The matrix row of the exit gate. Everything above this point judges what
+    # the relay MOVED; a broker that passed each port straight through would
+    # satisfy all of it. This folds in the independent check that what left the
+    # emulator is the declared H applied to what entered it.
+    matrix_report: dict = {}
+    if args.matrix_report.exists():
+        matrix_report = json.loads(args.matrix_report.read_text(encoding="utf-8"))
+    require(
+        matrix_report.get("schema") == "ocudu-mimo-matrix-capture/v1",
+        "matrix capture report is missing or has the wrong schema",
+    )
+    require(args.matrix_status == 0, "matrix capture verification failed")
+    require(
+        matrix_report.get("status") == "passed",
+        "matrix capture report did not pass",
+    )
+    matrix_measurements = matrix_report.get("measurements") or {}
+    # An instrument that measured nothing satisfies every threshold, so assert
+    # the sample counts before trusting the verdict above them.
+    for key in ("gnb0->peer0_compared_samples", "peer0->gnb0_compared_samples"):
+        require(
+            int(matrix_measurements.get(key, 0)) > 0,
+            f"matrix capture compared no samples for {key.split('_')[0]}",
+        )
+    for port in ("peer0_p0", "peer0_p1"):
+        require(
+            int(matrix_measurements.get(f"marker_{port}_samples", 0)) > 0,
+            f"matrix capture checked no analytic markers on {port}",
+        )
+
+    # Real-time budget. The broker samples its channel-processor stage timings
+    # once a second and reports the slot that happened to be last, so these are
+    # per-second samples of individual slots, NOT a percentile over every slot;
+    # the field names say so. The comparison budget is the batch duration
+    # (23040 samples at 23.04 MS/s = 1 ms, the 15 kHz SCS slot this fixture
+    # configures), with the 500 us half-slot noted for a 30 kHz deployment.
+    gpu_samples = [
+        {name: float(value) for name, value in re.findall(r"(h2d_us|kernel_us|d2h_us)=([0-9.]+)", line)}
+        for line in broker_log.splitlines()
+        if line.startswith("event=gpu_timings ")
+    ]
+    process_samples = [
+        float(match)
+        for match in re.findall(r"^event=cpu_stage_timings .* process_us=([0-9.]+)", broker_log, re.MULTILINE)
+    ]
+    realtime_budget = {
+        "slot_budget_us": 1000.0,
+        "half_slot_budget_us": 500.0,
+        "sampling": "one slot per second, sampled by the broker heartbeat",
+        "gpu_timing_samples": len(gpu_samples),
+        "process_us_samples": len(process_samples),
+    }
+    for stage in ("h2d_us", "kernel_us", "d2h_us"):
+        values = [sample[stage] for sample in gpu_samples if stage in sample]
+        if values:
+            realtime_budget[f"{stage}_max"] = max(values)
+            realtime_budget[f"{stage}_median"] = sorted(values)[len(values) // 2]
+    if process_samples:
+        realtime_budget["process_us_max"] = max(process_samples)
+        realtime_budget["process_us_median"] = sorted(process_samples)[len(process_samples) // 2]
+    require(len(gpu_samples) > 0, "broker emitted no event=gpu_timings samples")
+    require(len(process_samples) > 0, "broker emitted no event=cpu_stage_timings samples")
+    # The typical slot is what the real-time claim rests on, and it is gated.
+    # The observed maximum is recorded and NOT gated: `MIMO_MILESTONES.md` S4
+    # settled that the tail on this host is scheduling / IRQ / driver submit-or-
+    # sync, not the MIMO compute path, and classified an observed-max miss as an
+    # environment gate. Turning it into a hard gate here would reopen a question
+    # that was closed with evidence, and would make this gate score the host.
+    require(
+        realtime_budget.get("process_us_median", 1e9) < realtime_budget["slot_budget_us"],
+        "median channel-processor slot time exceeded the 1 ms slot budget",
+    )
+    if realtime_budget.get("process_us_max", 0.0) >= realtime_budget["slot_budget_us"]:
+        print(
+            "note environment_tail process_us_max={} exceeds the {} us slot budget; "
+            "recorded, not gated (MIMO_MILESTONES.md S4)".format(
+                realtime_budget["process_us_max"], realtime_budget["slot_budget_us"]
+            )
+        )
+    print(
+        "measured process_us_max={} process_us_median={} slot_budget_us=1000".format(
+            realtime_budget.get("process_us_max"), realtime_budget.get("process_us_median")
+        )
+    )
+
     summary = {
-        "schema": "ocudu-mimo-2port-transport/v1",
+        "schema": "ocudu-mimo-2port-transport/v2",
+        "matrix_capture": {
+            "status": matrix_report.get("status", "missing"),
+            "report": str(args.matrix_report),
+            "capture_dir": str(args.capture_dir),
+            "measurements": matrix_measurements,
+        },
+        "realtime_budget": realtime_budget,
         "status": "passed" if not errors else "failed",
         "transport_only": True,
         "rank2_claim": False,

@@ -8,10 +8,12 @@
 #include <csignal>
 #include <cstring>
 #include <deque>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -182,6 +184,24 @@ bool send_samples(void* socket, std::span<const IqSample> samples)
   return static_cast<std::size_t>(sent) == nbytes;
 }
 
+// Appends one wire chunk to a bounded capture buffer, honouring the skip
+// window. `seen` is the port's absolute sample count in that direction and is
+// advanced here, so the recorded window is [skip, skip + limit) of the wire
+// stream itself -- the same absolute range on every port, which is what lets a
+// checker line an output row up against the input columns that produced it.
+void append_capture(IqBuffer& capture, std::size_t limit, std::size_t skip, std::uint64_t& seen,
+                    const IqSample* data, std::size_t count)
+{
+  const std::uint64_t begin = seen;
+  seen += count;
+  if (limit == 0 || capture.size() >= limit || seen <= skip) {
+    return;
+  }
+  const std::size_t offset = begin >= skip ? 0 : static_cast<std::size_t>(skip - begin);
+  const std::size_t take = std::min(count - offset, limit - capture.size());
+  capture.insert(capture.end(), data + offset, data + offset + take);
+}
+
 // One transport port's broker-side state: a REQ socket draining the port's TX
 // into a ring, and a REP socket feeding the port's RX. This is exactly the
 // pre-MIMO `Device` -- a ZMQ endpoint pair plus its TX ring. A port owns no
@@ -229,6 +249,17 @@ struct PortRuntime {
   // ring lock right after each push. The heartbeat samples occupancy once a
   // second, which would miss the peaks that set the real added latency.
   std::atomic<std::size_t> rx_peak_occupancy{0};
+
+  // Wire-boundary capture (see WireCaptureConfig). `tx_capture` belongs to this
+  // port's puller thread and `rx_capture` to its REP worker; both are
+  // preallocated to `capture_limit` and never grow, so no wire operation
+  // allocates. Read only after the workers are joined.
+  std::size_t capture_limit = 0;
+  std::size_t capture_skip = 0;
+  std::uint64_t tx_wire_samples = 0; // puller thread only
+  std::uint64_t rx_wire_samples = 0; // REP worker thread only
+  IqBuffer tx_capture;
+  IqBuffer rx_capture;
 };
 
 // A RadioNode: the owner of a common sample epoch, cursor set, throttle, and
@@ -373,6 +404,11 @@ Broker::Broker(TopologyConfig config) : config_(std::move(config))
   processor_ = create_channel_processor(config_);
 }
 
+void Broker::set_wire_capture(WireCaptureConfig capture)
+{
+  capture_ = std::move(capture);
+}
+
 std::unordered_map<std::string, BrokerLinkControl*>
 Broker::collect_control_links()
 {
@@ -399,6 +435,12 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     port->config = &device;
     port->batch = resolve_batch_samples(config_.runtime, device.sample_rate_hz);
     port->tx_ring.reset(config_.runtime.queue_samples);
+    if (!capture_.directory.empty() && capture_.samples_per_port > 0) {
+      port->capture_limit = capture_.samples_per_port;
+      port->capture_skip = capture_.skip_samples;
+      port->tx_capture.reserve(port->capture_limit);
+      port->rx_capture.reserve(port->capture_limit);
+    }
     // RX output ring. Capacity is `runtime.rx_ring_batches` batches; the
     // producer's run-ahead is capped at one batch regardless, so the steady-
     // state added latency is one batch and the rest is push slack.
@@ -633,6 +675,10 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             pushed = dev.tx_ring.push(std::span<const IqSample>(recv_buf.data(), pending));
           }
           if (pushed) {
+            // Wire capture, in ring order: this is what the peer's TX actually
+            // put on the wire, before anything of ours reads it.
+            append_capture(dev.tx_capture, dev.capture_limit, dev.capture_skip,
+                           dev.tx_wire_samples, recv_buf.data(), pending);
             diag.state.store("push");
             diag.last_samples.store(pending);
             diag.total_samples.fetch_add(pending);
@@ -1009,6 +1055,12 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         const double pop_us =
             std::chrono::duration<double, std::micro>(t_send_start - t_pop_start).count();
 
+        // Wire capture, in serve order: this is the processed row as it goes
+        // out to the radio, so a checker sees the broker's output rather than
+        // its intent.
+        append_capture(port.rx_capture, port.capture_limit, port.capture_skip,
+                       port.rx_wire_samples, reply_buf.data(), take);
+
         diag.state.store("send");
         const std::span<const IqSample> reply(reply_buf.data(), take);
         while (!stop_requested.load() && !send_samples(port.rx_rep.get(), reply)) {
@@ -1174,6 +1226,52 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
               << " row_spin=" << r.blocked_iters.load() << "]\n";
   }
   std::cout.flush();
+
+  // Wire capture files, written after every worker is joined so the buffers are
+  // quiescent. The manifest names the node membership and matrix indices the
+  // broker RESOLVED, so the checker can bind a file to a row/column of the
+  // declared matrix without re-deriving the mapping from id suffixes.
+  if (!capture_.directory.empty() && capture_.samples_per_port > 0) {
+    std::ostringstream manifest;
+    manifest << "{\n  \"schema\": \"ocudu-wire-capture/v1\",\n"
+             << "  \"samples_per_port\": " << capture_.samples_per_port << ",\n"
+             << "  \"skip_samples\": " << capture_.skip_samples << ",\n"
+             << "  \"sample_format\": \"cf32_interleaved_le\",\n"
+             << "  \"ports\": [\n";
+    for (std::size_t d = 0; d != ports.size(); ++d) {
+      PortRuntime& port = *ports[d];
+      const std::string id = port.config->id;
+      const auto write_file = [&](const char* suffix, const IqBuffer& samples) {
+        const std::string path = capture_.directory + "/" + id + "." + suffix + ".cf32";
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        if (!out) {
+          throw std::runtime_error("cannot open wire capture file: " + path);
+        }
+        out.write(reinterpret_cast<const char*>(samples.data()),
+                  static_cast<std::streamsize>(samples.size() * sizeof(IqSample)));
+        if (!out) {
+          throw std::runtime_error("cannot write wire capture file: " + path);
+        }
+      };
+      write_file("tx_in", port.tx_capture);
+      write_file("rx_out", port.rx_capture);
+      manifest << "    {\"id\": \"" << id << "\", \"node\": \"" << nodes[port.node_index].id
+               << "\", \"tx_port\": " << port.tx_port << ", \"rx_port\": " << port.rx_port
+               << ", \"tx_in_samples\": " << port.tx_capture.size()
+               << ", \"rx_out_samples\": " << port.rx_capture.size() << "}"
+               << (d + 1 == ports.size() ? "\n" : ",\n");
+    }
+    manifest << "  ]\n}\n";
+    const std::string manifest_path = capture_.directory + "/wire-capture.json";
+    std::ofstream out(manifest_path, std::ios::trunc);
+    if (!out) {
+      throw std::runtime_error("cannot open wire capture manifest: " + manifest_path);
+    }
+    out << manifest.str();
+    std::cout << "event=wire_capture dir=\"" << capture_.directory
+              << "\" samples_per_port=" << capture_.samples_per_port << "\n"
+              << std::flush;
+  }
 
   BrokerStats result;
   result.tx_pulls = stats.tx_pulls.load();

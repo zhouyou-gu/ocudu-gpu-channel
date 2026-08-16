@@ -69,9 +69,10 @@ results_root="${native_root}/results"
 gnb_fixture="${repo_root}/examples/native/ocudu/gnb_zmq_b210_fdd_2port_no_core.yaml"
 topology="${repo_root}/examples/native/topology.ocudu.mimo-2port-transport.cuda.yaml"
 validator="${script_dir}/validate-mimo-2port-transport.py"
+matrix_verifier="${script_dir}/verify-mimo-matrix-capture.py"
 
 for path in "${ocudu_root}/.git" "${gnb_binary}" "${gnb_fixture}" \
-            "${topology}" "${validator}"; do
+            "${topology}" "${validator}" "${matrix_verifier}"; do
   [[ -e "${path}" ]] || usage_error "missing required native artifact: ${path}"
 done
 gnb_fixture_sha256="$(sha256sum "${gnb_fixture}" | awk '{print $1}')"
@@ -101,9 +102,11 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_dir="${results_root}/logs/ocudu-mimo-2port-native/${timestamp}"
 report_dir="${results_root}/reports/ocudu-mimo-2port-native/${timestamp}"
 config_dir="${native_root}/configs/ocudu-mimo-2port-native/${timestamp}"
-mkdir -p "${log_dir}" "${report_dir}" "${config_dir}" "${channel_build}"
+capture_dir="${results_root}/captures/ocudu-mimo-2port-native/${timestamp}"
+mkdir -p "${log_dir}" "${report_dir}" "${config_dir}" "${channel_build}" "${capture_dir}"
 
 summary_path="${report_dir}/transport-summary.json"
+matrix_report="${report_dir}/matrix-capture-summary.json"
 peer_summary="${report_dir}/peer-summary.json"
 peer_selftest="${report_dir}/peer-selftest-summary.json"
 source_evidence="${report_dir}/source-evidence.json"
@@ -375,8 +378,18 @@ done
 grep -q '^event=ready transport_only=1 tx_ports=2 rx_ports=2$' \
   "${log_dir}/peer.log" || usage_error "synthetic peer did not become ready"
 
+# 10 ms of wire per port per direction. Enough for the matrix check to have a
+# large sample and small enough that the capture is written once, at shutdown,
+# from preallocated buffers.
+capture_samples=230400
+# Skip 2 s of wire first. The gNB emits silence until its lower PHY radiates,
+# and a window of silence would let the matrix check compare zero against zero.
+capture_skip=46080000
 taskset -c "${broker_cpus}" stdbuf -oL -eL "${broker_binary}" --config "${topology}" \
   --strict-realtime \
+  --wire-capture-dir "${capture_dir}" \
+  --wire-capture-samples "${capture_samples}" \
+  --wire-capture-skip "${capture_skip}" \
   >"${log_dir}/broker.log" 2>&1 &
 broker_pid="$!"
 broker_reached_running=0
@@ -446,6 +459,18 @@ set -e
 [[ -s "${log_dir}/gnb-internal.log" ]] || \
   usage_error "gNB internal log is missing or empty"
 
+# The matrix check runs first: it is the only gate row that judges what the
+# emulator COMPUTED rather than what it moved, and the transport validator
+# folds its verdict in so a green transport run cannot stand alone.
+set +e
+python3 "${matrix_verifier}" \
+  --capture-dir "${capture_dir}" \
+  --topology "${preserved_topology}" \
+  --marker-node peer0 \
+  --report "${matrix_report}"
+matrix_status="$?"
+set -e
+
 set +e
 python3 "${validator}" \
   --summary "${summary_path}" \
@@ -470,7 +495,10 @@ python3 "${validator}" \
   --resolved-gnb-config "${resolved_gnb_config}" \
   --topology "${preserved_topology}" \
   --log-dir "${log_dir}" \
-  --report-dir "${report_dir}"
+  --report-dir "${report_dir}" \
+  --capture-dir "${capture_dir}" \
+  --matrix-report "${matrix_report}" \
+  --matrix-status "${matrix_status}"
 verdict_status="$?"
 set -e
 exit "${verdict_status}"
