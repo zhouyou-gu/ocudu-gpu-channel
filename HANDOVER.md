@@ -1,4 +1,4 @@
-# 세션 인수인계 — 2026-08-16
+# 세션 인수인계 — 2026-08-17
 
 **이 파일은 재개용 요약이다. 정본은 `AGENT_PROGRESS.md`이고, 둘이 어긋나면 `AGENT_PROGRESS.md`가 이긴다**(`AGENT.md`의 우선순위 규칙). 여기에는 다음 세션이 5분 안에 상황을 복구하고 바로 손을 대기 위한 것만 적는다.
 
@@ -20,7 +20,7 @@
 | M3 공간 상관 + coherent LOS | 전 게이트 green |
 | M4 physical link 단위 runtime control | 전 게이트 green |
 | M5 라이브 통합 (transport + **행렬 검증**) | 전 게이트 green |
-| **M6 rank-2 SU-MIMO 라이브 acceptance** | **M6.1 완료. M6.2부터가 다음 작업** |
+| **M6 rank-2 SU-MIMO 라이브 acceptance** | **M6.1–M6.2 완료 (08-17). M6.3(2포트 승격)부터가 다음 작업** |
 | M7 massive MIMO | 계획만, 전제 확인 필요 |
 
 **상시 게이트** (전부 2026-08-16 통과):
@@ -28,36 +28,33 @@
 - `scripts/remote/gpu-test-sequence.sh` **9/9**
 - `scripts/native/run-ocudu-legacy-1x1.sh` — 라이브 1×1 attach `result=pass`
 - `scripts/native/run-ocudu-mimo-2port-no-core.sh` — 라이브 2-port `status=passed`, **행렬 검증 포함**
+- `scripts/native/run-ocudu-oai-1x1.sh` — **신규 (08-17)**: 라이브 1×1 OAI nrUE attach `result=pass`
 - `scripts/native/check-workspace.sh` — `lock_validation=ok debs=94 archives=3 git_sources=8`
 
-## 2. 이번 세션에 한 일 (커밋 순)
+## 2. 이번 세션에 한 일 (커밋 순, 2026-08-17)
 
 | 커밋 | 내용 |
 |---|---|
-| `8679bca` | **M5.4 해결.** 2-port 게이트 정지의 원인은 우리였다 — producer throttle의 무한 캐치업이 라디오를 실시간보다 1.76배 빠르게 먹였고, 다중 포트 ZMQ 라디오는 그걸 흡수 못 하고 교착한다. `RealTimePacer`(한 배치 넘는 지각은 버림) + REP 응답을 producer 윈도 경계로 자르기 |
-| `040b2a3` | **M5.5.** 게이트가 "옮긴 것"만 채점하고 있었다(`marker_checks=0` 옆의 `marker_mismatches=0`). 브로커 wire capture + 독립 checker가 토폴로지에서 읽은 `H`로 `y=Hx`를 재계산. 뮤테이션 프로브 3건 |
-| `83d6e9e` | `docs/index.html`이 드디어 MIMO를 설명한다. Part VII(§22–§25) 신규 + 거짓이 된 §1/§2/§4/§8/§9 수정 |
-| `c9dbb74`, `c97541b` | **M6/M7 계획.** M6 상세 설계 문서, OAI 핀 `2026.w33` |
-| `dab400c`, `0d5c5a2` | **M6.1 완료.** OAI nrUE 빌드 성공 (2분 09초) |
+| `fec3548` | **미션 확정.** 사용자 지시로 MIMO 개정을 정본 `AGENT_GOAL.md`에 병합, `AGENT_GOAL.mimo.md` 삭제. §0의 열린 결정이 닫힘 |
+| `1b9d6cc` | **M6.2 완료.** OAI nrUE가 CUDA 브로커를 통해 1×1 attach/PDU/ping 완주 (`result=pass`, strict counter 0, gNB RF failure 0). 차단 요인 3건 전부 **브로커 없는 direct 대조**로 규명 후 수정: ① userns의 ns-scoped CAP_SYS_NICE → `setpriv`로 떨궈 OAI 폴백 경로 ② OAI가 SIB1 이전 CLI 캐리어로 UL 위상보상을 굳힘 → `--CO -95000000` (없으면 UL 겉보기 +817 Hz, Msg3 전멸) ③ srsUE 전용 `pdcch.dedicated` 오버라이드에 OAI 귀머거리 + `--uecap_file` 상대경로 기본값 미로딩 → 렌더에서 오버라이드 제거 + 절대경로. srsUE 1×1 무회귀 동시 확인. 에뮬레이터 C++ 0줄 변경 |
 
-## 3. 다음 작업: M6.2 — 1×1로 OAI 회귀
+## 3. 다음 작업: M6.3 — 2포트 승격
 
 **정본은 [`docs/plans/m6-rank2-su-mimo-live.md`](docs/plans/m6-rank2-su-mimo-live.md).** 요지만:
 
-**왜 rank 2가 지금까지 안 됐나** — 막힌 계층은 UE 하나다. gNB(OCUDU)도 에뮬레이터도 이미 rank 2를 한다. srsUE만 못 하고, 그것도 **두 층이 동시에** 막혀 있다: `rrc_nr.cc:105`의 `max_mimo_layers = 1` 하드코딩(→ gNB가 애초에 rank 2를 스케줄 안 함) + `pdsch_nr.c:537`의 `// Antenna port demapping ... Not implemented`. 어느 한쪽만 고쳐선 우회 불가.
+**M6.2가 확정한 것 (2026-08-17)** — OAI nrUE가 CUDA 브로커를 통해 1×1 attach/PDU/ping을 완주한다(`run-ocudu-oai-1x1.sh` `result=pass`). UE 교체라는 변수는 rank 2와 분리되어 소거됐다. 규명된 차단 요인 3건은 전부 M6.3에도 그대로 적용된다:
+1. **rootless RT**: userns 안의 ns-scoped CAP_SYS_NICE 때문에 OAI가 SCHED_FIFO를 시도하다 abort → `setpriv --bounding-set -sys_nice`로 기동
+2. **UL 위상보상**: OAI는 38.211 위상보상 주파수를 SIB1 이전의 CLI UL 캐리어(DL+`--CO`)로 굳힌다 → band 3 FDD는 `--CO -95000000` 필수 (없으면 UL에 겉보기 +817 Hz, Msg3 전멸)
+3. **PDCCH/능력**: fixture의 srsUE 전용 `pdcch.dedicated` 오버라이드에 OAI가 귀머거리가 된다(렌더에서 제거, `render_gnb_oai`에 근거 기록) + `--uecap_file` 절대경로 필수 (기본이 상대경로라 미로딩 → maxMIMO layers 0 → DCI 1_1에서 AssertFatal)
 
-**수정안** — srsUE를 패치하지 않고 **OAI nrUE를 추가**한다. 핀 커밋에서 직접 확인했다: ZMQ 라디오 다채널 지원(채널당 폴 스레드), 와이어 프로토콜 바이트 동일(1바이트 더미 요청 → 헤더 없는 cf32), `nr_dlsch_demodulation.c`에 실제 2×2 MMSE + layer demapping. **이 저장소 C++는 0줄 바뀐다** — 에뮬레이터 코어에 srsUE 결합이 아예 없다(주석 4줄뿐).
+**M6.3이 할 일** — gNB 2T2R ↔ 2×2 행렬 ↔ OAI nrUE 2안테나, `maxMIMO_layers = 2`:
+- 2T2R gNB fixture (`nof_antennas_dl/ul=2`, ZMQ 포트 4개 — M5의 멀티포트 `device_args` 문법 재사용)
+- 2포트 RadioNode 토폴로지 fixture (M5.3의 2×2 행렬 계열)
+- OAI: `--zmq.[0].tx_channels`/`rx_channels`는 주소 **목록** — 채널 2개 선언, `--uecap_file`을 `uecap_ports2.xml`로
+- **첫 실패 후보는 OAI ZMQ 2채널 동시 동작** — 계획서가 "미검증"으로 명시한 유일한 프로토콜 구멍
+- 판정: gNB 로그에 rank-2 스케줄링, UE 2레이어 복호, attach+PDU+ping (M6.4에서 `ri=2` + 행렬 검증 동시 통과로 승격)
 
-**M6.2가 할 일** — OCUDU gNB 1T1R ↔ 브로커 ↔ **OAI nrUE 1R** 회귀 게이트. **UE 교체 자체를 rank 2와 분리해서 검증한다**(M5.4가 두 변수를 동시에 바꾼 대가를 이미 치렀다).
-
-필요한 것:
-- OAI UE conf 템플릿 (srsUE ini와 형식이 다름)
-- 로그 판정 토큰 — OAI는 `RRC Connected` / `PDU Session Establishment successful`과 **다른 문자열**을 쓴다
-- TUN 인터페이스 이름 (srsUE는 `tun_srsue`, OAI는 `oaitun_ue1` 계열)
-- USIM 값(imsi/k/opc)을 open5gs `subscriber.csv`와 정합
-- 게이트 스크립트 + 산출물 검증
-
-**srsUE 1×1 게이트는 그대로 유지한다** — 회귀 안전망. `git_sources`가 배열이라 OAI는 **추가**된 것이지 교체가 아니다.
+**srsUE 1×1 게이트는 그대로 유지한다** — 회귀 안전망(08-17 재확인 `result=pass`). OAI는 **추가**이지 교체가 아니다.
 
 ## 4. 명령어
 
@@ -75,6 +72,9 @@ bash scripts/remote/gpu-test-sequence.sh
 
 # 라이브 1×1 attach — srsUE (약 2분)
 bash scripts/native/run-ocudu-legacy-1x1.sh
+
+# 라이브 1×1 attach — OAI nrUE (약 2분, M6.2 게이트)
+bash scripts/native/run-ocudu-oai-1x1.sh
 
 # 라이브 2-port + 행렬 검증 (약 1분)
 bash scripts/native/run-ocudu-mimo-2port-no-core.sh
