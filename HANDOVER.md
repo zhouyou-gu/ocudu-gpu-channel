@@ -49,7 +49,9 @@
 
 **M6.3 정찰 결과 (2026-08-17, 상세는 `AGENT_PROGRESS.md` [M6.3 scout] 절)** — 2×2 인프라는 전부 동작한다: 2T2R gNB(코어 포함, **mac pcap은 disable 필수**), OAI 2안테나 2채널 ZMQ(콤마 리스트 CLI), rank-1 강제(`max_rank: 1`) 시 **attach+PDU 완주**. "첫 실패 후보"였던 OAI 2채널 ZMQ는 문제가 아니었다.
 
-**실제 차단 지점: rank-2 PDSCH 복호 하나.** 소거된 것: MCS 마진(QPSK도 전멸), CSI-RS 다중화, DCI/DMRS 신호 구성(OAI 자체 gNB와 동일 조합), **채널 추정(4계수 전부 정확 — UE PHY debug `avg_{rx}_{layer}` 실측)**, OAI 자체 rank-2 수신(dlsim BLER 0, 코드북 PMI 포함). 남은 용의 구간은 srsRAN 송신 ↔ OAI의 추정-이후 체인(레이어 디매핑 / 스크램블링 / MMSE-LLR) 규약 차이. **이게 풀리기 전에 게이트 스크립트를 쓰지 말 것** — 실패를 자동화할 뿐이다. 다음 수: 두 스택의 layer mapping/scrambling 소스 diff, 또는 한 슬롯 IQ+LLR 덤프 대조.
+**실제 차단 지점: rank-2 PDSCH 복호 하나 — 그리고 용의 구간이 3단계로 좁혀졌다.** 소거 완료(전부 실측): MCS 마진(QPSK도 전멸) · CSI-RS 다중화 · DCI/DMRS 신호 구성(OAI 자체 gNB와 동일 조합) · 레이어 매핑 순서(양쪽 소스 표준) · PUCCH-ACK 오독(UL PUSCH 60/0인데 SRB1 RLC max-retx → DL이 진범) · **채널 추정+보간 전체**(핀 트리에 DEBUG_PDSCH 임시 패치로 복소 덤프, 원복 완료 — srsRAN의 프리코딩된 DMRS는 W에 의해 포트별 짝/홀 k'만 남는 표준 상쇄 패턴이고, OAI의 per-RE 추정+선형보간이 부호까지 정확한 −h/2를 산출함을 샘플 수준에서 확인) · OAI 자체 rank-2 수신(dlsim: identity/코드북 PMI, DMRS AddPos 0/1/2 전부 BLER 0).
+
+**남은 용의: MMSE 등화 / LLR 생성 / 디매핑 입력 — 딱 3단계.** 다음 수는 실패한 rank-2 PDSCH 한 개의 `rxdataF_comp`(등화 후 성상도) 덤프: 깨끗한 QPSK 구름이면 LLR/디매핑, 쓰레기면 MMSE. **이게 풀리기 전에 M6.3 게이트 스크립트를 쓰지 말 것** — 실패를 자동화할 뿐이다. 재현 도구는 scratchpad가 아니라 이 문단의 레시피가 정본이다: 2×2 direct 대조는 M6.2 게이트의 렌더 산출물에서 gNB만 2T2R(안테나 2, 포트 4, mac pcap disable, `max_rank`/`max_ue_mcs` 노브)로 바꾸고 OAI에 `--ue-nb-ant-rx/tx 2` + `uecap_ports2.xml` + zmq 채널 2개를 주면 된다.
 
 **srsUE 1×1 게이트는 그대로 유지한다** — 회귀 안전망(08-17 재확인 `result=pass`). OAI는 **추가**이지 교체가 아니다.
 
