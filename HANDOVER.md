@@ -4,7 +4,7 @@
 
 - **R0~R3 전부 완료** + UL-4R flaky 원인 규명(`pusch.max_ue_mcs: 9`) + 라이브 게이트 2종에 y=Hx 행렬판정 통합 + 측정 라벨 + oracle precoding 실험(예측과 0.01dB 정합, 반정합 널은 셀 소멸).
 - **보고 산출물**: `docs/rank1-feasibility-report.{md,html,en.html}` — 상사 평가 보고서의 4대 질문을 실측 근거로 재답변하는 feasibility 중심 보고서 3종(한/영).
-- **GitHub 공유 준비됨**: `~/bin/gh` 설치, 비밀정보 스캔 통과(.config는 ignored). 사용자 `gh auth login` + repo 이름/공개여부 결정 대기. 상사 문서(mimo-integration-report.html)가 커밋에 포함돼 있어 private 권장.
+- **GitHub 공유 완료**: 이 브랜치는 upstream `zhouyou-gu/ocudu-gpu-channel` 의 `a801155` 위로 graft되어 fork `MinwooEun/ocudu-gpu-channel` 에 푸시됨. 비밀정보 스캔 통과(.config는 ignored). 상사 문서는 upstream이 `docs/mimo-integration-report.html` 로 직접 공개했으므로 중복 사본은 이 브랜치에서 제거됨.
 - 이 트리의 계획 항목은 전부 소진 상태 — 다음 작업은 사용자 지시(예: GitHub push) 또는 §"R3 완료" 항목의 후속 연구(8포트+ 재측정, 공간상관/CDL)뿐이다.
 
 
@@ -13,7 +13,7 @@
 ## 0. 이 워크스페이스의 정체
 
 - **`/home/ubuntu/ocudu-gpu-channel-rank1` = `ocudu-gpu-channel-mimo-claude`의 2026-08-17 포크** (HEAD `1ddb240`, 브랜치 `rank1-miso-simo`). 사용자 지시로 생성.
-- 미션: **rank-1 MISO/SIMO** — 상사 전달 보고서(`mimo-integration-report.html`)에서 **Sionna 부분만 뺀 목표**. DL 2×1(→4×1) MISO + UL 1×2(→1×4) SIMO, srsUE는 `nof_antennas=1` 유지. 정본 미션은 이 트리의 `AGENT_GOAL.md`(포크 시 사용자 지시로 개정됨), 로드맵은 `RANK1_MILESTONES.md`.
+- 미션: **rank-1 MISO/SIMO** — 상사 전달 보고서(`docs/mimo-integration-report.html`)에서 **Sionna 부분만 뺀 목표**. DL 2×1(→4×1) MISO + UL 1×2(→1×4) SIMO, srsUE는 `nof_antennas=1` 유지. 정본 미션은 이 트리의 `AGENT_GOAL.md`(포크 시 사용자 지시로 개정됨), 로드맵은 `RANK1_MILESTONES.md`.
 - **rank-2/OAI 워크스트림은 부모 트리(`ocudu-gpu-channel-mimo-claude`)에서 계속된다** — 여기서는 다루지 않는다. M6 하네스 파일들은 diff 최소화를 위해 남아 있을 뿐 이 트리의 게이트가 아니다.
 - Sionna RT는 다른 팀원 담당. 이 트리는 후일 병합을 막을 설계만 피하면 된다.
 - `MIMO_MILESTONES.md`는 부모 트리의 rank-2 로드맵 사본(참조용)이다. **이 트리의 정본 로드맵은 `RANK1_MILESTONES.md`다.**

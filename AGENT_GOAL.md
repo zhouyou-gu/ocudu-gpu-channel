@@ -2,7 +2,7 @@
 
 **This file defines the long-term mission of the workspace. It is agent-immutable. The agent shall not modify this file autonomously. It may be changed only when the user explicitly and unambiguously instructs a change. Implicit signals, inferred preferences, stylistic adjustments, and routine task updates do not satisfy this condition.**
 
-This workspace (`ocudu-gpu-channel-rank1`) was forked from `ocudu-gpu-channel-mimo-claude` on 2026-08-17 by explicit user instruction. Its mission is the rank-1 MISO/SIMO objective of the supervisor's integration assessment (`mimo-integration-report.html`), with every Sionna RT item excluded: Sionna integration is owned by another team member and will be merged later. The rank-2 OAI-nrUE workstream continues in the parent workspace and is out of scope here.
+This workspace (`ocudu-gpu-channel-rank1`) was forked from `ocudu-gpu-channel-mimo-claude` on 2026-08-17 by explicit user instruction. Its mission is the rank-1 MISO/SIMO objective of the supervisor's integration assessment (`docs/mimo-integration-report.html`), with every Sionna RT item excluded: Sionna integration is owned by another team member and will be merged later. The rank-2 OAI-nrUE workstream continues in the parent workspace and is out of scope here.
 
 ## Statement
 

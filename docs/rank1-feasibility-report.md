@@ -1,7 +1,7 @@
 # Rank-1 MISO/SIMO 구현 결과 보고 — Feasibility 실증 중심
 
 **대상 워크스페이스**: `ocudu-gpu-channel-rank1` (브랜치 `rank1-miso-simo`)
-**기준 문서**: 통합 평가 보고서 `mimo-integration-report.html` (2026-08-16 스냅샷) — **Sionna RT 항목 제외** (별도 팀원 담당, 후일 병합)
+**기준 문서**: 통합 평가 보고서 `docs/mimo-integration-report.html` (2026-08-16 스냅샷, upstream 공개본과 동일) — **Sionna RT 항목 제외** (별도 팀원 담당, 후일 병합)
 **보고 시점**: 2026-08-17 · 모든 수치는 실측이며 출처(게이트 실행 ID/로그)를 §8에 명기
 
 ---
