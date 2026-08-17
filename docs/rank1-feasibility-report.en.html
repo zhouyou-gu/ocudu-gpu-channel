@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Rank-1 MISO/SIMO implementation results — feasibility evidence centred on live gates, quantitative proofs, and root-caused integration constraints.">
+<title>Rank-1 MISO/SIMO Implementation Results — Feasibility Evidence</title>
+<style>
+  :root {
+    --bg: #08111f;
+    --surface: #101c2e;
+    --surface-2: #14243a;
+    --surface-3: #091523;
+    --ink: #edf5ff;
+    --muted: #9cb0c9;
+    --line: #2a405b;
+    --blue: #64b5ff;
+    --cyan: #66e1d2;
+    --green: #82d89b;
+    --amber: #ffc36b;
+    --red: #ff8792;
+    --violet: #b8a0ff;
+    --shadow: 0 20px 60px rgba(0, 0, 0, .28);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(100,181,255,.14), transparent 60%),
+      radial-gradient(900px 480px at 95% 0%, rgba(102,225,210,.10), transparent 55%),
+      var(--bg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 22px 90px; }
+  header.hero { padding: 26px 0 8px; }
+  .kicker { color: var(--cyan); font-size: 13px; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; }
+  h1 { font-size: 34px; line-height: 1.25; margin: 8px 0 10px; }
+  .sub { color: var(--muted); max-width: 880px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 18px 0 6px; }
+  .chip {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 999px; padding: 5px 12px; font-size: 12.5px;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip.ok { border-color: rgba(130,216,155,.5); color: var(--green); }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 8px; }
+  nav.toc a {
+    color: var(--blue); text-decoration: none; font-size: 13.5px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; background: var(--surface);
+  }
+  nav.toc a:hover { border-color: var(--blue); }
+  section { margin-top: 46px; }
+  .secno { color: var(--cyan); font-size: 12.5px; letter-spacing: .16em; font-weight: 700; }
+  h2 { font-size: 25px; margin: 6px 0 10px; }
+  h3 { font-size: 18px; margin: 22px 0 8px; color: var(--ink); }
+  p { color: var(--muted); }
+  p.lead { color: var(--ink); font-size: 17px; }
+  strong { color: var(--ink); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; margin: 20px 0 6px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px 16px 13px; box-shadow: var(--shadow);
+  }
+  .stat .v { font-size: 25px; font-weight: 700; color: var(--ink); }
+  .stat .v .u { font-size: 14px; color: var(--muted); font-weight: 500; }
+  .stat .k { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .stat.green .v { color: var(--green); }
+  .stat.cyan .v { color: var(--cyan); }
+  .stat.blue .v { color: var(--blue); }
+  .stat.violet .v { color: var(--violet); }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14.2px; }
+  th, td { text-align: left; padding: 11px 14px; vertical-align: top; border-bottom: 1px solid var(--line); }
+  th { color: var(--cyan); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; background: var(--surface-2); }
+  tr:last-child td { border-bottom: none; }
+  td { color: var(--muted); }
+  td b, td strong { color: var(--ink); }
+  .ok { color: var(--green); font-weight: 700; }
+  .warn { color: var(--amber); font-weight: 700; }
+  .bad { color: var(--red); font-weight: 700; }
+  .mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+  code { background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--cyan); }
+  .flow { display: grid; gap: 10px; margin: 18px 0; }
+  .flow .stage {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 15px 18px; box-shadow: var(--shadow);
+  }
+  .flow .stage h4 { margin: 0 0 6px; font-size: 15.5px; color: var(--ink); }
+  .flow .stage .tag { font-size: 12px; color: var(--cyan); letter-spacing: .1em; font-weight: 700; }
+  .flow .stage ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .flow .down { text-align: center; color: var(--blue); font-size: 20px; margin: -2px 0; }
+  .callout {
+    border-left: 4px solid var(--blue); background: var(--surface-2);
+    border-radius: 0 12px 12px 0; padding: 13px 17px; margin: 18px 0; color: var(--muted); font-size: 14.6px;
+  }
+  .callout.green { border-left-color: var(--green); }
+  .callout.amber { border-left-color: var(--amber); }
+  .callout b { color: var(--ink); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 15px 18px; box-shadow: var(--shadow); }
+  .card h4 { margin: 0 0 7px; font-size: 15.5px; }
+  .card .tag { font-size: 11.5px; color: var(--cyan); letter-spacing: .12em; font-weight: 700; text-transform: uppercase; }
+  .card p, .card ul { font-size: 14px; margin: 6px 0 0; }
+  .card ul { padding-left: 18px; }
+  ul.plain { color: var(--muted); padding-left: 20px; }
+  ul.plain li { margin: 5px 0; }
+  footer {
+    margin-top: 64px; border-top: 1px solid var(--line); padding-top: 18px;
+    color: var(--muted); font-size: 13.5px;
+  }
+  a { color: var(--blue); }
+  @media (max-width: 640px) { h1 { font-size: 27px; } table { min-width: 560px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">Engineering results · feasibility evidence</div>
+  <h1>Rank-1 MISO/SIMO Implementation Results</h1>
+  <p class="sub">The approved target of the integration assessment (<span class="mono">mimo-integration-report.html</span>, 2026-08-16) —
+  DL 2×1 (then 4×1) MISO plus UL 1×2 (then 1×4) SIMO with srsUE kept at one antenna — has been
+  <b>implemented and verified live, end to end</b>, on a real OCUDU gNB ↔ GPU channel broker ↔ srsUE&nbsp;5G path.
+  <b>All Sionna RT items are excluded as instructed</b> (owned by another team member; merged later).</p>
+  <div class="meta">
+    <span class="chip">Workspace <b>ocudu-gpu-channel-rank1</b> · branch <b>rank1-miso-simo</b></span>
+    <span class="chip">Reported <b>2026-08-17</b></span>
+    <span class="chip ok">Every number measured · reproducible from the evidence index (§08)</span>
+  </div>
+  <nav class="toc">
+    <a href="#s0">00 Summary</a><a href="#s1">01 Feasibility verdict</a><a href="#s2">02 Lineage</a>
+    <a href="#s3">03 Requirements</a><a href="#s4">04 Live gates</a><a href="#s5">05 Quantitative evidence</a>
+    <a href="#s6">06 Integration constraints</a><a href="#s7">07 Next</a><a href="#s8">08 Evidence index</a>
+  </nav>
+</header>
+
+<section id="s0">
+  <div class="secno">00 · SUMMARY</div>
+  <h2>One-paragraph summary</h2>
+  <p class="lead">In both the two-port and the four-port configuration, a real srsUE completes attach + PDU session +
+  user-plane ping (60 packets, 0% loss); <strong>within the same gate run</strong> a wire capture is recomputed as
+  y&nbsp;=&nbsp;H·x and judged against the declared channel vectors; and GPU processing stays inside the 1&nbsp;ms slot budget.
+  The live multi-port proof the assessment listed as a "Not yet demonstrated" delivery gate is closed, and the four
+  integration constraints discovered along the way are each root-caused with the fix baked into the fixtures.</p>
+  <div class="stats">
+    <div class="stat green"><div class="v">2 / 2 <span class="u">gates pass</span></div><div class="k">2×1 and 4×1 live gates (attach + PDU + ping + matrix judgement)</div></div>
+    <div class="stat cyan"><div class="v">≤ 4.6e-05</div><div class="k">worst live y=Hx error (all UL rows; tolerance 1e-04)</div></div>
+    <div class="stat blue"><div class="v">12.9 <span class="u">µs</span></div><div class="k">4×1 GPU kernel p50 (1 ms slot budget)</div></div>
+    <div class="stat violet"><div class="v">0.01 <span class="u">dB</span></div><div class="k">oracle-precoding measurement vs prediction (MRT / duplication / null sweep)</div></div>
+  </div>
+</section>
+
+<section id="s1">
+  <div class="secno">01 · FEASIBILITY VERDICT</div>
+  <h2>The assessment's verdict questions, answered today</h2>
+  <p>The assessment (§01) judged the public remote snapshot <span class="mono">a801155</span>. The work since then
+  changes the answers below — and each answer is locked behind a repeatable gate.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Question</th><th>Answer at assessment time</th><th>Answer today · evidence</th></tr>
+    <tr><td>Can this project emulate a multi-antenna channel?</td>
+        <td class="bad">No — scalar/SISO per node</td>
+        <td><span class="ok">Yes</span> — RadioNode multi-port model, per-direction row/column vectors (<code>fixed_mimo</code>), live y=Hx ≤ 4.6e-05</td></tr>
+    <tr><td>Does 2×1 / 1×2 rank-1 run live?</td>
+        <td class="warn">Not yet demonstrated (delivery gate)</td>
+        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-2x1.sh</code> <b>result=pass</b> + matrix judgement passed (<span class="mono">20260817T091805Z</span>)</td></tr>
+    <tr><td>Does it extend to 4×1 / 1×4?</td>
+        <td class="warn">Planned (gated on the two-port pass)</td>
+        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-4x1.sh</code> <b>result=pass</b> + all four UL rows pass y=Hx (<span class="mono">20260817T091856Z</span>)</td></tr>
+    <tr><td>Does srsUE stay rank-1?</td>
+        <td>Requirement</td>
+        <td><span class="ok">Kept</span> — <code>nof_antennas = 1</code> unchanged, the 1×1 regression gate stays green, and every result is described as rank-1 MISO/SIMO only</td></tr>
+  </table></div>
+  <div class="callout green"><b>Operational definition of feasibility</b> — "does the real OCUDU stack and the real srsUE
+  complete the standard procedure chain (RA → RRC → NAS registration → PDU → user plane) through the multi-port channel
+  vectors we declare?" By that definition the answer is <b>Yes for both two and four ports.</b></div>
+</section>
+
+<section id="s2">
+  <div class="secno">02 · LINEAGE</div>
+  <h2>From the pre-MIMO code to today</h2>
+  <div class="flow">
+    <div class="stage">
+      <div class="tag">BASELINE — pre-MIMO (public snapshot line a801155)</div>
+      <h4>One stream per node, one scalar channel per directed edge</h4>
+      <ul><li>Live 1×1 OCUDU↔srsUE attach, TR 38.901 TDL-A..E, GPU kernel (183× speedup), runtime control plane</li>
+      <li>No antenna-port dimension — the point where the assessment's "No" verdict was earned</li></ul>
+    </div>
+    <div class="down">▼</div>
+    <div class="stage">
+      <div class="tag">M0–M5 — MIMO rebuild (parent tree)</div>
+      <h4>The RadioNode overlay: alignment as a structural invariant, not a protocol</h4>
+      <ul><li>One producer thread per node exclusively owns the common sample window — no second actor exists that could pick a different window for a sibling port</li>
+      <li>Port declaration order in <code>radio_nodes</code> IS the matrix index · sparse <code>fixed_mimo</code> coefficients · spatial correlation / coherent LOS</li>
+      <li>Atomic per-physical-link runtime control (a partially updated port vector is unrepresentable)</li>
+      <li>Live multi-port transport against a real 2T2R gNB, up to and including wire-capture y=Hx matrix verification</li></ul>
+    </div>
+    <div class="down">▼</div>
+    <div class="stage">
+      <div class="tag">R0–R3 — the rank1 fork (this tree, aligned to the assessment minus Sionna)</div>
+      <h4>Asymmetric (N×1 / 1×N) configurations and live srsUE integration</h4>
+      <ul><li>R0 asymmetric topology → R1 deterministic-channel proofs (phase sweep, branch isolation) → R2 live 2×1/1×2 → R3 4×1/1×4 plus a root-cause investigation</li>
+      <li>Then: matrix judgement folded into the gates · labelled performance envelopes · the oracle-precoding study</li></ul>
+    </div>
+  </div>
+  <div class="callout"><b>Why this path favoured feasibility</b> — the data-model changes the assessment's §07 required
+  (endpoint arrays per port, per-direction vector channels, a grouped slot barrier, atomic vector activation) are
+  structurally the same things M0–M5 had already built. The rank1 work was therefore integration and verification,
+  not redesign: <b>outside one phase-sweep unit test, zero emulator-core C++ changed.</b></div>
+</section>
+
+<section id="s3">
+  <div class="secno">03 · REQUIREMENTS</div>
+  <h2>Requirement coverage (against the controlling brief)</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Brief requirement</th><th>How it is met · evidence</th></tr>
+    <tr><td>OCUDU gNB + srsUE 5G through the real-time GPU ZMQ emulator</td><td>R2/R3 live gates pass; strict counters all zero; zero gNB RF real-time failures</td></tr>
+    <tr><td>Keep srsUE at one TX/RX stream, one layer</td><td><code>nof_antennas = 1</code> unchanged — the UE config renders byte-identical to the 1×1 regression gate</td></tr>
+    <tr><td>gNB-side array/diversity benefit with a rank-1 UE</td><td>UL: the gNB genuinely equalises 2/4 receive ports (per-row y=Hx). DL: the oracle study measures the +0.54 dB MRT array gain live</td></tr>
+    <tr><td>Validate two ports before gating four</td><td>R2 → R3 sequential gates, each passing</td></tr>
+    <tr><td>Study fixed / oracle-selected rank-1 precoding and the effective channel</td><td>Four-weight oracle sweep, live, matching prediction to 0.01 dB (§05)</td></tr>
+    <tr><td>Prove coefficients and port alignment with synthetic peers before live srsUE</td><td>R0/R1 synthetic proofs precede R2/R3 live runs</td></tr>
+    <tr><td>Preserve the 1×1 path as a regression test</td><td><code>run-ocudu-legacy-1x1.sh</code> untouched and green alongside</td></tr>
+    <tr><td>Precoding/beam weights stay in OCUDU/RU; propagation/fading/noise/superposition stay here</td><td>Honoured — every emulator-supplied weight is explicitly labelled "oracle"</td></tr>
+    <tr><td>One logical slot boundary across gNB ports; atomic channel updates</td><td>The producer's single window (structural) plus M4's atomic control — the live y=Hx pass is itself the measured proof of alignment</td></tr>
+    <tr><td>Zero starvation-class integrity errors · CPU/CUDA correctness · fully labelled performance</td><td>All gates: 0 overflow / 0 gap / 0 ZMQ errors · ctest 8/8 on both trees · the fully labelled table in §05</td></tr>
+  </table></div>
+  <div class="callout amber"><b>What is NOT claimed (per the brief's writing rules)</b> — rank&gt;1 SU-MIMO (a separate
+  workstream in the parent tree), UE receive diversity or beam steering, automatic closed-loop PMI beam control,
+  same-PRB MU-MIMO, or the phrase "end-to-end 4×4 MIMO". Duplication is never called diversity — the oracle study in
+  fact proves duplication is <b>1.24 dB worse than MRT</b> (§05).</div>
+</section>
+
+<section id="s4">
+  <div class="secno">04 · LIVE GATES</div>
+  <h2>Feasibility evidence I — live end-to-end gates</h2>
+  <p>The primary evidence is "does the real stack actually complete". Both gates are single repeatable commands, and each
+  judges four things <b>within one run</b>:</p>
+  <div class="grid2">
+    <div class="card"><div class="tag">① Procedure completion</div><h4>RA → RRC → NAS registration → PDU → ping</h4><p>User-plane ICMP: 60 packets, 0% loss required</p></div>
+    <div class="card"><div class="tag">② Transport integrity</div><h4>Strict counters = 0</h4><p>Zero overflow / sequence gap / ZMQ errors · zero gNB "Real-time failure in RF"</p></div>
+    <div class="card"><div class="tag">③ Channel content</div><h4>y = H·x recomputation</h4><p>A 500 ms wire capture flushed by the broker at shutdown is recomputed by an independent checker against the DECLARED topology H — it grades the computation, not the traffic</p></div>
+    <div class="card"><div class="tag">④ Provenance</div><h4>Reproducibility</h4><p>Source-commit pins, binary/config SHA-256, and the channel source manifest preserved as JSON</p></div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>Gate</th><th>Run ID</th><th>Result</th><th>Live y=Hx (tolerance 1e-04)</th></tr>
+    <tr><td><b>2×1 DL + 1×2 UL</b></td><td class="mono">20260817T091805Z</td><td class="ok">pass</td><td>UL rows ≤ 2.2e-05 · DL row 3.7e-08</td></tr>
+    <tr><td><b>4×1 DL + 1×4 UL</b></td><td class="mono">20260817T091856Z</td><td class="ok">pass</td><td>UL rows = 4.6 / 2.2 / 1.7 / 2.8 ×e-05</td></tr>
+    <tr><td>1×1 srsUE regression</td><td>same day</td><td class="ok">pass</td><td>legacy path unregressed</td></tr>
+    <tr><td>Standing GPU sequence</td><td>same day</td><td class="ok">9/9 pass</td><td>synthetic relay · AWGN · graph · two-cell · TDL-A, etc.</td></tr>
+  </table></div>
+  <div class="callout green">Per-row UL RMS matches each declared coefficient magnitude |h<sub>r</sub>| to a relative
+  error of ~6×10⁻⁷ (the fp32 floor) — <b>each of the gNB's 2/4 receive ports receives its own independent branch
+  exactly, and OCUDU genuinely combines them in decoding.</b> That is the live proof of what the assessment called
+  "the strongest end-to-end diversity target".</div>
+</section>
+
+<section id="s5">
+  <div class="secno">05 · QUANTITATIVE EVIDENCE</div>
+  <h2>Feasibility evidence II — the numbers</h2>
+
+  <h3>Channel accuracy · analytic closure</h3>
+  <ul class="plain">
+    <li>Four-port <b>synthetic</b> capture: all four UL rows max|y−Hx| ≤ 1.3e-07 · DL 1×4 row 1.24e-07 · off-diagonal share 1.18 (all four sources contributing)</li>
+    <li>Coherent phase sweep (a mutation-verified unit test — the same waveform into both TX lanes): φ=0 → 2× amplitude, φ=π → 0, φ=π/2 → 1+j — exact</li>
+    <li>Live-broker branch isolation: tx1-only received power measured 0.0280165 vs 0.02802 predicted (<b>0.05%</b>) — and once the synthetic peer's deterministic marker correlation is modelled, the coherent-sum power reproduces the prediction to four decimal places</li>
+  </ul>
+
+  <h3>Real-time budget (fully labelled)</h3>
+  <p class="mono" style="font-size:13px">Threadripper PRO 7965WX · one RTX 5090 · 23.04 MS/s · batch 23040 (= 1 ms slot) · CUDA backend · fixed_mimo (single tap) + TDL chain · 20 s gate runs · n=18 snapshots</p>
+  <div class="tablewrap"><table>
+    <tr><th>Config</th><th>GPU h2d / kernel / d2h p50 (µs)</th><th>Node process p50 / p99 (µs)</th><th>Share of the 1 ms slot (p99)</th></tr>
+    <tr><td><b>2×1</b></td><td>7.7 / 11.3 / 7.9</td><td>80.2 / 131.9</td><td class="ok">13%</td></tr>
+    <tr><td><b>4×1</b></td><td>51.0 / 12.9 / 14.9</td><td>119.2 / 619.1</td><td class="ok">62%</td></tr>
+  </table></div>
+  <p>Both configurations stay inside the slot budget, observed maxima included. The thinning p99 margin at four ports is
+  recorded as a re-measurement item before any 8-port+ extension.</p>
+
+  <h3>The oracle-precoding study — "gain exists only where the phases match", proven live</h3>
+  <p>Precoding belongs to the gNB/RU, but srsRAN offers no injection knob — so the emulator declares the
+  <b>effective</b> scalar c = h·w of the physical row h = [0.80+0.10j, 0.25−0.15j] under a weight chosen by the
+  experimenter <b>with channel knowledge (an oracle)</b>. Since amplitude is not gain on a noiseless channel, a fixed
+  −30 dB AWGN floor makes |c|² an actual SNR. Each case is a full live attach run:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Oracle weight</th><th>Predicted (vs MRT)</th><th>Measured</th><th>Live outcome</th></tr>
+    <tr><td><b>MRT</b> conj(h)/‖h‖ (matched)</td><td>0 dB</td><td>reference</td><td class="ok">attach + PDU + ping</td></tr>
+    <tr><td>port0-only [1, 0]</td><td>−0.53 dB</td><td><b>−0.54 dB</b></td><td class="ok">attach + PDU + ping</td></tr>
+    <tr><td>naive duplication [1, 1]/√2</td><td>−1.24 dB</td><td><b>−1.24 dB</b></td><td class="ok">attach + PDU + ping</td></tr>
+    <tr><td>anti-matched deep null</td><td>−38.7 dB</td><td>(cell gone)</td><td class="bad">cell search fails — as predicted</td></tr>
+  </table></div>
+  <p>Absolute received power matches |h·w|²·P<sub>tx</sub>+noise at ratio 1.000 in all four cases. This is a
+  <b>live measurement of the 2×1 MRT array gain (+0.54 dB)</b>, a quantitative proof that duplication is not diversity,
+  and a demonstration of anti-matched self-cancellation. The weights are oracle-chosen; no closed-loop PMI is implied.</p>
+</section>
+
+<section id="s6">
+  <div class="secno">06 · INTEGRATION CONSTRAINTS</div>
+  <h2>Feasibility evidence III — root-caused constraints and their fixes</h2>
+  <p>The most valuable part of a feasibility result is "<b>under which conditions</b> does it work". The four constraints
+  discovered during live integration are each root-caused, and each fix is locked into the fixtures with an inline
+  rationale plus a renderer invariant.</p>
+  <div class="tablewrap"><table>
+    <tr><th>#</th><th>Symptom</th><th>Root cause (evidence)</th><th>Fix (where it lives)</th></tr>
+    <tr><td>1</td><td>gNB refuses to start at 2T2R with the conventional srsUE PDCCH override</td>
+        <td>OCUDU's validator forbids fallback DCI (SS#2) with &gt;1 DL antenna (<span class="mono">du_cell_config_validation.cpp:290</span>)</td>
+        <td><code>ss2_type: ue_dedicated</code> + <code>dci_format_0_1_and_1_1: true</code> — and a 1×1 control run <b>proved srsUE actually supports DCI 0_1/1_1</b>, overturning the received wisdom</td></tr>
+    <tr><td>2</td><td>Connection collapses into a release/re-RA loop right after RRC at 2T2R</td>
+        <td>The srsUE PoC cannot apply a 2-port NZP-CSI-RS (FD-CDM2) resource — its whole connection-setup procedure dies (UE log: "Resource mapping is invalid or not implemented")</td>
+        <td><code>csi_rs_enabled: false</code> + <code>nof_cell_csi_res: 0</code></td></tr>
+    <tr><td>3</td><td>gNB refuses to start with multiple DL antennas</td>
+        <td>OCUDU rejects MAC pcap combined with &gt;1 DL antenna as an invalid configuration</td>
+        <td><code>pcap.mac_enable: disable</code></td></tr>
+    <tr><td>4</td><td>Registration fails probabilistically (bimodal) at UL 4R</td>
+        <td>With CSI off, the gNB's UL link adaptation trusts its own SNR estimate — which saturates at ~11 dB on the noiseless channel while the residual distortion is not AWGN — and keeps scheduling 64QAM (rate 0.93), producing a <b>standing ~20% PUSCH KO rate</b> (identical in passing runs). A run dies exactly when a consecutive-KO burst lands on the registration-critical window: the bimodality is survival probability, not a state</td>
+        <td><code>pusch.max_ue_mcs: 9</code> — full 4T4R then attaches <b>3/3 with zero KO</b></td></tr>
+  </table></div>
+  <div class="callout"><b>The investigation method is itself the credibility</b> — for #4, the channel/broker (wire y=Hx
+  exact even in failing runs), ring sizing, UE config application, resync events, and the tx/rx stream-origin phase were
+  <b>each eliminated by direct measurement</b>; and the headline "failure signal" <code>epre=-inf</code> turned out to be
+  the <b>normal DTX log</b> of SR occasions where the UE had nothing to request (cross-checked: 308 SRs transmitted ↔
+  308 detected; all 841 granted PUSCH occasions in 1:1 correspondence). The emulator was innocent even in the failing
+  runs — every constraint sits with the integration partners (stack policy / PoC UE scope), and those boundaries are now
+  documented knowledge.</div>
+  <h3>Honest residual limits</h3>
+  <ul class="plain">
+    <li><b>gNB ports ≥ 1 never radiate on the DL in this configuration</b> — srsRAN puts SSB/common channels on port 0 only and precodes rank-1 PDSCH as [1,0,…] (measured on the wire). The DL multi-branch coherent content is therefore proven by the synthetic gates (R0/R1) and the oracle effective-channel study, and the in-gate matrix judgement <b>declares</b> this fact via <code>--allow-silent-source</code> (a recorded statement of a measured fact, not a waived check).</li>
+    <li><code>max_ue_mcs: 9</code> is the partner setting of CSI-off and caps UL throughput — this workstream makes no throughput claims, so it stays inside the stated result boundary.</li>
+    <li>The 4-port real-time p99 margin (§05) is a re-measurement item before any 8-port+ extension.</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <div class="secno">07 · NEXT</div>
+  <h2>Next steps</h2>
+  <ul class="plain">
+    <li><b>Sionna RT merge interface</b> (when its owner joins): this tree's wire-capture / matrix-judgement
+    infrastructure is directly reusable as the scoring tool for the record/replay validation gates, and the
+    per-direction vector channels with atomic activation are the receiver-side structure the coefficient-horizon
+    contract requires.</li>
+    <li>Re-measure real-time margins before extending the gNB side past four ports; add spatial correlation / CDL
+    (assets already exist in the parent tree) if a beam/diversity study requires it.</li>
+    <li>Rank&gt;1 continues separately in the parent tree (<span class="mono">ocudu-gpu-channel-mimo-claude</span>,
+    OAI-nrUE workstream) — outside this tree's scope.</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <div class="secno">08 · EVIDENCE INDEX</div>
+  <h2>Evidence index</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Evidence</th><th>Location</th></tr>
+    <tr><td>Live gates (re-runnable)</td><td class="mono">scripts/native/run-ocudu-rank1-2x1.sh · run-ocudu-rank1-4x1.sh · run-ocudu-legacy-1x1.sh</td></tr>
+    <tr><td>Gate artefacts (summary JSON · matrix report · logs · source pins)</td><td class="mono">~/ocudu-native-workspace/results/{reports,logs}/rank1-2x1/20260817T091805Z · rank1-4x1/20260817T091856Z</td></tr>
+    <tr><td>Fixtures (constraint rationale inline)</td><td class="mono">examples/native/ocudu/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml · examples/native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml · topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml</td></tr>
+    <tr><td>Independent matrix checker (reads H from the topology, trusts nothing the broker emits)</td><td class="mono">scripts/native/verify-mimo-matrix-capture.py</td></tr>
+    <tr><td>Phase-sweep unit test (mutation-verified)</td><td class="mono">tests/test_processing.cpp — R1 section</td></tr>
+    <tr><td>Full work & investigation narrative (incl. eliminated hypotheses)</td><td class="mono">AGENT_PROGRESS.md — "Rank-1 Workstream" section</td></tr>
+    <tr><td>Roadmap · status · measurement labels</td><td class="mono">RANK1_MILESTONES.md</td></tr>
+    <tr><td>Commit history</td><td class="mono">branch rank1-miso-simo (fork point 1ddb240 · R0–R2 bbde668 · R3 root cause a44b8b5 · gate integration 43aa107 · oracle 4be3d7f)</td></tr>
+  </table></div>
+</section>
+
+<footer>
+  <b>Assessment boundary.</b> Every claim in this document is reproducible from the artefacts indexed above; nothing
+  absent from that index is claimed. Rank&gt;1, UE receive beamforming, closed-loop PMI, MU-MIMO, and end-to-end 4×4
+  MIMO are not results of this workstream. Sionna RT integration is excluded as instructed and will be merged with its
+  owner's workstream later.<br>
+  Generated from <span class="mono">docs/rank1-feasibility-report.md</span> · 2026-08-17
+</footer>
+
+</div>
+</body>
+</html>
