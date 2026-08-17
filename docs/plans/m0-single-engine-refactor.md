@@ -1,6 +1,6 @@
 # M0 — 단일 엔진 리팩터 상세 설계
 
-상위 문서: [`MIMO_MILESTONES.md`](../../MIMO_MILESTONES.md) · 미션: [`AGENT_GOAL.mimo.md`](../../AGENT_GOAL.mimo.md)
+상위 문서: [`MIMO_MILESTONES.md`](../../MIMO_MILESTONES.md) · 미션: [`AGENT_GOAL.md`](../../AGENT_GOAL.md)
 
 **M0의 목표는 MIMO 기능이 아니다. 브로커 스레드 구조를 producer/ring 모델로 바꾸고, 그 변경만 단독으로 라이브 검증하는 것이다.** 이 마일스톤이 끝난 시점에 `Nt = Nr = 1`이고 출력은 여전히 행 하나이며, 관측 가능한 동작은 pre-MIMO와 같아야 한다.
 

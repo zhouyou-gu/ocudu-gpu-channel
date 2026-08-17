@@ -112,7 +112,7 @@ H_ℓ = sqrt(P_ℓ/(K+1))·H_NLOS,corr + sqrt(P_ℓ·K/(K+1))·H_LOS,coh
 
 오늘 커널의 per-tap `los_factor` / `rayleigh_factor`가 이미 그 두 스칼라다(`device_channel.cu:204-207`). 바뀌는 것은 **`H_LOS,coh`의 lane 성분이 어디서 오는가**뿐이다: lane RNG의 독립 draw(`tap_phi_los`)가 아니라 **선언된 행렬**에서 온다.
 
-**기하에서 유도하지 않는다.** `AGENT_GOAL.mimo.md`의 비목표가 안테나 배열 기하·빔포밍·프리코더·CDL을 사용자의 명시적 확장 없이는 제외한다. 따라서 LOS 위상은 안테나 간격에서 계산하는 것이 아니라 `fixed_mimo`와 같은 sparse 복소 계수 형태로 **선언**한다:
+**기하에서 유도하지 않는다.** `AGENT_GOAL.md`의 비목표가 안테나 배열 기하·빔포밍·프리코더·CDL을 사용자의 명시적 확장 없이는 제외한다. 따라서 LOS 위상은 안테나 간격에서 계산하는 것이 아니라 `fixed_mimo`와 같은 sparse 복소 계수 형태로 **선언**한다:
 
 ```yaml
     los_matrix:

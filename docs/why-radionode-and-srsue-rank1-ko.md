@@ -1,7 +1,7 @@
 # RadioNode 단이 필요한 이유와 srsUE의 MIMO 한계
 
 기준 문서: [`docs/plans/m0-single-engine-refactor.md`](plans/m0-single-engine-refactor.md)
-상위 문서: [`MIMO_MILESTONES.md`](../MIMO_MILESTONES.md) · 미션: [`AGENT_GOAL.mimo.md`](../AGENT_GOAL.mimo.md)
+상위 문서: [`MIMO_MILESTONES.md`](../MIMO_MILESTONES.md) · 미션: [`AGENT_GOAL.md`](../AGENT_GOAL.md)
 
 M0 설계 문서를 읽을 때 반복해서 나오는 두 질문에 답한다.
 
@@ -52,7 +52,7 @@ for (k : incoming) { ... common = min(common, avail); }
 
 즉 정확한 명제는 "초기 커서 정렬"이 아니다 — 초기 co-init은 이미 공통 origin으로 맞춰진다. 정확히는 **"sibling RX 포트가 매 epoch 동일한 window를 소비해야 하는데, per-destination-device 서버 모델에는 그것을 강제하는 장치가 없다"** 이다.
 
-이것은 미션 제약에도 못 박혀 있다 (`AGENT_GOAL.mimo.md` Constraints):
+이것은 미션 제약에도 못 박혀 있다 (`AGENT_GOAL.md` Constraints):
 
 > All ports of one radio share one sample epoch, and all matrix coefficients between two radios belong to one channel realization with one time origin; **per-port state that can drift independently is not an acceptable implementation of a matrix channel.**
 
@@ -150,7 +150,7 @@ M0의 목적은 MIMO가 아니라 **브로커 스레드 구조 전환만 단독�
 
 ### 2.4 그래서 게이트가 어떻게 갈리는가
 
-`AGENT_GOAL.mimo.md` Non-Goals가 이것을 명시한다.
+`AGENT_GOAL.md` Non-Goals가 이것을 명시한다.
 
 > Claiming live multi-layer (rank > 1) operation on the basis of transport-level multi-port flow alone, or on the basis of several independent single-port UE processes; a live rank-2 claim requires a UE PHY that jointly estimates and decodes the matrix channel.
 

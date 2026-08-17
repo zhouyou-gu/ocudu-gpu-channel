@@ -21,7 +21,7 @@
 
 - Control files: `AGENT.md`, `AGENT_GOAL.md`, `AGENT_HARNESS.md`, `AGENT_PROGRESS.md`.
 - Session resume aid: `HANDOVER.md`. It is a quickstart, NOT a control file -- it states outright that this file is canonical and that it loses any disagreement, per `AGENT.md`'s precedence rule. Refresh it when the resume point changes.
-- MIMO mission amendment: `AGENT_GOAL.mimo.md` is a duplicate of `AGENT_GOAL.md` carrying the user-instructed MIMO amendment (one Statement line changed, five bullets added across Scope / Non-Goals / Success Criteria / Constraints). `AGENT_GOAL.md` itself is unmodified. **Which of the two governs this workspace is an open user decision.**
+- MIMO mission amendment: on 2026-08-17 the user resolved the governing-file question -- the MIMO amendment (one Statement line changed, five bullets added across Scope / Non-Goals / Success Criteria / Constraints) was merged into the canonical `AGENT_GOAL.md` and the parallel copy `AGENT_GOAL.mimo.md` was deleted. `AGENT_GOAL.md` alone governs.
 - MIMO rebuild plan: `MIMO_MILESTONES.md` (design decisions, cursor-alignment analysis, milestones M0-M5, salvage list) and the per-milestone designs `docs/plans/m0-single-engine-refactor.md`, `m1-dimensions-and-fixed-matrix.md`, `m2-iid-stochastic-fading.md`, `m3-spatial-correlation-and-los.md`, `m4-physical-link-runtime-control.md`, `m5-live-integration.md`.
 - Local configuration: `.gitignore`, tracked `.config.example`, and ignored `.config`.
 - Application scaffold: `CMakeLists.txt`, `apps/`, `include/`, `src/`, `tests/`, `examples/`, and `docs/` exist locally as uncommitted implementation work.
@@ -342,11 +342,12 @@ Progress entry template
 - [M4 live control plane] Added `ocudu-control-req`, the first control client outside the unit tests, and extended `gpu-test-sequence.sh` to nine steps: a `correlation_swap` against a RUNNING broker moves the received power off the iid value (6.94 to 9.29 cumulative). Disabling only the device-side group upload leaves every unit test green and fails this step -- the regression class no unit test here can see.
 - [M4 validation] `ctest` 8/8 on both trees at every step, `gpu-test-sequence.sh` 9/9, live 1x1 attach re-run after M4 (`20260815T103840Z`, `status=passed`), and a fingerprint A/B confirming the ownership move left 1x1 output bit-identical to M3.
 - [MIMO plan] Added `docs/plans/m0-single-engine-refactor.md`: broker ownership-transfer table, producer loop with the preserved pre-MIMO invariants annotated, `PortRepWorker` loop, RX ring sizing with an explicit added-latency budget and Msg3 exit condition, deadlock analysis, the multi-row `process_superposition` signature with a single-row convenience overload that keeps all seven existing call sites unchanged, and a six-commit work breakdown.
+- [Mission] The user amended the mission (2026-08-17): the MIMO amendment now governs -- merged into `AGENT_GOAL.md`, and the parallel copy `AGENT_GOAL.mimo.md` was deleted with live references updated.
 
 ## Blockers and Risks
 
 - The added RX-side output ring is new latency that the pre-MIMO design did not have (it computed on demand). It is bounded by the producer high-water mark at one batch, but its effect on NR procedure timing is unmeasured. Msg3 PUSCH is the thinnest margin in this system on record, so M0 cannot be declared complete on unit tests alone.
-- Whether `AGENT_GOAL.md` or `AGENT_GOAL.mimo.md` governs this workspace is unresolved and requires an explicit user decision; the agent shall not promote the amendment autonomously.
+- RESOLVED (2026-08-17): the user decided the MIMO amendment governs; it is merged into `AGENT_GOAL.md` and `AGENT_GOAL.mimo.md` is deleted.
 - **RESOLVED (2026-08-15) — multi-port ZMQ is supported on the gNB side, and the UE side is where it stops.** Read against the pinned checkout `~/ocudu-native-workspace/src/ocudu` at `a1916edcd` and `~/ocudu-native-workspace/src/srsRAN_4G` at `eea87b1`:
   - **OCUDU gNB: N ZMQ ports per cell.** `ru_sdr_config_translator.cpp:180` and `:203` loop `for (port_id = 0; port_id != cell.nof_tx_antennas / nof_rx_antennas; ++port_id)` and assign `zmq_tx_addr[sector_id * nof_tx_antennas + port_id]` as each channel's `args`; out-of-range addresses are a hard `report_error`. `extract_zmq_ports()` takes every comma-separated `device_args` entry whose key CONTAINS `tx_port` / `rx_port`, in written order — so `tx_port0=...,tx_port1=...,rx_port0=...,rx_port1=...` is the syntax, and the port count comes from `--nof_antennas_dl` / `--nof_antennas_ul` (`du_high_config_cli11_schema.cpp:2668`). `radio_session_zmq_impl.cpp:53-108` builds one ZMQ channel per entry.
   - **OCUDU gNB uplink genuinely combines its RX ports.** `pusch_demodulator_impl.cpp:260,336,344` equalises across `config.rx_ports.size()` with per-port channel estimates and noise variances. A 1x2 SIMO uplink through an emulated matrix is therefore live-demonstrable with a real PHY consuming both rows.
@@ -970,7 +971,7 @@ srsUE 1x1 게이트는 회귀 안전망으로 유지한다. OAI는 교체가 아
 **열려 있는 것은 코드가 아니라 사용자 결정과 문서다.** 우선순위 순으로:
 
 1. **`docs/index.html`에 MIMO가 없다.** 출하 기술 문서가 pre-MIMO 시스템(SISO 에뮬레이터)을 설명하며, M0~M5가 문서에 존재하지 않는다. 코드는 끝났고 문서는 다섯 마일스톤만큼 뒤쳐져 있으므로, 지금은 이것이 가장 큰 격차다.
-2. **지배 mission 파일 미확정** — `AGENT_GOAL.md` vs `AGENT_GOAL.mimo.md`. 실질은 `.mimo`가 지배해 왔다. 에이전트는 자율로 정하지 않는다.
+2. ~~지배 mission 파일 미확정~~ — **해소됨 (2026-08-17)**: 사용자 지시로 MIMO 개정을 `AGENT_GOAL.md`에 병합, `AGENT_GOAL.mimo.md` 삭제.
 3. **M0의 라이브 부채 2건**(multi-UE / multi-gNB) — unprivileged LXC 환경 차단이며 베이스라인에서도 동일 재현된다.
 4. `fixed_mimo`와 `los_matrix`의 통합 여부(M3 종료 시 보류, `docs/plans/m3-*.md` §2.6).
 
@@ -987,7 +988,7 @@ M1.6에서 새 CUDA 테스트가 **가드 매크로 이름이 틀려 컴파일�
 
 M2가 그 다음 형태를 보여줬다: **통과하던 기존 테스트도 아무것도 검증하지 않고 있을 수 있다.** 단일 lane Bessel 게이트는 3개 마일스톤 동안 green이었지만 실제로는 시드 운을 채점하고 있었고, 커널을 건드리지 않은 재시드만으로 깨졌다. 실패했을 때 관측값과 **해석적 예측**을 비교한 것이 원인을 시드 운으로 특정하게 해줬다 — 허용오차를 넓혀 되살렸다면 게이트는 영원히 무의미해졌을 것이다. 확률 과정의 게이트는 realization 하나가 아니라 앙상블로 판정해야 한다(`AGENT_HARNESS.md`에 durable rule로 승격).
 - Sequence and exit gates: `docs/plans/m0-single-engine-refactor.md` §8-§9.
-- Open user decisions blocking nothing but worth settling early: (a) which mission file governs, (b) whether `MIMO_MILESTONES.md` and `AGENT_GOAL.mimo.md` should also be removed from the pristine `ocudu-gpu-channel-pre-mimo` baseline tree, where duplicates of both currently exist and will drift.
+- Open user decision blocking nothing but worth settling early: whether `MIMO_MILESTONES.md` and `AGENT_GOAL.mimo.md` should also be removed from the pristine `ocudu-gpu-channel-pre-mimo` baseline tree, where duplicates of both currently exist and will drift. (The governing-file question itself was resolved 2026-08-17: the MIMO amendment was merged into this tree's `AGENT_GOAL.md` and the `.mimo` copy deleted here.)
 
 ### Baseline Context (inherited from the pre-MIMO tree)
 

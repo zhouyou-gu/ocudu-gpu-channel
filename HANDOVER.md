@@ -4,9 +4,9 @@
 
 ## 0. 먼저 읽을 것
 
-`AGENT.md` → `AGENT_GOAL.mimo.md` → `AGENT_HARNESS.md` → `AGENT_PROGRESS.md` 순서(`AGENT.md`가 강제). 그다음 이 파일. M6 작업이면 [`docs/plans/m6-rank2-su-mimo-live.md`](docs/plans/m6-rank2-su-mimo-live.md)까지.
+`AGENT.md` → `AGENT_GOAL.md` → `AGENT_HARNESS.md` → `AGENT_PROGRESS.md` 순서(`AGENT.md`가 강제). 그다음 이 파일. M6 작업이면 [`docs/plans/m6-rank2-su-mimo-live.md`](docs/plans/m6-rank2-su-mimo-live.md)까지.
 
-**미해결 사용자 결정**: `AGENT_GOAL.md`(원본)와 `AGENT_GOAL.mimo.md`(MIMO 조항) 중 어느 것이 지배하는지 미확정. 실질은 `.mimo`가 지배해 왔다. 에이전트는 자율로 정하지 않는다. **M6은 이 결정과 무관하게 진행 가능하다**(§3).
+**지배 mission 파일 확정 (2026-08-17)**: 사용자 지시로 MIMO 개정이 정본 `AGENT_GOAL.md`에 병합되었고, 병렬 사본 `AGENT_GOAL.mimo.md`는 삭제되었다. 이 결정은 더 이상 열려 있지 않다.
 
 ## 1. 지금 어디까지 왔나
 

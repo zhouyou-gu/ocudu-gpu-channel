@@ -2,7 +2,7 @@
 
 기준 코드: pre-MIMO 베이스라인 (이 트리, 12,755줄). 이전 시도(`ocudu-gpu-channel-audit`, +29,296줄)는 참고 자산으로만 사용하고 구조는 계승하지 않는다.
 
-미션 파일은 `AGENT_GOAL.mimo.md`를 따른다. 원본 `AGENT_GOAL.md`는 변경하지 않았다.
+미션 파일은 `AGENT_GOAL.md`를 따른다. 2026-08-17 사용자 지시로 MIMO 개정이 정본에 병합되었고, 병렬 사본 `AGENT_GOAL.mimo.md`는 삭제되었다.
 
 ---
 
@@ -247,7 +247,7 @@ wire payload에는 타임스탬프가 없다. `IqSample`은 `{float i, float q}`
 
 **명시적 비게이트**
 - srsUE `release_23_11` NR 경로는 `max_mimo_layers = 1`, DL 추정/복호가 `sf_symbols[0]` 기준이다. **이 UE는 rank-2 acceptance gate가 될 수 없다.** 독립 srsUE 프로세스 두 개는 2-port UE 하나가 아니다.
-- 진짜 rank-2 주장은 MIMO 지원 UE PHY가 준비된 뒤 별도 게이트로 둔다 (`AGENT_GOAL.mimo.md` Non-Goals).
+- 진짜 rank-2 주장은 MIMO 지원 UE PHY가 준비된 뒤 별도 게이트로 둔다 (`AGENT_GOAL.md` Non-Goals).
 - **→ 그 조건이 2026-08-16에 충족됐다. M6을 참조할 것.** M5의 이 절은 srsUE에 대한 판정으로서 계속 유효하지만, "MIMO 지원 UE PHY가 준비된 뒤"라는 유보는 더 이상 열려 있지 않다.
 
 ---
@@ -317,7 +317,7 @@ OAI `openairinterface5g` develop 브랜치를 직접 받아 확인한 사실:
 
 **미션 관계**
 
-`AGENT_GOAL.mimo.md`의 Non-Goal은 rank-2 **구현**을 금지한 적이 없다. 금지 대상은 *"transport-level multi-port flow alone"* 또는 *"several independent single-port UE processes"*에 근거한 **주장**이고, 같은 문장이 유효 조건을 명시한다 — *"a live rank-2 claim requires a UE PHY that jointly estimates and decodes the matrix channel."* OAI nrUE가 그 조건을 충족하므로 **M6은 미션 개정 없이 성립한다.** UE는 Scope의 *"UE-side endpoints ... and local test harnesses"*에 해당한다.
+`AGENT_GOAL.md`의 Non-Goal은 rank-2 **구현**을 금지한 적이 없다. 금지 대상은 *"transport-level multi-port flow alone"* 또는 *"several independent single-port UE processes"*에 근거한 **주장**이고, 같은 문장이 유효 조건을 명시한다 — *"a live rank-2 claim requires a UE PHY that jointly estimates and decodes the matrix channel."* OAI nrUE가 그 조건을 충족하므로 **M6은 미션 개정 없이 성립한다.** UE는 Scope의 *"UE-side endpoints ... and local test harnesses"*에 해당한다.
 
 단, 아래 둘은 미션 개정이 필요하다. 에이전트는 자율로 진행하지 않는다.
 - srsUE 자체를 패치하는 경로로 선회하는 경우 (UE PHY 확장은 현 Scope 밖)

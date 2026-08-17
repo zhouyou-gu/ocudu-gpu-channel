@@ -1,6 +1,6 @@
 # M6 — rank-2 SU-MIMO 라이브 acceptance 상세 설계
 
-상위 문서: [`MIMO_MILESTONES.md`](../../MIMO_MILESTONES.md) §2 M6 · 미션: [`AGENT_GOAL.mimo.md`](../../AGENT_GOAL.mimo.md)
+상위 문서: [`MIMO_MILESTONES.md`](../../MIMO_MILESTONES.md) §2 M6 · 미션: [`AGENT_GOAL.md`](../../AGENT_GOAL.md)
 선행: [`m5-live-integration.md`](m5-live-integration.md) · 배경: [`why-radionode-and-srsue-rank1-ko.md`](../why-radionode-and-srsue-rank1-ko.md)
 
 ---
