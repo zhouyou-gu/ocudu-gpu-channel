@@ -1,5 +1,13 @@
 # 세션 인수인계 — 2026-08-17 (rank1 워크스페이스)
 
+## 오늘 세션 최종 요약 (2026-08-17 마감)
+
+- **R0~R3 전부 완료** + UL-4R flaky 원인 규명(`pusch.max_ue_mcs: 9`) + 라이브 게이트 2종에 y=Hx 행렬판정 통합 + 측정 라벨 + oracle precoding 실험(예측과 0.01dB 정합, 반정합 널은 셀 소멸).
+- **보고 산출물**: `docs/rank1-feasibility-report.{md,html,en.html}` — 상사 평가 보고서의 4대 질문을 실측 근거로 재답변하는 feasibility 중심 보고서 3종(한/영).
+- **GitHub 공유 준비됨**: `~/bin/gh` 설치, 비밀정보 스캔 통과(.config는 ignored). 사용자 `gh auth login` + repo 이름/공개여부 결정 대기. 상사 문서(mimo-integration-report.html)가 커밋에 포함돼 있어 private 권장.
+- 이 트리의 계획 항목은 전부 소진 상태 — 다음 작업은 사용자 지시(예: GitHub push) 또는 §"R3 완료" 항목의 후속 연구(8포트+ 재측정, 공간상관/CDL)뿐이다.
+
+
 **이 파일은 재개용 요약이다. 정본은 `AGENT_PROGRESS.md`이고, 둘이 어긋나면 `AGENT_PROGRESS.md`가 이긴다**(`AGENT.md`의 우선순위 규칙).
 
 ## 0. 이 워크스페이스의 정체
