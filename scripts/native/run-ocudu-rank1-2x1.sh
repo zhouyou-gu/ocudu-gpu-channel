@@ -7,12 +7,12 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 source "${script_dir}/env.sh"
 
 native_root="${OCUDU_NATIVE_ROOT}"
-duration_seconds="${OCUDU_NATIVE_LEGACY_DURATION_SECONDS:-15}"
+duration_seconds="${OCUDU_NATIVE_RANK1_DURATION_SECONDS:-20}"
 physical_gpu="${OCUDU_NATIVE_GPU_DEVICE:-0}"
 cuda_compiler="${CUDACXX:-/opt/conda/envs/cuda128/bin/nvcc}"
-inner="${script_dir}/run-ocudu-legacy-1x1-inner.sh"
-renderer="${script_dir}/render-legacy-1x1-configs.py"
-verifier="${script_dir}/verify-legacy-1x1-artifacts.py"
+inner="${script_dir}/run-ocudu-rank1-2x1-inner.sh"
+renderer="${script_dir}/render-rank1-2x1-configs.py"
+verifier="${script_dir}/verify-rank1-2x1-artifacts.py"
 audited_ocudu="a1916edcdbcd70ba6e0af47ee87be061dad5a4e4"
 audited_srsran="eea87b1d893ae58e0b08bc381730c502024ae71f"
 audited_open5gs="d9d3abdd480be96fac3bc8a997e83446648763ca"
@@ -52,7 +52,7 @@ PY
 }
 
 [[ "$#" -eq 0 ]] || usage_error "usage: $0"
-[[ "${duration_seconds}" == "15" ]] || usage_error "duration is fixed to 15 seconds"
+[[ "${duration_seconds}" == "20" ]] || usage_error "duration is fixed to 20 seconds"
 [[ "${physical_gpu}" =~ ^(0|[1-9][0-9]*)$ && "${physical_gpu}" -le 255 ]] || usage_error "invalid GPU device"
 [[ "${native_root}" == /* && "${native_root}" != "/" && "${native_root}" != "/home/ubuntu" ]] || usage_error "invalid native root"
 [[ -x "${cuda_compiler}" ]] || usage_error "missing CUDA compiler: ${cuda_compiler}"
@@ -67,7 +67,9 @@ for path in "${inner}" "${renderer}" "${verifier}" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
   "${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release/test_hardware_probe" \
   "${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release/ocudu-gpu-channel" \
-  "${repo_root}/examples/topology.ocudu-docker.cuda.yaml"; do
+  "${repo_root}/examples/topology.ocudu-docker.cuda.yaml" \
+  "${repo_root}/examples/native/topology.ocudu.rank1-2x1.cuda.yaml" \
+  "${repo_root}/examples/native/ocudu/gnb_zmq_b210_fdd_2t2r_rank1_srsue.yaml"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done
 [[ -c /dev/net/tun ]] || usage_error "/dev/net/tun is absent"
@@ -101,12 +103,12 @@ for binary in \
   fi
   rm -f "${ldd_report}"
 done
-for port in 2000 2001 2100 2101 27017 38412 7777; do
+for port in 2000 2001 2002 2003 2100 2101 27017 38412 7777; do
   ss -H -ltn "sport = :${port}" | grep -q . && usage_error "TCP port ${port} is already listening"
 done
 
 exec {lock_fd}<"${BASH_SOURCE[0]}"
-flock -n "${lock_fd}" || usage_error "another native legacy gate is running"
+flock -n "${lock_fd}" || usage_error "another native rank1 gate is running"
 parent_netns="$(readlink /proc/self/ns/net)"
 parent_mntns="$(readlink /proc/self/ns/mnt)"
 probe_dir="$(mktemp -d /tmp/ocudu-native-userns-probe.XXXXXX)"
@@ -129,11 +131,11 @@ trap - EXIT
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 results_root="${native_root}/results"
-log_dir="${results_root}/logs/ocudu-interop/${timestamp}"
-report_dir="${results_root}/reports/ocudu-interop/${timestamp}"
-config_dir="${native_root}/configs/ocudu-legacy-1x1-native/${timestamp}"
-data_dir="${native_root}/data/ocudu-legacy-1x1-native/${timestamp}"
-netns_dir="${native_root}/run/ocudu-legacy-1x1-native/${timestamp}/netns"
+log_dir="${results_root}/logs/rank1-2x1/${timestamp}"
+report_dir="${results_root}/reports/rank1-2x1/${timestamp}"
+config_dir="${native_root}/configs/ocudu-rank1-2x1-native/${timestamp}"
+data_dir="${native_root}/data/ocudu-rank1-2x1-native/${timestamp}"
+netns_dir="${native_root}/run/ocudu-rank1-2x1-native/${timestamp}/netns"
 for path in "${log_dir}" "${report_dir}" "${config_dir}" "${data_dir}" "${netns_dir}"; do
   [[ ! -e "${path}" && ! -L "${path}" ]] || usage_error "run path already exists: ${path}"
 done
@@ -206,7 +208,7 @@ config_paths = {
     for name in ("gnb.yaml", "topology.yaml", "open5gs.yaml", "srsue.conf", "subscriber.csv")
 }
 data = {
-    "schema": "ocudu-native-legacy-1x1-source-evidence/v1",
+    "schema": "ocudu-native-rank1-2x1-source-evidence/v1",
     "docker_used": False,
     "channel_head": channel_head,
     "channel_tracked_diff_sha256": channel_diff_sha256,
@@ -219,7 +221,8 @@ data = {
     "binary_sha256": {name: digest(path) for name, path in binary_paths.items()},
     "config_sha256": {name: digest(path) for name, path in config_paths.items()},
     "claim_boundary": {
-        "legacy_attach": True,
+        "rank1_2x1_attach": True,
+        "miso_simo": True,
         "pdu_session": True,
         "gateway_ping": True,
         "rank2": False,
@@ -257,7 +260,7 @@ run_status="$?"
 set -e
 summary_path="${report_dir}/attach-summary.json"
 if [[ "${run_status}" -ne 0 ]]; then
-  printf 'event=native_mimo_legacy_attach_gate result=fail child_status=%s summary="%s"\n' \
+  printf 'event=native_rank1_2x1_attach_gate result=fail child_status=%s summary="%s"\n' \
     "${run_status}" "${summary_path}" >&2
   exit "${run_status}"
 fi

@@ -1454,6 +1454,34 @@ int main()
   }
 
   {
+    // R1 (rank1-miso-simo): coherent DL phase sweep. The SAME waveform enters
+    // both TX lanes of a 2x1 row -- exactly what a gNB transmitting one layer
+    // through two ports produces -- so the row must show textbook coherent
+    // combining: H=[1, e^{j0}] doubles the amplitude (4x power), H=[1, e^{jpi}]
+    // cancels to zero, and H=[1, e^{jpi/2}] lands at 2x power. A per-lane
+    // normalisation, a dropped lane, or a conjugated coefficient cannot
+    // reproduce all three points at once.
+    const ocg::IqBuffer tx(4, ocg::IqSample{1.0F, 0.0F});
+    const auto sweep = [&](double c_real, double c_imag, float want_i, float want_q,
+                           const char* label) {
+      std::vector<ocg::IqBuffer> rows;
+      run_matrix(2, 1,
+                 {{.tap = 0, .rx = 0, .tx = 0, .real = 1.0, .imag = 0.0},
+                  {.tap = 0, .rx = 0, .tx = 1, .real = c_real, .imag = c_imag}},
+                 {tx, tx}, rows);
+      require(rows.size() == 1, "R1: phase-sweep row count");
+      for (std::size_t k = 0; k != 4; ++k) {
+        require(std::abs(rows[0][k].i - want_i) < 1e-6F &&
+                    std::abs(rows[0][k].q - want_q) < 1e-6F,
+                label);
+      }
+    };
+    sweep(1.0, 0.0, 2.0F, 0.0F, "R1: phi=0 adds coherently to 2x amplitude");
+    sweep(-1.0, 0.0, 0.0F, 0.0F, "R1: phi=pi cancels to zero");
+    sweep(0.0, 1.0, 1.0F, 1.0F, "R1: phi=pi/2 lands at 1+j");
+  }
+
+  {
     // 1x1 bit-exact gate. A declared single-port topology and the implicit
     // lowering of the same devices must key their channel state identically, so
     // the OUTPUT must be bit-identical -- not close. If lane expansion ever

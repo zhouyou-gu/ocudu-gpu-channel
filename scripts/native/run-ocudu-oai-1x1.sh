@@ -77,8 +77,8 @@ for path in "${inner}" "${renderer}" "${verifier}" \
   "${native_root}/builds/oai-zmq-release/libdfts.so" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
-  "${native_root}/builds/ocudu-gpu-channel-cuda-release/test_hardware_probe" \
-  "${native_root}/builds/ocudu-gpu-channel-cuda-release/ocudu-gpu-channel" \
+  "${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release/test_hardware_probe" \
+  "${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release/ocudu-gpu-channel" \
   "${repo_root}/examples/topology.ocudu-docker.cuda.yaml" \
   "${repo_root}/examples/native/oai/nrue_zmq_1x1.conf"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
@@ -135,8 +135,8 @@ unshare --user --map-root-user --net --mount --fork --kill-child --propagation p
   "${inner}" --mode probe --parent-netns "${parent_netns}" --parent-mntns "${parent_mntns}" \
   --outer-uid "$(id -u)" --netns-dir "${probe_dir}/run-netns" \
   --physical-gpu "${physical_gpu}" \
-  --hardware-probe "${native_root}/builds/ocudu-gpu-channel-cuda-release/test_hardware_probe" \
-  --probe-broker "${native_root}/builds/ocudu-gpu-channel-cuda-release/ocudu-gpu-channel" \
+  --hardware-probe "${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release/test_hardware_probe" \
+  --probe-broker "${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release/ocudu-gpu-channel" \
   --probe-config "${repo_root}/examples/topology.ocudu-docker.cuda.yaml"
 cleanup_probe
 trap - EXIT
@@ -166,7 +166,7 @@ channel_diff_sha256="$(git -C "${repo_root}" diff --binary -- . | sha256sum | aw
 "${native_root}/builds/ocudu-zmq-release/apps/gnb/gnb" -c "${config_dir}/gnb.yaml" --dryrun \
   >"${log_dir}/gnb-dryrun.log" 2>&1
 
-channel_build="${native_root}/builds/ocudu-gpu-channel-cuda-release"
+channel_build="${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release"
 cmake -S "${repo_root}" -B "${channel_build}" -DCMAKE_BUILD_TYPE=Release \
   -DOCUDU_GPU_CHANNEL_ENABLE_CUDA=ON -DCMAKE_CUDA_COMPILER="${cuda_compiler}" \
   -DOCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES=120 >"${log_dir}/cmake-configure.log" 2>&1

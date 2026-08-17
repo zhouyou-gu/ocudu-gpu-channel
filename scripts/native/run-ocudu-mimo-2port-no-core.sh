@@ -64,7 +64,7 @@ flock -n 9 || usage_error "another native two-port gate is already running"
 
 ocudu_root="${native_root}/src/ocudu"
 gnb_binary="${native_root}/builds/ocudu-zmq-release/apps/gnb/gnb"
-channel_build="${native_root}/builds/ocudu-gpu-channel-cuda-release"
+channel_build="${native_root}/builds/ocudu-gpu-channel-rank1-cuda-release"
 results_root="${native_root}/results"
 gnb_fixture="${repo_root}/examples/native/ocudu/gnb_zmq_b210_fdd_2port_no_core.yaml"
 topology="${repo_root}/examples/native/topology.ocudu.mimo-2port-transport.cuda.yaml"

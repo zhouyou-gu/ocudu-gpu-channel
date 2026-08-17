@@ -14,9 +14,11 @@
 
 RadioNode 오버레이(공통 sample epoch, producer 단일 윈도), `fixed_mimo`/공간상관/coherent LOS, **비대칭 차원(2×1, 1×2) 단위테스트(M1)**, wire-capture `y=Hx` 검증(M5.5), 네이티브 라이브 하네스(1×1 srsUE attach 게이트, 2-port transport 게이트), `ctest` 8/8 두 트리, `gpu-test-sequence.sh` 9/9.
 
-## 2. 다음 작업: R0부터 (RANK1_MILESTONES 표 참조)
+## 2. 현재 상태 (2026-08-17): R0–R2 완료, 다음은 R3
 
-R0 비대칭 토폴로지 → R1 결정론적 2×1/1×2 증명 → R2 라이브 srsUE(최대 리스크: PoC UE가 2T2R 셀에 attach하는가) → R3 4포트 확장.
+- **R2 라이브 게이트 통과**: `run-ocudu-rank1-2x1.sh` `result=pass` — gNB 2T2R ↔ 브로커(2×1 DL / 1×2 UL) ↔ srsUE attach+PDU+ping, strict counter 0. 1×1 무회귀 pass. 캡처 실측: **UL 두 행 y=Hx ≤ 4.6e-05 라이브 통과**, DL row 3.7e-08.
+- 핵심 규명 3건(전부 소스/실측): OCUDU는 fallback DCI+DL2 금지 → `ue_dedicated`/1_1 필수이며 **srsUE가 1_1/0_1을 실제 지원**; srsUE는 2포트 CSI-RS(FD-CDM2) 미구현 → `csi_rs_enabled: false`+`nof_cell_csi_res: 0` 필수; MAC pcap은 DL2와 양립 불가. 상세와 캡처 레시피는 `AGENT_PROGRESS.md`의 Rank-1 Workstream 절.
+- **R3(4×1/1×4)**: gNB fixture를 4T4R로(포트 8개), 토폴로지를 1×4/4×1로 확장하고 R1/R2 게이트 반복. 남은 개선 후보: wire-capture 행렬 검증의 게이트 통합(checker에 "무방사 소스 허용" 옵션 필요 — gNB port1+가 라이브에서 구조적으로 침묵), gNB/RU oracle 프리코딩 실험(DL 두-branch를 라이브에 실으려면).
 
 ## 3. 명령어 (부모와 동일 + 이 트리 경로)
 
