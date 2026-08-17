@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Rank-1 MISO/SIMO 구현 결과 보고 — 라이브 게이트·정량 증거·통합 제약 규명 중심의 feasibility 실증.">
+<title>Rank-1 MISO/SIMO 구현 결과 — Feasibility 실증 보고</title>
+<style>
+  :root {
+    --bg: #08111f;
+    --surface: #101c2e;
+    --surface-2: #14243a;
+    --surface-3: #091523;
+    --ink: #edf5ff;
+    --muted: #9cb0c9;
+    --line: #2a405b;
+    --blue: #64b5ff;
+    --cyan: #66e1d2;
+    --green: #82d89b;
+    --amber: #ffc36b;
+    --red: #ff8792;
+    --violet: #b8a0ff;
+    --shadow: 0 20px 60px rgba(0, 0, 0, .28);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(100,181,255,.14), transparent 60%),
+      radial-gradient(900px 480px at 95% 0%, rgba(102,225,210,.10), transparent 55%),
+      var(--bg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Apple SD Gothic Neo", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 22px 90px; }
+  header.hero { padding: 26px 0 8px; }
+  .kicker { color: var(--cyan); font-size: 13px; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; }
+  h1 { font-size: 34px; line-height: 1.25; margin: 8px 0 10px; }
+  .sub { color: var(--muted); max-width: 860px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 18px 0 6px; }
+  .chip {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 999px; padding: 5px 12px; font-size: 12.5px;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip.ok { border-color: rgba(130,216,155,.5); color: var(--green); }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 8px; }
+  nav.toc a {
+    color: var(--blue); text-decoration: none; font-size: 13.5px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; background: var(--surface);
+  }
+  nav.toc a:hover { border-color: var(--blue); }
+  section { margin-top: 46px; }
+  .secno { color: var(--cyan); font-size: 12.5px; letter-spacing: .16em; font-weight: 700; }
+  h2 { font-size: 25px; margin: 6px 0 10px; }
+  h3 { font-size: 18px; margin: 22px 0 8px; color: var(--ink); }
+  p { color: var(--muted); }
+  p.lead { color: var(--ink); font-size: 17px; }
+  strong { color: var(--ink); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; margin: 20px 0 6px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px 16px 13px; box-shadow: var(--shadow);
+  }
+  .stat .v { font-size: 25px; font-weight: 700; color: var(--ink); }
+  .stat .v .u { font-size: 14px; color: var(--muted); font-weight: 500; }
+  .stat .k { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .stat.green .v { color: var(--green); }
+  .stat.cyan .v { color: var(--cyan); }
+  .stat.blue .v { color: var(--blue); }
+  .stat.violet .v { color: var(--violet); }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14.2px; }
+  th, td { text-align: left; padding: 11px 14px; vertical-align: top; border-bottom: 1px solid var(--line); }
+  th { color: var(--cyan); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; background: var(--surface-2); }
+  tr:last-child td { border-bottom: none; }
+  td { color: var(--muted); }
+  td b, td strong { color: var(--ink); }
+  .ok { color: var(--green); font-weight: 700; }
+  .warn { color: var(--amber); font-weight: 700; }
+  .bad { color: var(--red); font-weight: 700; }
+  .mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+  code { background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--cyan); }
+  .flow { display: grid; gap: 10px; margin: 18px 0; }
+  .flow .stage {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 15px 18px; box-shadow: var(--shadow);
+  }
+  .flow .stage h4 { margin: 0 0 6px; font-size: 15.5px; color: var(--ink); }
+  .flow .stage .tag { font-size: 12px; color: var(--cyan); letter-spacing: .1em; font-weight: 700; }
+  .flow .stage ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .flow .down { text-align: center; color: var(--blue); font-size: 20px; margin: -2px 0; }
+  .callout {
+    border-left: 4px solid var(--blue); background: var(--surface-2);
+    border-radius: 0 12px 12px 0; padding: 13px 17px; margin: 18px 0; color: var(--muted); font-size: 14.6px;
+  }
+  .callout.green { border-left-color: var(--green); }
+  .callout.amber { border-left-color: var(--amber); }
+  .callout b { color: var(--ink); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 15px 18px; box-shadow: var(--shadow); }
+  .card h4 { margin: 0 0 7px; font-size: 15.5px; }
+  .card .tag { font-size: 11.5px; color: var(--cyan); letter-spacing: .12em; font-weight: 700; text-transform: uppercase; }
+  .card p, .card ul { font-size: 14px; margin: 6px 0 0; }
+  .card ul { padding-left: 18px; }
+  ul.plain { color: var(--muted); padding-left: 20px; }
+  ul.plain li { margin: 5px 0; }
+  footer {
+    margin-top: 64px; border-top: 1px solid var(--line); padding-top: 18px;
+    color: var(--muted); font-size: 13.5px;
+  }
+  a { color: var(--blue); }
+  @media (max-width: 640px) { h1 { font-size: 27px; } table { min-width: 560px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">Engineering results · feasibility evidence</div>
+  <h1>Rank-1 MISO/SIMO 구현 결과 보고</h1>
+  <p class="sub">통합 평가 보고서(<span class="mono">mimo-integration-report.html</span>, 2026-08-16)의 승인 목표 —
+  DL 2×1(→4×1) MISO + UL 1×2(→1×4) SIMO, srsUE 1안테나 유지 — 를 실제 OCUDU gNB ↔ GPU 채널 브로커 ↔ srsUE 5G의
+  <b>라이브 end-to-end로 구현·검증</b>한 결과. <b>Sionna RT 항목은 지시대로 제외</b>(별도 담당, 후일 병합).</p>
+  <div class="meta">
+    <span class="chip">워크스페이스 <b>ocudu-gpu-channel-rank1</b> · 브랜치 <b>rank1-miso-simo</b></span>
+    <span class="chip">보고 시점 <b>2026-08-17</b></span>
+    <span class="chip ok">모든 수치 실측 · §08 증거 색인에서 재현 가능</span>
+  </div>
+  <nav class="toc">
+    <a href="#s0">00 요약</a><a href="#s1">01 Feasibility 판정</a><a href="#s2">02 작업 경로</a>
+    <a href="#s3">03 요구사항 충족</a><a href="#s4">04 라이브 게이트</a><a href="#s5">05 정량 증거</a>
+    <a href="#s6">06 통합 제약 규명</a><a href="#s7">07 다음 단계</a><a href="#s8">08 증거 색인</a>
+  </nav>
+</header>
+
+<section id="s0">
+  <div class="secno">00 · SUMMARY</div>
+  <h2>한 문단 요약</h2>
+  <p class="lead">2포트·4포트 구성 모두에서 실제 srsUE가 attach + PDU 세션 + 사용자 평면 ping(60발 0% 손실)을 완주했고,
+  <strong>같은 게이트 실행 안에서</strong> wire 캡처로 y&nbsp;=&nbsp;H·x를 재계산해 선언 채널 벡터와의 일치를 자동 판정하며,
+  GPU 처리 시간은 1&nbsp;ms 슬롯 예산 안에 있다. 평가 보고서가 "Not yet demonstrated" delivery gate로 지목한
+  라이브 다중포트 증명이 닫혔고, 과정에서 발견된 통합 제약 4건은 전부 근본 원인까지 규명되어 해법이 fixture에 정착되었다.</p>
+  <div class="stats">
+    <div class="stat green"><div class="v">2 / 2 <span class="u">gates pass</span></div><div class="k">2×1 및 4×1 라이브 게이트 (attach+PDU+ping+행렬판정)</div></div>
+    <div class="stat cyan"><div class="v">≤ 4.6e-05</div><div class="k">라이브 y=Hx 최대 오차 (UL 전 행, 허용 1e-04)</div></div>
+    <div class="stat blue"><div class="v">12.9 <span class="u">µs</span></div><div class="k">4×1 GPU 커널 p50 (1 ms 슬롯 예산)</div></div>
+    <div class="stat violet"><div class="v">0.01 <span class="u">dB</span></div><div class="k">oracle 프리코딩 실측-예측 정합 (MRT/복제/널 스윕)</div></div>
+  </div>
+</section>
+
+<section id="s1">
+  <div class="secno">01 · FEASIBILITY VERDICT</div>
+  <h2>평가 보고서의 판정 질문, 현재의 답</h2>
+  <p>평가 보고서(§01)는 원격 공개 스냅샷 <span class="mono">a801155</span>를 기준으로 판정했다.
+  그 이후의 작업이 아래 답을 바꾸었다 — 각 답은 반복 실행 가능한 게이트로 잠겨 있다.</p>
+  <div class="tablewrap"><table>
+    <tr><th>질문</th><th>보고서 시점 답</th><th>현재 답 · 근거</th></tr>
+    <tr><td>이 프로젝트가 다중 안테나 채널을 에뮬레이트할 수 있는가?</td>
+        <td class="bad">No — scalar/SISO per node</td>
+        <td><span class="ok">Yes</span> — RadioNode 다중포트 모델, 방향별 행/열 벡터(<code>fixed_mimo</code>), 라이브 y=Hx ≤4.6e-05</td></tr>
+    <tr><td>2×1 / 1×2 rank-1이 라이브로 도는가?</td>
+        <td class="warn">Not yet demonstrated (delivery gate)</td>
+        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-2x1.sh</code> <b>result=pass</b> + 행렬판정 passed (<span class="mono">20260817T091805Z</span>)</td></tr>
+    <tr><td>4×1 / 1×4로 확장되는가?</td>
+        <td class="warn">계획 (2포트 통과 후)</td>
+        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-4x1.sh</code> <b>result=pass</b> + UL 4행 y=Hx 통과 (<span class="mono">20260817T091856Z</span>)</td></tr>
+    <tr><td>srsUE는 rank-1로 유지되는가?</td>
+        <td>요구사항</td>
+        <td><span class="ok">유지</span> — <code>nof_antennas = 1</code> 불변, 1×1 회귀 게이트 병행 green, 결과 표현은 rank-1 MISO/SIMO로 한정</td></tr>
+  </table></div>
+  <div class="callout green"><b>Feasibility의 조작적 정의</b> — "실제 OCUDU 스택과 실제 srsUE가, 선언된 다중포트 채널 벡터를 통과해,
+  표준 절차(RA → RRC → NAS 등록 → PDU → 사용자 평면)를 완주하는가". 이 정의로 2포트·4포트 모두 <b>Yes</b>이다.</div>
+</section>
+
+<section id="s2">
+  <div class="secno">02 · LINEAGE</div>
+  <h2>pre-MIMO 코드에서 현재까지</h2>
+  <div class="flow">
+    <div class="stage">
+      <div class="tag">BASELINE — pre-MIMO (공개 스냅샷 a801155 계열)</div>
+      <h4>노드당 1 스트림, 엣지당 스칼라 채널</h4>
+      <ul><li>1×1 OCUDU↔srsUE 라이브 attach, TR 38.901 TDL-A..E, GPU 커널(183× 가속), 런타임 컨트롤</li>
+      <li>안테나-포트 차원 없음 — 평가 보고서의 "No" 판정 지점</li></ul>
+    </div>
+    <div class="down">▼</div>
+    <div class="stage">
+      <div class="tag">M0–M5 — MIMO 재구축 (부모 트리)</div>
+      <h4>RadioNode 오버레이: 정렬을 프로토콜이 아닌 구조적 불변식으로</h4>
+      <ul><li>노드당 producer 1스레드가 공통 샘플 윈도를 단독 소유 → 포트 간 커서가 어긋날 수 있는 두 번째 주체가 존재하지 않음</li>
+      <li><code>radio_nodes</code>의 포트 작성 순서 = 행렬 인덱스 · <code>fixed_mimo</code> 희소 계수 · 공간상관/coherent LOS</li>
+      <li>physical link 단위 원자적 런타임 컨트롤 (부분 갱신된 포트 벡터가 표현 불가능한 상태)</li>
+      <li>실제 gNB 2T2R 멀티포트 transport + wire 캡처 y=Hx 행렬 검증까지 라이브 통과</li></ul>
+    </div>
+    <div class="down">▼</div>
+    <div class="stage">
+      <div class="tag">R0–R3 — rank1 포크 (이 트리, 평가 보고서 −Sionna 목표 정렬)</div>
+      <h4>비대칭(N×1/1×N) 구성과 실제 srsUE 라이브 통합</h4>
+      <ul><li>R0 비대칭 토폴로지 → R1 결정론적 채널 증명(위상 스윕·branch isolation) → R2 라이브 2×1/1×2 → R3 4×1/1×4 + 원인 규명</li>
+      <li>게이트에 행렬판정 통합 · 성능 라벨 실측 · oracle precoding 실험</li></ul>
+    </div>
+  </div>
+  <div class="callout"><b>이 경로가 feasibility에 유리했던 이유</b> — 평가 보고서 §07이 요구한 데이터모델 변화(포트 배열, 방향별 벡터,
+  grouped slot barrier, 원자적 벡터 활성화)는 부모 트리의 M0–M5 구현과 구조적으로 동형이었다. rank1 작업의 본질은 재설계가 아니라
+  비대칭 구성 검증 + 라이브 통합 + 제약 규명이었고, <b>에뮬레이터 코어 C++ 변경은 위상 스윕 단위테스트 1건 외에 없다.</b></div>
+</section>
+
+<section id="s3">
+  <div class="secno">03 · REQUIREMENTS</div>
+  <h2>요구사항 충족 (controlling brief 대비)</h2>
+  <div class="tablewrap"><table>
+    <tr><th>보고서 요구</th><th>충족 방식 · 증거</th></tr>
+    <tr><td>OCUDU gNB + srsUE 5G를 실시간 GPU ZMQ 에뮬레이터로 통과</td><td>R2/R3 라이브 게이트 pass, strict counter 전부 0, gNB RF failure 0</td></tr>
+    <tr><td>srsUE를 1 TX/RX 스트림 · 1 레이어로 유지</td><td><code>nof_antennas = 1</code> 불변 — UE 설정은 1×1 회귀 게이트와 byte-identical 렌더</td></tr>
+    <tr><td>다중 gNB 포트로 어레이/다이버시티 이득 (UE는 rank-1)</td><td>UL: gNB가 2/4 수신 포트를 실제 등화(행별 y=Hx). DL: oracle 실험으로 MRT 어레이 이득 +0.54 dB 실측</td></tr>
+    <tr><td>2포트 검증 후 4포트 게이트</td><td>R2 → R3 순차 게이트, 각각 pass</td></tr>
+    <tr><td>고정/oracle 선택 rank-1 프리코딩과 유효 채널 연구</td><td>oracle 4케이스 라이브 스윕, 예측과 0.01 dB 정합 (§05)</td></tr>
+    <tr><td>합성 peer로 계수·정렬 증명 후 라이브</td><td>R0/R1(합성) → R2/R3(라이브) 순서 준수</td></tr>
+    <tr><td>1×1 경로를 회귀 테스트로 보존</td><td><code>run-ocudu-legacy-1x1.sh</code> 무변경, 병행 green</td></tr>
+    <tr><td>프리코딩은 gNB/RU에 · 전파/페이딩/노이즈/중첩은 에뮬레이터에</td><td>준수 — 에뮬레이터 공급 가중은 전부 "oracle" 라벨</td></tr>
+    <tr><td>슬롯 경계 정렬 + 원자적 채널 갱신</td><td>producer 단일 윈도(구조적) + M4 원자 컨트롤 — 라이브 y=Hx 통과가 곧 정렬의 실측 증명</td></tr>
+    <tr><td>strict 무결(0 overflow/gap/ZMQ 오류) · CPU/CUDA 정확도 · 완전 라벨 성능</td><td>전 게이트 0 · ctest 8/8 두 트리 · §05 완전 라벨 표</td></tr>
+  </table></div>
+  <div class="callout amber"><b>주장하지 않는 것 (writing rules 준수)</b> — rank&gt;1 SU-MIMO(부모 트리의 별도 워크스트림), UE 수신
+  다이버시티/빔 스티어링, 자동 PMI 폐루프, 동일-PRB MU-MIMO, "end-to-end 4×4 MIMO"라는 표현. 검증 없는 복제를 diversity라
+  부르지 않는다 — 오히려 복제가 MRT 대비 <b>−1.24 dB 나쁨</b>을 정량 증명했다(§05).</div>
+</section>
+
+<section id="s4">
+  <div class="secno">04 · LIVE GATES</div>
+  <h2>Feasibility 실증 I — 라이브 end-to-end 게이트</h2>
+  <p>1차 증거는 "실제 스택이 실제로 완주하는가"이다. 두 게이트는 단일 명령으로 반복 실행되며, 다음 네 가지를 <b>한 실행 안에서</b> 판정한다.</p>
+  <div class="grid2">
+    <div class="card"><div class="tag">① 절차 완주</div><h4>RA → RRC → NAS 등록 → PDU → ping</h4><p>사용자 평면 ICMP 60발 0% 손실 요구</p></div>
+    <div class="card"><div class="tag">② 전송 무결</div><h4>Strict counters = 0</h4><p>overflow/sequence-gap/ZMQ 오류 0 · gNB "Real-time failure in RF" 0</p></div>
+    <div class="card"><div class="tag">③ 채널 내용</div><h4>y = H·x 재계산 판정</h4><p>브로커가 shutdown 시 flush한 500 ms wire 캡처를 독립 checker가 선언 토폴로지의 H로 재계산 — 트래픽 계수가 아니라 <b>연산을 채점</b></p></div>
+    <div class="card"><div class="tag">④ 출처 증거</div><h4>재현 가능성</h4><p>소스 커밋 핀, 바이너리/설정 SHA-256, 채널 소스 manifest를 JSON으로 보존</p></div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>게이트</th><th>실행 ID</th><th>결과</th><th>라이브 y=Hx (허용 1e-04)</th></tr>
+    <tr><td><b>2×1 DL + 1×2 UL</b></td><td class="mono">20260817T091805Z</td><td class="ok">pass</td><td>UL row0/row1 ≤ 2.2e-05 · DL row 3.7e-08</td></tr>
+    <tr><td><b>4×1 DL + 1×4 UL</b></td><td class="mono">20260817T091856Z</td><td class="ok">pass</td><td>UL 4행 = 4.6 / 2.2 / 1.7 / 2.8 ×e-05</td></tr>
+    <tr><td>1×1 srsUE 회귀</td><td>동일 일자</td><td class="ok">pass</td><td>기존 경로 무회귀</td></tr>
+    <tr><td>상시 GPU 시퀀스</td><td>동일 일자</td><td class="ok">9/9 pass</td><td>합성 relay·AWGN·그래프·2셀·TDL-A 등</td></tr>
+  </table></div>
+  <div class="callout green">UL 행별 RMS가 각 선언 계수 크기 |h<sub>r</sub>|과 상대오차 ~6×10⁻⁷(fp32 바닥)로 일치 —
+  <b>gNB의 2/4개 수신 포트 각각이 자신의 독립 branch를 정확히 받고, OCUDU가 실제로 결합·복호한다.</b>
+  평가 보고서가 "the strongest end-to-end diversity target"이라 부른 UL SIMO의 실증이다.</div>
+</section>
+
+<section id="s5">
+  <div class="secno">05 · QUANTITATIVE EVIDENCE</div>
+  <h2>Feasibility 실증 II — 정량 증거</h2>
+
+  <h3>채널 정확도 · 해석 폐쇄성</h3>
+  <ul class="plain">
+    <li>4포트 <b>합성</b> 캡처: UL 4행 전부 max|y−Hx| ≤ 1.3e-07 · DL 1×4 행 1.24e-07 · off-diagonal share 1.18 (네 소스 전부 기여)</li>
+    <li>코히어런트 위상 스윕(뮤테이션으로 유효성 확인된 단위테스트): φ=0 → 진폭 2×, φ=π → 0, φ=π/2 → 1+j — 정확 일치</li>
+    <li>라이브 브로커 branch isolation: tx1-only 수신 전력 실측 0.0280165 vs 예측 0.02802 (<b>0.05%</b>) — 합성 peer 마커의 결정론적 상관까지 모델에 넣으면 코히어런트 합성 전력이 소수 4자리에서 재현</li>
+  </ul>
+
+  <h3>실시간 예산 (완전 라벨)</h3>
+  <p class="mono" style="font-size:13px">Threadripper PRO 7965WX · RTX 5090 ×1 · 23.04 MS/s · batch 23040 (= 1 ms 슬롯) · CUDA · fixed_mimo(1탭)+TDL 체인 · 20 s 게이트 런 · n=18</p>
+  <div class="tablewrap"><table>
+    <tr><th>구성</th><th>GPU h2d / kernel / d2h p50 (µs)</th><th>노드 process p50 / p99 (µs)</th><th>1 ms 슬롯 대비 (p99)</th></tr>
+    <tr><td><b>2×1</b></td><td>7.7 / 11.3 / 7.9</td><td>80.2 / 131.9</td><td class="ok">13%</td></tr>
+    <tr><td><b>4×1</b></td><td>51.0 / 12.9 / 14.9</td><td>119.2 / 619.1</td><td class="ok">62%</td></tr>
+  </table></div>
+  <p>두 구성 모두 관측 최대치 포함 슬롯 예산 내. 4포트의 p99 여유 추세는 8포트+ 확장 전 재측정 항목으로 기록.</p>
+
+  <h3>Oracle precoding 실험 — "이득은 위상 정합에서만"의 라이브 증명</h3>
+  <p>프리코더는 gNB/RU 소속이나 srsRAN에 주입 노브가 없으므로, 물리 행 h = [0.80+0.10j, 0.25−0.15j]에 대해
+  실험자가 <b>채널 지식으로(=oracle)</b> 고른 가중 w의 유효 채널 c = h·w를 에뮬레이터가 선언했다.
+  무노이즈 채널에서는 스케일이 이득이 아니므로 DL에 고정 −30 dB AWGN을 두어 |c|²가 실제 SNR이 되게 했다. 각 케이스는 완전한 라이브 attach 런이다.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Oracle 가중</th><th>예측 (vs MRT)</th><th>실측</th><th>라이브 결과</th></tr>
+    <tr><td><b>MRT</b> conj(h)/‖h‖ (정합)</td><td>0 dB</td><td>기준</td><td class="ok">attach+PDU+ping</td></tr>
+    <tr><td>port0-only [1, 0]</td><td>−0.53 dB</td><td><b>−0.54 dB</b></td><td class="ok">attach+PDU+ping</td></tr>
+    <tr><td>동일 복제 [1, 1]/√2</td><td>−1.24 dB</td><td><b>−1.24 dB</b></td><td class="ok">attach+PDU+ping</td></tr>
+    <tr><td>반정합 깊은 널</td><td>−38.7 dB</td><td>(셀 소멸)</td><td class="bad">셀 서치 실패 — 예측대로</td></tr>
+  </table></div>
+  <p>절대 수신 전력도 4케이스 전부 |h·w|²·P<sub>tx</sub>+noise와 비율 1.000. <b>2×1 MRT 어레이 이득 +0.54 dB 라이브 실측</b>,
+  복제-비-다이버시티의 정량 증명, 위상 반정합의 자기소거가 실험으로 확정됐다. 가중 선택은 oracle이며 closed-loop PMI를 시사하지 않는다.</p>
+</section>
+
+<section id="s6">
+  <div class="secno">06 · INTEGRATION CONSTRAINTS</div>
+  <h2>Feasibility 실증 III — 규명된 통합 제약과 해법</h2>
+  <p>Feasibility 평가에서 가장 중요한 것은 "<b>어떤 조건에서</b> 되는가"이다. 라이브 통합에서 발견된 제약 4건은
+  각각 근본 원인까지 규명되었고, 해법이 fixture에 근거 주석 + 렌더러 invariant로 잠겨 있다.</p>
+  <div class="tablewrap"><table>
+    <tr><th>#</th><th>증상</th><th>근본 원인 (근거)</th><th>해법 (정착 위치)</th></tr>
+    <tr><td>1</td><td>2T2R + srsUE용 통념 PDCCH 설정에서 gNB 기동 거부</td>
+        <td>OCUDU validator가 fallback DCI(SS#2) × DL 안테나 &gt;1 조합을 금지 (<span class="mono">du_cell_config_validation.cpp:290</span>)</td>
+        <td><code>ss2_type: ue_dedicated</code> + <code>dci_format_0_1_and_1_1: true</code> — <b>srsUE가 DCI 0_1/1_1을 실제 지원함을 1×1 대조로 증명</b> (통념 반전)</td></tr>
+    <tr><td>2</td><td>2T2R에서 RRC 직후 연결 붕괴 루프</td>
+        <td>srsUE PoC가 2포트 NZP-CSI-RS(FD-CDM2) 매핑 미구현 → connection setup 전체 실패 (UE 로그 "Resource mapping is invalid or not implemented")</td>
+        <td><code>csi_rs_enabled: false</code> + <code>nof_cell_csi_res: 0</code></td></tr>
+    <tr><td>3</td><td>다중 DL 안테나에서 gNB 기동 거부</td>
+        <td>OCUDU가 &gt;1 DL 안테나 × MAC pcap 조합을 무효 구성으로 거부</td>
+        <td><code>pcap.mac_enable: disable</code></td></tr>
+    <tr><td>4</td><td>UL 4R에서 등록이 확률적으로 실패 (bimodal)</td>
+        <td>CSI-off에서 gNB UL 링크어댑테이션이 무노이즈 채널의 포화 SNR 추정(~11 dB)을 신뢰, 64QAM(r 0.93)까지 반복 → <b>상시 ~20% PUSCH KO</b>(성공 런도 동일 통계) → 크리티컬 구간이 연속 KO에 걸리면 실패. bimodal = 생존 확률</td>
+        <td><code>pusch.max_ue_mcs: 9</code> — 적용 후 full 4T4R <b>3연속 완주 · KO 0</b></td></tr>
+  </table></div>
+  <div class="callout"><b>규명 방법론이 곧 신뢰도다</b> — #4에서 채널/브로커(실패 런의 wire에서도 y=Hx 정확), 링 크기, UE 설정 적용,
+  재동기, 스트림 원점 위상이 <b>각각 직접 실측으로 기각</b>됐고, 겉보기 실패 신호였던 <code>epre=-inf</code>는
+  UE가 보낼 SR이 없는 occasion의 <b>정상 DTX 로그</b>였음이 교차검증(UE 전송 308회 ↔ gNB 검출 308회, grant된 PUSCH 841:841 대응)으로
+  판명됐다. 에뮬레이터는 실패 런에서도 무죄였다 — 제약은 전부 통합 상대(스택 정책/UE 구현 범위)에 있었고, 그 경계가 이제 문서화된 지식이다.</div>
+  <h3>정직한 잔여 한계</h3>
+  <ul class="plain">
+    <li><b>DL에서 gNB port 1 이상은 방사하지 않는다</b> — srsRAN은 SSB/공용 채널을 port 0에만 싣고, CSI-off + rank-1에서 PDSCH를 [1,0,…]으로 프리코딩(캡처 실측). 라이브 DL 다중-branch 코히어런트 내용의 증명은 합성 게이트(R0/R1)와 oracle 유효채널 실험이 담당하며, 게이트의 행렬 판정은 이 사실을 <code>--allow-silent-source</code>로 <b>명시 선언</b>(허용이 아니라 실측 사실의 기록)한다.</li>
+    <li><code>max_ue_mcs: 9</code>는 CSI-off의 파트너 설정으로 UL 처리량 상한을 만든다 — 본 워크스트림은 처리량을 주장하지 않으므로 결과 경계 안이다.</li>
+    <li>4포트 실시간 p99 여유는 8포트+ 확장 전 재측정 대상.</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <div class="secno">07 · NEXT</div>
+  <h2>다음 단계</h2>
+  <ul class="plain">
+    <li><b>Sionna RT 병합 접점</b> (담당 팀원 합류 시): 본 트리의 wire-capture/행렬판정 인프라가 record/replay 검증 게이트의 채점 도구로 그대로 쓰이며, 방향별 벡터 채널 + 원자 활성화가 coefficient-horizon 계약이 요구하는 수신측 구조다.</li>
+    <li>gNB측 4포트+ 확장 시 실시간 재측정 · 필요 시 공간상관/CDL(부모 트리 자산 보유).</li>
+    <li>rank&gt;1은 부모 트리(<span class="mono">ocudu-gpu-channel-mimo-claude</span>)의 OAI-nrUE 워크스트림에서 별도 진행 — 본 트리 범위 밖.</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <div class="secno">08 · EVIDENCE INDEX</div>
+  <h2>증거 색인</h2>
+  <div class="tablewrap"><table>
+    <tr><th>증거</th><th>위치</th></tr>
+    <tr><td>라이브 게이트 (재실행 가능)</td><td class="mono">scripts/native/run-ocudu-rank1-2x1.sh · run-ocudu-rank1-4x1.sh · run-ocudu-legacy-1x1.sh</td></tr>
+    <tr><td>게이트 산출물 (요약 JSON · 행렬 리포트 · 로그 · 소스 핀)</td><td class="mono">~/ocudu-native-workspace/results/{reports,logs}/rank1-2x1/20260817T091805Z · rank1-4x1/20260817T091856Z</td></tr>
+    <tr><td>fixture (제약 근거 주석 포함)</td><td class="mono">examples/native/ocudu/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml · examples/native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml · topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml</td></tr>
+    <tr><td>독립 행렬 checker (H는 토폴로지에서 읽음)</td><td class="mono">scripts/native/verify-mimo-matrix-capture.py</td></tr>
+    <tr><td>위상 스윕 단위테스트 (뮤테이션 검증)</td><td class="mono">tests/test_processing.cpp — R1 절</td></tr>
+    <tr><td>작업·규명 전체 서사 (기각 가설 포함)</td><td class="mono">AGENT_PROGRESS.md — "Rank-1 Workstream" 절</td></tr>
+    <tr><td>로드맵 · 상태 · 측정 라벨</td><td class="mono">RANK1_MILESTONES.md</td></tr>
+    <tr><td>커밋 이력</td><td class="mono">rank1-miso-simo 브랜치 (포크 기점 1ddb240 · R0–R2 bbde668 · R3 규명 a44b8b5 · 게이트 통합 43aa107 · oracle 4be3d7f)</td></tr>
+  </table></div>
+</section>
+
+<footer>
+  <b>Assessment boundary.</b> 본 문서의 모든 주장은 위 색인의 산출물에서 재현 가능하다. 여기 없는 것은 주장하지 않는다 —
+  rank&gt;1, UE 수신 빔포밍, PMI 폐루프, MU-MIMO, end-to-end 4×4 MIMO는 본 워크스트림의 결과가 아니다.
+  Sionna RT 통합은 지시대로 제외되었으며 별도 담당자의 워크스트림과 후일 병합된다.<br>
+  Generated from <span class="mono">docs/rank1-feasibility-report.md</span> · 2026-08-17
+</footer>
+
+</div>
+</body>
+</html>
