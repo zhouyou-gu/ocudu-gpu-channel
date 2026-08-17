@@ -364,7 +364,9 @@ while time.monotonic() < deadline:
         time.sleep(.25)
 raise SystemExit(2)
 PY
-  start_group broker "${log_dir}/broker.log" env CUDA_VISIBLE_DEVICES="${physical_gpu}" "${broker}" --config "${config_dir}/topology.yaml" --duration 20s
+  mkdir -p "${report_dir}/wire-capture"
+  start_group broker "${log_dir}/broker.log" env CUDA_VISIBLE_DEVICES="${physical_gpu}" "${broker}" --config "${config_dir}/topology.yaml" --duration 20s \
+    --wire-capture-dir "${report_dir}/wire-capture" --wire-capture-samples 11520000 --wire-capture-skip 138240000
   broker_pid="${started_pid}"
   broker_index=$((${#process_pids[@]} - 1))
   # Absolute bound: the fixed 15-second run plus ten seconds for grouped
@@ -388,7 +390,7 @@ PY
     sleep 0.5
   done
   if [[ "${rrc}" -eq 1 && "${pdu}" -eq 1 ]]; then
-    if nsenter --net=/run/netns/ue1 -- ping -I tun_srsue -c 3 -W 2 10.45.1.1 >"${log_dir}/ue-ping.log" 2>&1; then
+    if nsenter --net=/run/netns/ue1 -- ping -I tun_srsue -c 60 -i 0.1 -W 2 10.45.1.1 >"${log_dir}/ue-ping.log" 2>&1; then
       ping_ok=1
     fi
   fi

@@ -265,4 +265,20 @@ if [[ "${run_status}" -ne 0 ]]; then
   exit "${run_status}"
 fi
 "/usr/bin/python3" "${verifier}" --results-root "${results_root}" --summary "${summary_path}"
+# The matrix judgement runs on the same gate run: the wire capture the
+# broker flushed at shutdown is recomputed against the DECLARED vectors.
+# gNB ports > 0 are declared silent on the DL: srsRAN radiates SSB and
+# common channels on port 0 only, CSI-RS is off, and rank-1 PDSCH is
+# precoded [1,0,...]; the DL multi-branch content proof is the synthetic
+# R0/R1 gates. The UL rows all carry the live srsUE signal.
+python3 "${script_dir}/verify-mimo-matrix-capture.py" \
+  --capture-dir "${report_dir}/wire-capture" \
+  --topology "${preserved_configs}/topology.yaml" \
+  --allow-silent-source 'gnb0->ue0:1' \
+  --report "${report_dir}/matrix-report.json"
+# The raw capture is bulk evidence (hundreds of MB); once the matrix
+# judgement above has passed, the report carries the numbers and the
+# capture is dropped. A failed judgement aborts before this line, so
+# failing runs keep their capture for diagnosis.
+rm -rf "${report_dir}/wire-capture"
 printf 'summary=%s\n' "${summary_path}"

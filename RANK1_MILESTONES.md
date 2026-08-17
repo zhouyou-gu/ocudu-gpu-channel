@@ -11,6 +11,10 @@
 | R2 | **라이브 2×1 DL + 1×2 UL** — OCUDU gNB 2T2R ↔ 브로커 ↔ srsUE(nof_antennas=1) | attach + PDU + ping, strict counter 0, gNB RF failure 0, wire-capture로 y=Hx 벡터 검증 동시 통과. 1×1 srsUE 게이트 무회귀 | **완료 2026-08-17** (`run-ocudu-rank1-2x1.sh` `result=pass`; 1×1 무회귀 pass; 캡처 실측: UL 두 행 y=Hx ≤4.6e-05, DL row 3.7e-08. 알려진 구조적 사실: 이 구성에서 gNB port1은 방사하지 않음 — SSB/공용채널 port0 + CSI-RS off + rank-1 [1,0] 프리코딩. DL 두-branch 콘텐츠 증명은 R0/R1 합성이 담당) |
 | R3 | **4×1 / 1×4 확장** | R1/R2와 동일 게이트를 4포트에서 반복; 주장은 계속 rank-1 | **완료 2026-08-17**: `run-ocudu-rank1-4x1.sh` `result=pass` — full 4T4R(DL 1×4 + UL 4×1) 라이브 attach+PDU+ping, strict counter 0. 합성 y=Hx 4행 ≤1.3e-07 + 라이브 UL 4행 ≤4.6e-05. UL-4R flaky의 **원인 규명 완료**: CSI-off 환경에서 gNB UL 링크어댑테이션이 무노이즈 채널의 포화 SNR 추정(~11dB)을 믿고 과공격 MCS(64QAM tcr 0.93)를 반복 → 상시 ~20% PUSCH KO → 등록 크리티컬 구간이 연속 KO에 걸리면 실패(bimodal=확률). `pusch.max_ue_mcs: 9`가 사슬을 절단(3/3 완주, KO 0) — 두 gNB fixture에 근거 주석과 함께 정착, R2 게이트도 cap 반영 재통과. 기각된 가설(전부 실측): 채널/브로커(무죄), rx_ring, srsUE 설정, resync, tx/rx 원점 위상(성패 공통 상수), 그리고 epre=-inf는 SR-DTX의 정상 로그(SR 308/308 검출)였음 |
 
+**게이트 통합과 측정 (2026-08-17 후반)**: 두 라이브 게이트(R2/R3)는 이제 **같은 실행에서 행렬 판정을 함께 채점**한다 — 브로커가 shutdown 시 flush한 wire 캡처(500ms, 등록+ICMP 창)를 `verify-mimo-matrix-capture.py`가 선언 벡터로 재계산하고, gNB의 무방사 DL 포트(>0)는 `--allow-silent-source`로 근거와 함께 선언된다(검사 완화가 아니라 실측 사실의 선언; DL 다중-branch 콘텐츠 증명은 합성 게이트 담당). 통합 후 첫 실행: R2 `matrix_capture_status=passed`(UL row 오차 ≤2.2e-05), R3 passed(UL 4행 4.6e-05/2.2e-05/1.7e-05/2.8e-05). ping은 10Hz×60발 0% 손실을 요구한다. 상시 게이트 위생: `gpu-test-sequence.sh` 9/9가 이 트리에서 통과.
+
+**측정 라벨** (Threadripper PRO 7965WX + RTX 5090(1 GPU 사용), 23.04 MS/s, batch 23040=1ms 슬롯, CUDA 백엔드, fixed_mimo(1탭)+tdl 체인, 20s 게이트 런, heartbeat 스냅샷 n=18): 2×1 — GPU h2d/kernel/d2h p50 7.7/11.3/7.9µs, 노드 process p50 80.2µs·p99 131.9µs. 4×1 — 51.0/12.9/14.9µs, 노드 process p50 119.2µs·p99 619.1µs. 모두 1ms 슬롯 예산 내(관측 max 포함).
+
 **주장 경계 (보고서 writing-requirements 준용)**: 모든 결과는 "2×1/4×1 DL MISO, 1×2/1×4 UL SIMO"로 기술한다. "end-to-end 4×4 MIMO", rank>1, UE 수신 빔포밍, PMI 폐루프, MU-MIMO를 주장하지 않는다. 고정 DL 가중치의 이득은 위상이 채널과 정합할 때만 성립하므로, 검증된 프리코더 메타데이터 없이 "diversity"라 부르지 않는다.
 
 **R2가 확정한 사실** (전부 실측/소스 근거, `AGENT_PROGRESS.md` R2 절 상세):

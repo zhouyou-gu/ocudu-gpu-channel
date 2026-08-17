@@ -139,6 +139,7 @@ def check_link(
     rows: list[np.ndarray],
     tolerance: float,
     cross_floor: float,
+    allowed_silent: frozenset = frozenset(),
 ) -> None:
     usable = min([column.size for column in columns] + [row.size for row in rows])
     if not checks.require(usable > 0, f"{label}: nothing was captured on one of the ports"):
@@ -153,6 +154,11 @@ def check_link(
     for t, column in enumerate(columns):
         rms = float(np.sqrt(np.mean(np.abs(column) ** 2)))
         checks.measure(f"{label}_tx{t}_rms", round(rms, 6))
+        if t in allowed_silent:
+            # A declared-silent source (e.g. srsRAN never radiates SSB/common
+            # channels or rank-1 PDSCH on ports > 0) is recorded, not failed.
+            checks.measure(f"{label}_tx{t}_declared_silent", 1)
+            continue
         checks.require(rms > 0.0, f"{label}: source port {t} captured only zeros")
 
     for r, row in enumerate(rows):
@@ -180,7 +186,8 @@ def check_link(
         # that came from columns other than the diagonal one. A relay running
         # independent per-port lanes scores 0 here; so does a matrix whose cross
         # coefficients were dropped.
-        if len(columns) > 1 and expected_rms > 0.0:
+        live_columns = [t for t in range(len(columns)) if t not in allowed_silent]
+        if len(live_columns) > 1 and expected_rms > 0.0:
             diagonal = contributions[r] if r < len(contributions) else 0.0
             off_diagonal = math.sqrt(max(0.0, sum(c * c for c in contributions) - diagonal * diagonal))
             share = off_diagonal / expected_rms
@@ -206,6 +213,14 @@ def main() -> int:
         "so exact equality is not available and the round trip costs ~1e-7",
     )
     parser.add_argument("--cross-floor", type=float, default=0.05)
+    parser.add_argument(
+        "--allow-silent-source",
+        action="append",
+        default=[],
+        metavar="FROM>TO:TXIDX",
+        help="declare that this link's TX column may be all-zero on the wire "
+        "(recorded, not failed; excluded from the cross-share check)",
+    )
     args = parser.parse_args()
 
     checks = Checks()
@@ -293,14 +308,21 @@ def main() -> int:
         matrix = matrix_from_model(model, model_name, len(rx_ports), len(tx_ports), checks)
         if matrix is None:
             continue
+        link_label = f"{source_id}->{destination_id}"
+        allowed_silent = frozenset(
+            int(spec.rsplit(":", 1)[1])
+            for spec in args.allow_silent_source
+            if spec.rsplit(":", 1)[0] == link_label
+        )
         check_link(
             checks,
-            f"{source_id}->{destination_id}",
+            link_label,
             matrix,
             [load(port, "tx_in") for port in tx_ports],
             [load(port, "rx_out") for port in rx_ports],
             args.tolerance,
             args.cross_floor,
+            allowed_silent,
         )
 
     passed = not checks.failures

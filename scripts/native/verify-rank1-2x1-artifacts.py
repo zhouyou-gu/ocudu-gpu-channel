@@ -316,7 +316,7 @@ def validate_artifacts(results_root: Path, summary_path: Path, now: float) -> di
     )
     ping_text = ping_log.read_text(encoding="utf-8", errors="replace")
     require(
-        re.search(r"3 packets transmitted, 3 received, 0% packet loss", ping_text) is not None,
+        re.search(r"60 packets transmitted, 60 received, 0% packet loss", ping_text) is not None,
         "UE ping log does not prove three successful gateway replies",
     )
     require(
@@ -361,7 +361,7 @@ def self_test() -> None:
             "RRC Connected\nPDU Session Establishment successful\n", encoding="utf-8"
         )
         (log_dir / "ue-ping.log").write_text(
-            "3 packets transmitted, 3 received, 0% packet loss\n", encoding="utf-8"
+            "60 packets transmitted, 60 received, 0% packet loss\n", encoding="utf-8"
         )
         (log_dir / "subscriber-verify.log").write_text(
             "event=native_open5gs_subscriber_verified imsi=001010123456780 ipv4=10.45.1.2\n",
