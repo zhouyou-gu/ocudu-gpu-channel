@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render configs for the native rank-1 2x1/1x2 live gate (R2).
+"""Render configs for the native rank-1 4x1/1x4 live gate (R3).
 
 Open5GS, srsUE, and the subscriber render from the SAME immutable legacy
 fixtures through the SAME functions as the 1x1 gate (imported from
@@ -32,14 +32,14 @@ def load_legacy_renderer():
 legacy = load_legacy_renderer()
 
 
-def render_gnb_2t2r(source: str, log_dir: Path) -> str:
+def render_gnb_4t4r(source: str, log_dir: Path) -> str:
     # The three R2 adaptations are load-bearing (see the fixture header);
     # requiring their exact tokens keeps a drifted fixture from silently
     # running a different experiment.
     invariants = {
-        "  device_args: tx_port0=tcp://127.0.0.1:2000,tx_port1=tcp://127.0.0.1:2002,rx_port0=tcp://127.0.0.1:2001,rx_port1=tcp://127.0.0.1:2003,base_srate=23.04e6\n": 1,
-        "  nof_antennas_dl: 2\n": 1,
-        "  nof_antennas_ul: 2\n": 1,
+        "  device_args: tx_port0=tcp://127.0.0.1:2000,tx_port1=tcp://127.0.0.1:2002,tx_port2=tcp://127.0.0.1:2004,tx_port3=tcp://127.0.0.1:2006,rx_port0=tcp://127.0.0.1:2001,rx_port1=tcp://127.0.0.1:2003,rx_port2=tcp://127.0.0.1:2005,rx_port3=tcp://127.0.0.1:2007,base_srate=23.04e6\n": 1,
+        "  nof_antennas_dl: 4\n": 1,
+        "  nof_antennas_ul: 4\n": 1,
         "      ss2_type: ue_dedicated\n": 1,
         "      dci_format_0_1_and_1_1: true\n": 1,
         "    csi_rs_enabled: false\n": 1,
@@ -49,7 +49,7 @@ def render_gnb_2t2r(source: str, log_dir: Path) -> str:
     }
     for token, count in invariants.items():
         if source.count(token) != count:
-            legacy.fail(f"2T2R rank-1 gNB invariant missing or ambiguous: {token!r}")
+            legacy.fail(f"4T4R rank-1 gNB invariant missing or ambiguous: {token!r}")
     rendered = legacy.replace_exact(
         source, "@GNB_LOG@", str(log_dir / "gnb-internal.log"), 1, "gNB log path"
     )
@@ -68,30 +68,30 @@ def validate_topology_rank1(source: str) -> str:
     # The asymmetric fixture is already loopback-addressed; validate the
     # rank-1 shape rather than rewriting anything.
     invariants = (
-        "    tx_ports:\n      - gnb0_p0\n      - gnb0_p1\n",
+        "    tx_ports:\n      - gnb0_p0\n      - gnb0_p1\n      - gnb0_p2\n      - gnb0_p3\n",
         "    tx_ports:\n      - ue0_p0\n",
-        "  - from: gnb0\n    to: ue0\n    model: dl_miso_2x1\n",
-        "  - from: ue0\n    to: gnb0\n    model: ul_simo_1x2\n",
+        "  - from: gnb0\n    to: ue0\n    model: dl_miso_4x1\n",
+        "  - from: ue0\n    to: gnb0\n    model: ul_simo_1x4\n",
     )
     for token in invariants:
         if source.count(token) != 1:
             legacy.fail(f"rank-1 topology invariant missing or ambiguous: {token!r}")
-    if source.count("rx: 0") != 3 or source.count("rx: 1") != 1:
-        legacy.fail("rank-1 topology coefficient shape is not 1x2 DL + 2x1 UL")
+    if source.count("rx: 0") != 5 or source.count("rx: 1") != 1 or source.count("rx: 2") != 1 or source.count("rx: 3") != 1:
+        legacy.fail("rank-1 topology coefficient shape is not 1x4 DL + 4x1 UL")
     return source
 
 
 def self_test() -> None:
     sample = (
-        "  device_args: tx_port0=tcp://127.0.0.1:2000,tx_port1=tcp://127.0.0.1:2002,rx_port0=tcp://127.0.0.1:2001,rx_port1=tcp://127.0.0.1:2003,base_srate=23.04e6\n"
-        "  nof_antennas_dl: 2\n  nof_antennas_ul: 2\n"
+        "  device_args: tx_port0=tcp://127.0.0.1:2000,tx_port1=tcp://127.0.0.1:2002,tx_port2=tcp://127.0.0.1:2004,tx_port3=tcp://127.0.0.1:2006,rx_port0=tcp://127.0.0.1:2001,rx_port1=tcp://127.0.0.1:2003,rx_port2=tcp://127.0.0.1:2005,rx_port3=tcp://127.0.0.1:2007,base_srate=23.04e6\n"
+        "  nof_antennas_dl: 4\n  nof_antennas_ul: 4\n"
         "      ss2_type: ue_dedicated\n      dci_format_0_1_and_1_1: true\n"
         "    csi_rs_enabled: false\n    nof_cell_csi_res: 0\n"
         "  mac_enable: disable\n    max_ue_mcs: 9\n"
         "  filename: @GNB_LOG@\n  mac_filename: @GNB_MAC_PCAP@\n"
         "  ngap_filename: @GNB_NGAP_PCAP@\n"
     )
-    rendered = render_gnb_2t2r(sample, Path("/tmp/x"))
+    rendered = render_gnb_4t4r(sample, Path("/tmp/x"))
     assert "@GNB" not in rendered
     try:
         validate_topology_rank1("nothing")
@@ -99,7 +99,7 @@ def self_test() -> None:
         pass
     else:
         raise AssertionError("validate_topology_rank1 did not fail closed")
-    print("event=native_rank1_config_renderer_self_test result=pass")
+    print("event=native_rank1_4x1_config_renderer_self_test result=pass")
 
 
 def main() -> int:
@@ -126,11 +126,11 @@ def main() -> int:
         legacy.fail("repo and native roots must already be canonical")
 
     gnb_source = legacy.read_regular(
-        repo_root / "examples/native/ocudu/gnb_zmq_b210_fdd_2t2r_rank1_srsue.yaml",
-        "rank-1 2T2R gNB fixture",
+        repo_root / "examples/native/ocudu/gnb_zmq_b210_fdd_4t4r_rank1_srsue.yaml",
+        "rank-1 4T4R gNB fixture",
     )
     topology_source = legacy.read_regular(
-        repo_root / "examples/native/topology.ocudu.rank1-2x1.cuda.yaml",
+        repo_root / "examples/native/topology.ocudu.rank1-4x1.cuda.yaml",
         "rank-1 asymmetric topology fixture",
     )
     open5gs_source = legacy.read_regular(
@@ -147,7 +147,7 @@ def main() -> int:
     )
 
     rendered = {
-        "gnb.yaml": render_gnb_2t2r(gnb_source, log_dir),
+        "gnb.yaml": render_gnb_4t4r(gnb_source, log_dir),
         "topology.yaml": validate_topology_rank1(topology_source),
         "open5gs.yaml": legacy.render_open5gs(open5gs_source, native_root),
         "srsue.conf": legacy.render_srsue(srsue_source, log_dir),
@@ -157,7 +157,7 @@ def main() -> int:
         if legacy.PLACEHOLDER_RE.search(text):
             legacy.fail(f"unresolved placeholder in {name}")
         legacy.write_new(output_dir / name, text)
-    print(f'event=native_rank1_configs_rendered output_dir="{output_dir}"')
+    print(f'event=native_rank1_4x1_configs_rendered output_dir="{output_dir}"')
     return 0
 
 
