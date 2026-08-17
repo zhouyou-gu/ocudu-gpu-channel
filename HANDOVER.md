@@ -27,6 +27,7 @@ cd /home/ubuntu/ocudu-gpu-channel-rank1
 source scripts/native/env.sh
 cmake -S . -B build && cmake --build build -j8 && ctest --test-dir build --output-on-failure
 bash scripts/native/run-ocudu-legacy-1x1.sh   # 1x1 srsUE 무회귀 (그대로 유효)
+bash scripts/native/run-ocudu-rank1-2x1.sh    # R2: 라이브 2x1 DL MISO + 1x2 UL SIMO (약 2분)
 ```
 
 주의: 네이티브 게이트들은 `~/ocudu-native-workspace`를 공유하고 `repo_root`를 스크립트 위치에서 유도하므로 이 트리에서 실행하면 이 트리 기준으로 돈다. 부모 트리와 **동시에** 라이브 게이트를 돌리지 말 것(포트/워크스페이스 충돌).
