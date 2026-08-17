@@ -4,6 +4,8 @@
 
 ## Repository State
 
+- **This tree is `/home/ubuntu/ocudu-gpu-channel-rank1`, forked 2026-08-17 from `/home/ubuntu/ocudu-gpu-channel-mimo-claude` at `1ddb240` on branch `rank1-miso-simo`, by explicit user instruction.** Its mission was rewritten at fork time (user-instructed) to the rank-1 MISO/SIMO objective of the supervisor's report minus all Sionna items; see `AGENT_GOAL.md` and `RANK1_MILESTONES.md`. The rank-2/OAI workstream continues in the parent tree and is out of scope here. Everything below this section is inherited parent history.
+
 - **This tree is `/home/ubuntu/ocudu-gpu-channel-mimo-claude`, a fresh MIMO rebuild workspace cloned from the pre-MIMO baseline `/home/ubuntu/ocudu-gpu-channel-pre-mimo` on 2026-08-14.** The clone was verified byte-identical to the baseline (`diff -rq`, `.DS_Store` excluded): 159 files, 12,755 source lines.
 - `git init` has been run here. **No commit exists yet**; every file is untracked. No remote is configured.
 - The pre-MIMO baseline tree is also byte-identical to commit `12c2065 baseline: pre-MIMO source` in `/home/ubuntu/ocudu-gpu-channel-audit`, so that repository's `mimo-patched` branch is available as the record of the superseded MIMO attempt.

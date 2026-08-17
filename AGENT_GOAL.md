@@ -2,43 +2,44 @@
 
 **This file defines the long-term mission of the workspace. It is agent-immutable. The agent shall not modify this file autonomously. It may be changed only when the user explicitly and unambiguously instructs a change. Implicit signals, inferred preferences, stylistic adjustments, and routine task updates do not satisfy this condition.**
 
+This workspace (`ocudu-gpu-channel-rank1`) was forked from `ocudu-gpu-channel-mimo-claude` on 2026-08-17 by explicit user instruction. Its mission is the rank-1 MISO/SIMO objective of the supervisor's integration assessment (`mimo-integration-report.html`), with every Sionna RT item excluded: Sionna integration is owned by another team member and will be merged later. The rank-2 OAI-nrUE workstream continues in the parent workspace and is out of scope here.
+
 ## Statement
 
-Build and maintain `ocudu-gpu-channel` as a real-time GPU-accelerated wireless-channel emulator for OCUDU's Split 8 ZMQ SDR baseband path, supporting multiple gNBs, multiple UEs, and multiple antenna ports per radio by routing ZMQ IQ sample streams through configurable channel models while preserving sample timing, stream continuity, and OCUDU PHY/RU integration behavior.
+Build and maintain this fork of `ocudu-gpu-channel` as a real-time GPU-accelerated wireless-channel emulator that demonstrates useful rank-1 multi-antenna operation between a multi-port OCUDU gNB and a one-port srsUE 5G: downlink 2×1 (later 4×1) MISO where multiple gNB transmit ports combine through the emulated channel into srsUE's single receive stream, and uplink 1×2 (later 1×4) SIMO where srsUE's single transmit stream reaches multiple gNB receive ports over independently modelled branches, while preserving sample timing, stream continuity, and OCUDU PHY/RU integration behavior.
 
 ## Scope
 
-- Source code, configuration, tests, benchmarks, deployment assets, and documentation for the channel-emulation layer.
-- ZMQ IQ sample ingress and egress between OCUDU gNB-side endpoints, UE-side endpoints, brokers, and local test harnesses.
-- GPU-accelerated channel processing for one-to-one, one-to-many, many-to-one, and many-to-many gNB/UE topologies.
-- Per-link and aggregate channel effects needed to emulate realistic wireless interactions between multiple transmitters and receivers.
-- Integration behavior that lets OCUDU Split 8 SDR/ZMQ workflows use the emulator without changing higher-layer OCUDU semantics.
-- Grouping several ZMQ endpoints into one logical multi-port radio, and emulating the joint `Nt x Nr` channel matrix between two such radios as one channel realization.
+- Source code, configuration, tests, benchmarks, and documentation for rank-1 asymmetric (MISO/SIMO) channel emulation in this fork.
+- ZMQ IQ ingress/egress between a multi-port OCUDU gNB radio node and a single-port srsUE radio node, plus synthetic test peers.
+- Downlink 1×N_TX row-vector channels (one effective stream at the UE) and uplink N_RX×1 column-vector channels (one independently modelled branch per gNB receive port), executed on the GPU with a CPU reference.
+- Keeping srsUE at `nof_antennas = 1`; starting OCUDU at `nof_antennas_dl: 2` / `nof_antennas_ul: 2`; extending the gNB side to four ports only after the two-port gates pass.
+- Evidence-backed end-to-end results: attach, PDU session, traffic, PHY metrics, and channel telemetry, with per-branch gain/delay/fading isolation proved against synthetic peers before live srsUE runs.
 
 ## Non-Goals
 
-- Replacing OCUDU's CU, DU, MAC, scheduler, PHY implementation, 5G core, or non-ZMQ RF drivers.
-- Implementing production O-RAN Split 7.2/eCPRI fronthaul or physical RF impairment-hardware control unless the user explicitly expands the mission.
-- Building a general-purpose SDR GUI, offline-only signal-analysis tool, or non-real-time simulator detached from ZMQ IQ sample streams.
-- Making unsupported claims about OCUDU internals, sample formats, or runtime behavior without verification against public documentation, source code, or runtime tests.
-- Claiming live multi-layer (rank > 1) operation on the basis of transport-level multi-port flow alone, or on the basis of several independent single-port UE processes; a live rank-2 claim requires a UE PHY that jointly estimates and decodes the matrix channel.
-- Antenna-array geometry, beamforming, precoder selection, and TR 38.901 CDL modelling, unless the user explicitly expands the mission.
+- Rank > 1 SU-MIMO, multi-layer UE decode, or any UE-side rank claim: srsUE remains a one-transmit-stream, one-receive-stream, one-layer NR UE throughout. (The rank-2 workstream lives in the parent workspace.)
+- UE receive diversity, UE receive-beam steering, or representing the UE as more than one antenna.
+- Automatic closed-loop PMI-driven downlink beam control: srsUE's one-port CSI cannot drive it; any beam weight is fixed or explicitly oracle-labelled and lives in OCUDU/RU, not in this emulator.
+- Same-PRB MU-MIMO, user grouping, or multi-user precoding.
+- Calling duplicated downlink samples "diversity" without verified precoding or a supported diversity mode.
+- Sionna RT integration in any form (export, record/replay, live CIR): another team member owns it; this fork only avoids design choices that would block a later merge.
+- Replacing OCUDU's CU/DU/MAC/scheduler/PHY, the 5G core, or non-ZMQ RF drivers; patching srsUE itself.
 
 ## Success Criteria
 
-- The emulator can connect multiple gNB-side and UE-side ZMQ IQ endpoints with a configurable topology.
-- Channel models can be configured per link and executed on the GPU with documented CPU fallback or explicit unsupported-path behavior.
-- Timing, throughput, and continuity checks demonstrate sustained processing for representative OCUDU ZMQ sample-rate configurations.
-- Tests or reproducible harnesses verify endpoint routing, IQ sample handling, channel-effect correctness, and multi-node scenarios.
-- Documentation explains how to build, configure, run, and validate the emulator with OCUDU Split 8 ZMQ deployments.
-- A multi-port radio pair exchanges IQ through the emulator with every sibling port served from one common sample window, verified against a multi-port test peer, while single-port topologies keep their existing behavior.
+- A 2-port OCUDU gNB radio node and a 1-port srsUE radio node exchange IQ through the emulator with every gNB sibling port served from one common sample window, verified against synthetic peers with all data-integrity counters at zero.
+- Deterministic 2×1 DL and 1×2 UL coefficient vectors are proved before live runs: per-branch isolation (antenna-0-only and antenna-1-only reach the UE with expected gain/delay), coherent DL phase sweeps show expected addition and cancellation, UL branches preserve independent gain/delay/fading/noise, and CPU/CUDA agree within established tolerance.
+- Live srsUE completes attach, PDU session, and traffic through the 2×1/1×2 emulated channel with zero queue overflows, sequence gaps, and ZMQ errors, and the served IQ is verified against the declared channel vectors on the wire.
+- The 4×1/1×4 extension repeats the same correctness, timing, and real-time gates without changing the one-port UE contract.
+- Every result is labelled with hardware, sample rate, topology, model chain, backend, and run duration, and is described as rank-1 MISO/SIMO — never as end-to-end MIMO or UE spatial multiplexing.
 
 ## Constraints
 
-- Preserve complex IQ sample ordering, timing, and stream-continuity semantics expected by OCUDU-facing ZMQ SDR paths.
-- Treat multi-gNB and multi-UE operation as a first-class design requirement, not a later extension of a single-link-only architecture.
-- All ports of one radio share one sample epoch, and all matrix coefficients between two radios belong to one channel realization with one time origin; per-port state that can drift independently is not an acceptable implementation of a matrix channel.
-- Keep real-time data paths measurable and bounded in allocation, buffering, and latency.
+- All ports of the gNB radio node share one sample epoch; a directional coefficient vector activates atomically at one slot boundary — a partially updated port vector is not an acceptable state.
+- Precoding and beam weights belong to OCUDU/RU; propagation, fading, delay, noise, and superposition belong to this project. Receiver noise is applied once per receiver, not per propagation coefficient.
+- The existing 1×1 OCUDU↔srsUE attach gate is preserved unchanged as the regression net.
+- Keep real-time data paths measurable and bounded in allocation, buffering, and latency; never zero-fill missing channel state silently.
 - Make GPU availability, device selection, fallback behavior, and unsupported hardware conditions explicit at runtime.
 
 ---
