@@ -1,0 +1,77 @@
+# Native rank-1 4x1 DL MISO fixture (R3): the R2 2T2R cell raised to FOUR
+# DL antennas (tx_port0..3) while the UL stays at TWO receive ports.
+# UL 4R is deliberately NOT used here: with nof_antennas_ul 4 the live UL
+# degrades with intermittent epre=-inf PUSCH occasions at the gNB and
+# registration cannot complete (R3 bisection, 2026-08-17); the emulator-side
+# 1x4/4x1 vectors are proven clean synthetically, so the block sits in the
+# gNB's 4-port ZMQ receive path and is an open item in RANK1_MILESTONES.md.
+# The three R2 adaptations (ue_dedicated/DCI 0_1+1_1, CSI-RS off, MAC pcap
+# off) carry over unchanged and remain load-bearing.
+# SPDX-FileCopyrightText: Copyright (C) 2021-2026 Software Radio Systems Limited
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# Derived from OCUDU configs/gnb_rf_b210_fdd_srsUE.yml for Docker/ZMQ
+# interop with ocudu-gpu-channel. Only the ru_sdr section is changed from
+# UHD/external-clock hardware to ZMQ endpoints on the Docker bridge.
+
+cu_cp:
+  amf:
+    addrs: 127.0.0.2
+    port: 38412
+    bind_addrs: 127.0.0.1
+    supported_tracking_areas:
+      - tac: 7
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+
+cu_up:
+  ngu:
+    socket:
+      - bind_addr: 127.0.0.1
+
+ru_sdr:
+  device_driver: zmq
+  device_args: tx_port0=tcp://127.0.0.1:2000,tx_port1=tcp://127.0.0.1:2002,tx_port2=tcp://127.0.0.1:2004,tx_port3=tcp://127.0.0.1:2006,rx_port0=tcp://127.0.0.1:2001,rx_port1=tcp://127.0.0.1:2003,base_srate=23.04e6
+  clock: default
+  srate: 23.04
+  tx_gain: 0
+  rx_gain: 0
+
+cell_cfg:
+  nof_antennas_dl: 4
+  nof_antennas_ul: 2
+  dl_arfcn: 368500
+  band: 3
+  channel_bandwidth_MHz: 20
+  common_scs: 15
+  plmn: "00101"
+  tac: 7
+  pdcch:
+    dedicated:
+      ss2_type: ue_dedicated
+      dci_format_0_1_and_1_1: true
+    common:
+      ss0_index: 0
+      coreset0_index: 12
+  prach:
+    prach_config_index: 1
+  pdsch:
+    mcs_table: qam64
+  csi:
+    csi_rs_enabled: false
+  pucch:
+    nof_cell_csi_res: 0
+  pusch:
+    mcs_table: qam64
+
+log:
+  filename: @GNB_LOG@
+  all_level: info
+
+pcap:
+  mac_enable: disable
+  mac_filename: @GNB_MAC_PCAP@
+  ngap_enable: enable
+  ngap_filename: @GNB_NGAP_PCAP@

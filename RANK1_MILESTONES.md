@@ -9,7 +9,7 @@
 | R0 | **비대칭 토폴로지** — 2-port gNB 노드 ↔ 1-port UE 노드 선언, DL 1×2 row / UL 2×1 column `fixed_mimo` | validator 통과, 기존 ctest 전체 green (비대칭 단위테스트 포함), 합성 peer로 브로커 관통 + strict counter 0 | **완료 2026-08-17** |
 | R1 | **결정론적 2×1/1×2 채널 증명** — 보고서의 "Deterministic channel" 게이트 | branch isolation(antenna-0-only / antenna-1-only), DL 위상 스윕의 코히어런트 합/상쇄, UL branch 독립성, CPU↔CUDA parity | **완료 2026-08-17** (위상 스윕은 뮤테이션 확인된 신규 단위테스트; branch isolation·코히어런트 합은 CUDA 브로커 실측이 해석 예측과 0.05~3% 정합) |
 | R2 | **라이브 2×1 DL + 1×2 UL** — OCUDU gNB 2T2R ↔ 브로커 ↔ srsUE(nof_antennas=1) | attach + PDU + ping, strict counter 0, gNB RF failure 0, wire-capture로 y=Hx 벡터 검증 동시 통과. 1×1 srsUE 게이트 무회귀 | **완료 2026-08-17** (`run-ocudu-rank1-2x1.sh` `result=pass`; 1×1 무회귀 pass; 캡처 실측: UL 두 행 y=Hx ≤4.6e-05, DL row 3.7e-08. 알려진 구조적 사실: 이 구성에서 gNB port1은 방사하지 않음 — SSB/공용채널 port0 + CSI-RS off + rank-1 [1,0] 프리코딩. DL 두-branch 콘텐츠 증명은 R0/R1 합성이 담당) |
-| R3 | **4×1 / 1×4 확장** | R1/R2와 동일 게이트를 4포트에서 반복; 주장은 계속 rank-1 | |
+| R3 | **4×1 / 1×4 확장** | R1/R2와 동일 게이트를 4포트에서 반복; 주장은 계속 rank-1 | **부분 완료 2026-08-17**: 합성 1×4/4×1 y=Hx 완벽(UL 4행 ≤1.3e-07, DL off-diag 1.18) + **DL 4×1 라이브 완주**(4T2R 셀, attach+PDU+ping — fixture `gnb_zmq_b210_fdd_4t2r_rank1_srsue.yaml`/`topology.ocudu.rank1-4x1dl.cuda.yaml`). **UL 4R 라이브는 차단**: gNB 4-RX에서 간헐 epre=-inf/UL KO로 등록 실패 — 이분법으로 UL 4-RX 단독 고립(DL 4T 무관), rx_ring_batches 8도 무효, 채널측은 합성으로 무죄. 용의 구간은 OCUDU ZMQ 4-포트 수신 경로와 부분-윈도 서빙의 상호작용. 다음 세션 과제 |
 
 **주장 경계 (보고서 writing-requirements 준용)**: 모든 결과는 "2×1/4×1 DL MISO, 1×2/1×4 UL SIMO"로 기술한다. "end-to-end 4×4 MIMO", rank>1, UE 수신 빔포밍, PMI 폐루프, MU-MIMO를 주장하지 않는다. 고정 DL 가중치의 이득은 위상이 채널과 정합할 때만 성립하므로, 검증된 프리코더 메타데이터 없이 "diversity"라 부르지 않는다.
 
