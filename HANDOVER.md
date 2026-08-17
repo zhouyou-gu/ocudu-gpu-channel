@@ -47,12 +47,9 @@
 2. **UL 위상보상**: OAI는 38.211 위상보상 주파수를 SIB1 이전의 CLI UL 캐리어(DL+`--CO`)로 굳힌다 → band 3 FDD는 `--CO -95000000` 필수 (없으면 UL에 겉보기 +817 Hz, Msg3 전멸)
 3. **PDCCH/능력**: fixture의 srsUE 전용 `pdcch.dedicated` 오버라이드에 OAI가 귀머거리가 된다(렌더에서 제거, `render_gnb_oai`에 근거 기록) + `--uecap_file` 절대경로 필수 (기본이 상대경로라 미로딩 → maxMIMO layers 0 → DCI 1_1에서 AssertFatal)
 
-**M6.3이 할 일** — gNB 2T2R ↔ 2×2 행렬 ↔ OAI nrUE 2안테나, `maxMIMO_layers = 2`:
-- 2T2R gNB fixture (`nof_antennas_dl/ul=2`, ZMQ 포트 4개 — M5의 멀티포트 `device_args` 문법 재사용)
-- 2포트 RadioNode 토폴로지 fixture (M5.3의 2×2 행렬 계열)
-- OAI: `--zmq.[0].tx_channels`/`rx_channels`는 주소 **목록** — 채널 2개 선언, `--uecap_file`을 `uecap_ports2.xml`로
-- **첫 실패 후보는 OAI ZMQ 2채널 동시 동작** — 계획서가 "미검증"으로 명시한 유일한 프로토콜 구멍
-- 판정: gNB 로그에 rank-2 스케줄링, UE 2레이어 복호, attach+PDU+ping (M6.4에서 `ri=2` + 행렬 검증 동시 통과로 승격)
+**M6.3 정찰 결과 (2026-08-17, 상세는 `AGENT_PROGRESS.md` [M6.3 scout] 절)** — 2×2 인프라는 전부 동작한다: 2T2R gNB(코어 포함, **mac pcap은 disable 필수**), OAI 2안테나 2채널 ZMQ(콤마 리스트 CLI), rank-1 강제(`max_rank: 1`) 시 **attach+PDU 완주**. "첫 실패 후보"였던 OAI 2채널 ZMQ는 문제가 아니었다.
+
+**실제 차단 지점: rank-2 PDSCH 복호 하나.** 소거된 것: MCS 마진(QPSK도 전멸), CSI-RS 다중화, DCI/DMRS 신호 구성(OAI 자체 gNB와 동일 조합), **채널 추정(4계수 전부 정확 — UE PHY debug `avg_{rx}_{layer}` 실측)**, OAI 자체 rank-2 수신(dlsim BLER 0, 코드북 PMI 포함). 남은 용의 구간은 srsRAN 송신 ↔ OAI의 추정-이후 체인(레이어 디매핑 / 스크램블링 / MMSE-LLR) 규약 차이. **이게 풀리기 전에 게이트 스크립트를 쓰지 말 것** — 실패를 자동화할 뿐이다. 다음 수: 두 스택의 layer mapping/scrambling 소스 diff, 또는 한 슬롯 IQ+LLR 덤프 대조.
 
 **srsUE 1×1 게이트는 그대로 유지한다** — 회귀 안전망(08-17 재확인 `result=pass`). OAI는 **추가**이지 교체가 아니다.
 
