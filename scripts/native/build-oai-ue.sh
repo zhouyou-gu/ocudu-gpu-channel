@@ -90,8 +90,14 @@ cmake -S "${src_dir}" -B "${build_dir}" \
     die "cmake configure failed; see ${log_dir}/cmake-configure.log"
   }
 
-echo "== build (nr-uesoftmodem, oai_zmqdevif) =="
-cmake --build "${build_dir}" --target nr-uesoftmodem oai_zmqdevif -j"${jobs}" \
+# The runtime dlopen modules are separate CMake targets that nr-uesoftmodem
+# loads at startup (params_libconfig is the config parser itself; coding /
+# ldpc / dfts are the PHY compute modules). Building only the executable
+# produces a binary that dies on its first dlopen.
+echo "== build (nr-uesoftmodem, oai_zmqdevif, runtime dlopen modules) =="
+cmake --build "${build_dir}" \
+  --target nr-uesoftmodem oai_zmqdevif params_libconfig coding ldpc dfts \
+  -j"${jobs}" \
   >"${log_dir}/cmake-build.log" 2>&1 || {
     tail -40 "${log_dir}/cmake-build.log" >&2
     die "build failed; see ${log_dir}/cmake-build.log"
@@ -101,6 +107,9 @@ ue_bin="${build_dir}/nr-uesoftmodem"
 zmq_lib="${build_dir}/liboai_zmqdevif.so"
 [[ -x "${ue_bin}" ]] || die "nr-uesoftmodem was not produced at ${ue_bin}"
 [[ -f "${zmq_lib}" ]] || die "liboai_zmqdevif.so was not produced at ${zmq_lib}"
+for module in libparams_libconfig.so libcoding.so libldpc.so libdfts.so; do
+  [[ -f "${build_dir}/${module}" ]] || die "runtime module was not produced: ${module}"
+done
 
 # Record what was built, the same way the other native gates do.
 summary="${log_dir}/build-summary.json"

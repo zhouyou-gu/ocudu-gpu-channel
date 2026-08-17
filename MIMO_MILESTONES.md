@@ -141,7 +141,7 @@ wire payload에는 타임스탬프가 없다. `IqSample`은 `{float i, float q}`
 | M3 | 공간 상관 + coherent LOS | 완료 |
 | M4 | physical link 단위 runtime control | 완료 |
 | M5 | 라이브 통합 (transport + 행렬 검증) | 완료 |
-| **M6** | **rank-2 SU-MIMO 라이브 acceptance** | **계획 (2026-08-16 추가)** |
+| **M6** | **rank-2 SU-MIMO 라이브 acceptance** | **M6.1–M6.2 완료 (2026-08-17). M6.3부터 진행** |
 | **M7** | **massive MIMO** | **계획만, 전제 확인 필요** |
 
 **M0~M5에서 배운 계획상의 교훈 하나** — 성공 기준이 transport 수준으로 정의되어 있었기 때문에, 전 게이트가 green이면서도 "선언한 `H`가 실제 rank-2 전송을 나르는가"는 한 번도 요구되지 않았다. 그리고 그 acceptance를 가능케 할 UE가 존재하는지는 M0 착수 전에 확인했어야 했다(한 시간짜리 조사였다). **이후 마일스톤은 최종 acceptance 경로를 먼저 정찰하고 시작한다.**
@@ -305,8 +305,8 @@ OAI `openairinterface5g` develop 브랜치를 직접 받아 확인한 사실:
 
 | 단계 | 내용 | 판정 |
 |---|---|---|
-| M6.1 | OAI nrUE 빌드 + workspace lock 항목 추가 | 핀 커밋으로 재현 가능한 빌드, `check-workspace.sh` 통과 |
-| M6.2 | **1×1로 OAI 회귀** — OCUDU gNB 1T1R ↔ 브로커 ↔ OAI nrUE | `rrc_connected` / `pdu_session_established` / `ping_ok` 전부 1, strict counter 0. **UE 교체 자체를 rank 2와 분리해 검증한다** |
+| M6.1 | OAI nrUE 빌드 + workspace lock 항목 추가 | 핀 커밋으로 재현 가능한 빌드, `check-workspace.sh` 통과 — **완료 2026-08-16** |
+| M6.2 | **1×1로 OAI 회귀** — OCUDU gNB 1T1R ↔ 브로커 ↔ OAI nrUE | `rrc_connected` / `pdu_session_established` / `ping_ok` 전부 1, strict counter 0. **UE 교체 자체를 rank 2와 분리해 검증한다** — **완료 2026-08-17** (`run-ocudu-oai-1x1.sh` `result=pass` + srsUE 1×1 무회귀 동시 통과; 차단 요인 3건의 규명은 `AGENT_PROGRESS.md` M6.2 절) |
 | M6.3 | 2포트로 승격 — gNB 2T2R ↔ 2×2 행렬 ↔ OAI nrUE 2안테나, `maxMIMO_layers = 2` | gNB 로그에 rank 2 스케줄링, UE가 2 레이어 복호, attach + PDU + ping |
 | M6.4 | **rank-2 acceptance** | `ri = 2`가 관측되고, rank 1 대비 처리량이 유의하게 증가하며, M5.5의 행렬 검증(`y = Hx`)이 같은 실행에서 동시에 통과 |
 
