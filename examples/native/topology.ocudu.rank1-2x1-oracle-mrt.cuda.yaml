@@ -1,0 +1,116 @@
+# ORACLE-PRECODING fixture (labelled per the report's writing rules): the DL
+# coefficient below is NOT a propagation channel -- it is the EFFECTIVE scalar
+# channel c = h > w of the physical 1x2 row h = [0.80+0.10j, 0.25-0.15j] under
+# the maximum-ratio (matched) transmit weight w = conj(h)/||h||, chosen by the
+# experimenter WITH knowledge of h (an oracle, not closed-loop PMI: srsUE has
+# no multi-port CSI feedback). A fixed -30 dB AWGN floor makes |c|^2 an actual
+# SNR, so weight quality shows up as link quality instead of an invisible
+# scale. Measured live (2026-08-17): received power tracks |h*w|^2 to 0.01 dB
+# across MRT / port0-only (-0.53 dB) / naive duplication (-1.24 dB), and the
+# anti-matched deep null fails cell search outright. Recipe + numbers:
+# AGENT_PROGRESS.md "[Oracle precoding]" entry.
+# Rank-1 asymmetric fixture: a 2-port OCUDU gNB radio node against a 1-port
+# srsUE radio node (R0/R2 of RANK1_MILESTONES.md).
+#
+# Downlink is a 1x2 row vector -- both gNB transmit ports combine through
+# their own coefficient into srsUE's single receive stream. Uplink is a 2x1
+# column vector -- srsUE's single transmit stream reaches each gNB receive
+# port over its own independently modelled branch. The UE side stays exactly
+# one port (`nof_antennas = 1` on srsUE); the matrix dimensions come from the
+# radio_nodes declarations, whose writing order IS the matrix index (M1).
+#
+# Claim boundary: this declares rank-1 MISO/SIMO propagation vectors. It does
+# not make the UE multi-antenna and it is never described as 2x2 MIMO.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+
+devices:
+  # The native OCUDU 2T2R gNB owns REP TX binds 2000/2002 and connects its
+  # REQ RX channels to the broker's loopback REP binds 2001/2003.
+  - id: gnb0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb0_p1
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+
+  # srsUE owns REP TX bind 2101 and connects its REQ RX channel to the
+  # broker's loopback REP bind 2100 (same contract as the legacy 1x1 gate).
+  - id: ue0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+
+radio_nodes:
+  - id: gnb0
+    tx_ports:
+      - gnb0_p0
+      - gnb0_p1
+    rx_ports:
+      - gnb0_p0
+      - gnb0_p1
+  - id: ue0
+    tx_ports:
+      - ue0_p0
+    rx_ports:
+      - ue0_p0
+
+links:
+  - from: gnb0
+    to: ue0
+    model: dl_miso_2x1
+  - from: ue0
+    to: gnb0
+    model: ul_simo_1x2
+
+models:
+  # DL row vector h = [h0, h1]: distinct complex gains per gNB TX branch so
+  # branch isolation and phase relationships are measurable, with |h0| close
+  # to the legacy 1x1 budget because srsRAN precodes rank-1 PDSCH onto port 0.
+  dl_miso_2x1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.857321
+          imag: 0.000000
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+      - type: awgn
+        noise_power: 0.001
+
+  # UL column vector h = [h0; h1]: one independently weighted branch per gNB
+  # receive port. OCUDU's PUSCH demodulator equalises across both ports, so
+  # this is the end-to-end receive-diversity path.
+  ul_simo_1x2:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.75
+          imag: -0.10
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.15
+          imag: 0.25
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0

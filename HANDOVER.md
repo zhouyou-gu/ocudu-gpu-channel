@@ -18,7 +18,7 @@ RadioNode 오버레이(공통 sample epoch, producer 단일 윈도), `fixed_mimo
 
 - **R2 라이브 게이트 통과**: `run-ocudu-rank1-2x1.sh` `result=pass` — gNB 2T2R ↔ 브로커(2×1 DL / 1×2 UL) ↔ srsUE attach+PDU+ping, strict counter 0. 1×1 무회귀 pass. 캡처 실측: **UL 두 행 y=Hx ≤ 4.6e-05 라이브 통과**, DL row 3.7e-08.
 - 핵심 규명 3건(전부 소스/실측): OCUDU는 fallback DCI+DL2 금지 → `ue_dedicated`/1_1 필수이며 **srsUE가 1_1/0_1을 실제 지원**; srsUE는 2포트 CSI-RS(FD-CDM2) 미구현 → `csi_rs_enabled: false`+`nof_cell_csi_res: 0` 필수; MAC pcap은 DL2와 양립 불가. 상세와 캡처 레시피는 `AGENT_PROGRESS.md`의 Rank-1 Workstream 절.
-- **R3 완료 (원인 규명 포함)**: full 4T4R 게이트 `run-ocudu-rank1-4x1.sh` `result=pass`. UL-4R flaky의 뿌리는 CSI-off에서 gNB UL 링크어댑테이션의 과공격 MCS(상시 ~20% KO, bimodal=확률)였고 `pusch.max_ue_mcs: 9`로 절단 — fixture에 근거와 함께 정착, R2 게이트 cap 반영 재통과. epre=-inf는 SR-DTX 정상 로그였음(SR 308/308 검출). 상세는 `AGENT_PROGRESS.md` [R3 root cause] 절. 잔여 개선 3건 중 2건 완료(2026-08-17 후반): **행렬 검증 게이트 통합**(두 게이트가 매 실행 y=Hx 채점, `--allow-silent-source`로 무방사 DL 포트 선언) + **지연 라벨 실측**(RANK1_MILESTONES '측정 라벨' 절). 남은 1건: oracle 프리코딩 실험 — DL 다중-branch를 라이브에 실으려면 gNB/RU가 port>0을 구동해야 하는데 srsRAN에 그 노브가 없어, 채널 계수에 가중을 접는 형태의 별도 실험 설계가 필요(우선순위 낮음, 합성 게이트가 콘텐츠 증명을 담당 중)
+- **R3 완료 (원인 규명 포함)**: full 4T4R 게이트 `run-ocudu-rank1-4x1.sh` `result=pass`. UL-4R flaky의 뿌리는 CSI-off에서 gNB UL 링크어댑테이션의 과공격 MCS(상시 ~20% KO, bimodal=확률)였고 `pusch.max_ue_mcs: 9`로 절단 — fixture에 근거와 함께 정착, R2 게이트 cap 반영 재통과. epre=-inf는 SR-DTX 정상 로그였음(SR 308/308 검출). 상세는 `AGENT_PROGRESS.md` [R3 root cause] 절. 잔여 개선 3건 중 2건 완료(2026-08-17 후반): **행렬 검증 게이트 통합**(두 게이트가 매 실행 y=Hx 채점, `--allow-silent-source`로 무방사 DL 포트 선언) + **지연 라벨 실측**(RANK1_MILESTONES '측정 라벨' 절). 잔여 마지막 1건(oracle 프리코딩)도 완료 — MRT/port0/복제/반정합-널 4케이스 라이브, 예측과 0.01dB 정합, 널은 셀 소멸 (RANK1_MILESTONES 'Oracle precoding 실험' 절)
 
 ## 3. 명령어 (부모와 동일 + 이 트리 경로)
 
