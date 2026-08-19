@@ -74,20 +74,16 @@ cell_cfg:
       coreset0_index: 12
   prach:
     prach_config_index: 1
-    # Multi-UE only. Raised from the default 7, but note this was NOT the
-    # cause of the multi-UE attach failure -- see docs/live-gate-results.md.
+    # Multi-UE only, and NOT the fix for multi-UE attach -- see
+    # docs/live-gate-results.md. Raising this lets a UE that keeps losing
+    # contention keep trying instead of giving up after 7 attempts, which is
+    # worth having, but it does not make N > 2 work: measured, 7 -> 200 turned
+    # 7 failures into 200 failures and changed nothing else.
     #
-    # A destination in this emulator cannot advance a slot until every incoming
-    # link has data, so a cell with N UEs produces no uplink until all N radios
-    # are running. During that stall the broker's virtual clock does not
-    # advance, so the wall-clock stagger between UE starts collapses to zero in
-    # UE frame time and every UE started during the stall RACHes on the same
-    # occasion. Raising this limit lets those UEs keep retrying instead of
-    # giving up, which is worth having, but they collide at Msg3 regardless:
-    # sharing an occasion means sharing a RAR and therefore a Msg3 grant.
-    #
-    # Measured with four UEs: raising 7 -> 200 changed only the attempt count
-    # (7 failures became 200 failures). It does not make N > 2 work.
+    # The actual blocker for N > 2 on this cell is `ss2_type: ue_dedicated`,
+    # which OCUDU forces whenever nof_antennas_dl > 1. Reverting only that
+    # setting on an otherwise identical single-antenna cell restores 4/4
+    # attaches; keeping it fails 1/4 even with one antenna.
     preamble_trans_max: 200
   pdsch:
     mcs_table: qam64

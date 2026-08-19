@@ -44,87 +44,74 @@ to break.
 | `ocudu-rank1-2x1-triple-ue-smoke.sh` (2T2R) | 3 | **blocked** — all three reach RRC, PDU session unreliable |
 | `ocudu-rank1-2x1-quad-ue-smoke.sh` (2T2R) | 4 | **blocked** — only the last-started UE attaches |
 
+Control experiments used for the diagnosis below, not gates:
+`examples/topology.ocudu-docker.multi-ue-quad.cuda.yaml` (stock single-antenna
+cell, four UEs) and `examples/ocudu/gnb_zmq_b210_fdd_1t1r_mimo_settings_bisect.yaml`
+(single antenna carrying the MIMO cell settings).
+
 The three- and four-UE gates are committed as reproducible investigations, not
 as passing gates. Do not cite them as demonstrated capability.
 
-## Why three and four UEs do not work yet
+## Why three and four UEs do not attach
 
-The failure is a Msg3 contention collision, caused by the emulator's virtual
-clock collapsing the UE start stagger to zero.
+**The cause is `ss2_type: ue_dedicated`, which multi-antenna downlink forces.**
+It is not the MIMO channel, not the emulator's superposition, and not the
+multi-source stall. It was isolated by bisection, and two earlier explanations
+were wrong and are corrected below.
 
-**Virtual time is frozen while the cell is stalled.** A destination cannot
-advance a slot until every incoming link has data, so a gNB with N UEs produces
-nothing on the uplink until all N radios are running -- the broker logs
-`event=node_stall node=gnb0 phase=input_data` with the producer in
-`state=wait_data slots=0`. The UEs are deliberately started one at a time, but
-that stagger is in wall-clock seconds while the UEs count frames in the broker's
-virtual time, which is not advancing. Every UE started during the stall
-therefore begins RACH at the *same* virtual instant.
+### The bisection
 
-Measured, four UEs with a 12 s wall-clock stagger between each:
+Each row is four srsUEs on one cell, everything else held constant.
 
-```
-ue0: ra-rnti=0x39, tti=334   ra-rnti=0x39, tti=494   ra-rnti=0x39, tti=654
-ue1: ra-rnti=0x39, tti=334   ra-rnti=0x39, tti=494   ra-rnti=0x39, tti=654
-ue2: ra-rnti=0x39, tti=334   ra-rnti=0x39, tti=494   ra-rnti=0x39, tti=654
-ue3: ra-rnti=0x39, tti=974
-```
-
-Three UEs on the identical PRACH occasion, retrying in lockstep on the same
-160 ms cadence. Only ue3 -- whose arrival is what ends the stall -- gets a
-distinct start.
-
-**Same occasion means same grant means collided Msg3.** Sharing a PRACH occasion
-and preamble gives the same RA-RNTI, so those UEs decode the *same* RAR and
-transmit Msg3 on the *same* PUSCH resources. At comparable receive power none of
-them decodes. The gNB side shows exactly that -- preamble detection and RAR both
-work, a fresh C-RNTI is issued per attempt, and the attempt dies at Msg3:
-
-```
-rnti=0x46bc h_id=0: Discarding UL HARQ process TB with tbs=11.
-              Cause: Maximum number of reTxs 4 exceeded
-rnti=0x46bd ... (a new C-RNTI every 16 slots, each failing the same way)
-```
-
-**This predicts the observed N.** N UEs put N-1 of them on the same occasion:
-
-| N | Simultaneous colliders | Outcome |
+| Antennas | Cell settings | UEs reaching RRC |
 |---|---|---|
-| 2 | 1 | no collision -- passes |
-| 3 | 2 | one wins, the other backs off and retries later (`ue1` recovered at tti=3374) -- reaches RRC, PDU unreliable |
-| 4 | 3 | none decodes; they stay locked together and retry forever |
+| 1T1R | stock (`ss2_type: common`) | **4 / 4**, one RA procedure each |
+| 2T2R | rank-1 MIMO set (`ss2_type: ue_dedicated`, CSI-RS off, `max_ue_mcs: 9`, pcap off) | **1 / 4** |
+| 1T1R | the MIMO set applied to a *single-antenna* cell | **1 / 4** |
+| 1T1R | the MIMO set, but `ss2_type` reverted to `common` | **4 / 4**, one RA procedure each |
 
-Starting all four together is strictly worse, as the model predicts: then all
-four collide and none attaches at all.
+Rows two and three isolate it away from the antenna count: one antenna with the
+MIMO settings fails exactly as two antennas do. Rows three and four isolate the
+single setting: reverting only the search-space type, while keeping CSI-RS off,
+the MCS cap and pcap disabled, restores all four attaches.
 
-Two hypotheses were tested and rejected before arriving at this. Raising
-`preamble_trans_max` from 7 to 200 changed only the attempt count, because the
-UEs were never running out of attempts -- they were failing every one. A stagger
-chosen not to be a multiple of the 160 ms RACH retry period behaved identically,
-because the stagger is wall-clock and never reaches the UEs' virtual clock at
-all.
+### Why this is a hard conflict
 
-*Correction: an earlier version of this document attributed the failure to the
-gNB merging the preambles onto one C-RNTI. That is wrong -- the gNB issues a
-fresh C-RNTI per attempt and the collision is at Msg3.*
+The rank-1 fixtures do not choose `ue_dedicated` freely. OCUDU's validator
+forbids fallback DCI in SS#2 when `nof_antennas_dl > 1`
+(`du_cell_config_validation.cpp:290`), so any multi-antenna downlink cell must
+use `ss2_type: ue_dedicated` with DCI 0_1/1_1. That is the same adaptation the
+single-UE rank-1 gates needed and documented.
 
-### What would have to change
+So **multi-antenna downlink and multi-UE scale are in direct conflict on this
+stack**, through one setting neither side can give up: multi-antenna requires
+`ue_dedicated`, and beyond about two UEs `ue_dedicated` prevents the rest from
+completing random access. Two UEs works because it stays under that threshold.
 
-The binding constraint is the stall: a cell cannot serve any UE until every UE
-is already transmitting, which both makes incremental attach impossible and
-collapses the start stagger that keeps UEs off each other's PRACH occasion.
-Letting a destination treat a not-yet-connected source as contributing zero
-would fix both -- UEs could join a running cell, and each would start against an
-advancing clock and so land on its own occasion. That is a real change to broker
-semantics and interacts with the documented rule that the broker never
-zero-fills a reply, so it needs design work rather than a patch.
+### A separate, pre-existing limitation
 
-A narrower workaround, if the stall is left alone: stagger the UEs by *virtual*
-time rather than wall-clock -- hold each UE until the broker's slot counter has
-advanced past the previous UE's PRACH occasion. That does not help while the
-clock is fully stopped, so it only becomes useful once a source can be absent.
+Even with `ss2_type: common` and four UEs attaching, only one reaches a PDU
+session. The stock single-antenna four-UE control behaves identically -- 4/4 RRC,
+1/4 PDU. That failure predates this work, is unrelated to MIMO, and is not
+diagnosed here.
 
-Until then, **two UEs per cell is the supported multi-user configuration.**
+### Corrections to earlier explanations
+
+Two explanations were published and are wrong:
+
+- *"The gNB merges the preambles onto one C-RNTI."* It does not. Preamble
+  detection and RAR both work and a fresh C-RNTI is issued per attempt.
+- *"The multi-source stall freezes virtual time, collapsing the start stagger,
+  so N-1 UEs collide at Msg3."* The stall is real and observable
+  (`event=node_stall node=gnb0 phase=input_data`), and UEs do start on the same
+  PRACH occasion because of it. But it is not what blocks attach: with
+  `ss2_type: common` the UEs still share that occasion, and all four attach
+  anyway. Shared occasions are survivable; `ue_dedicated` is not.
+
+A near/far power spread across the four UEs was also tested, on the theory that
+equal receive power removed the capture effect during contention. It changed
+nothing, and the spread is retained in the fixture only because it is more
+realistic.
 
 ## Synthetic control
 
