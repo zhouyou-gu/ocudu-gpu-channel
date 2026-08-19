@@ -19,6 +19,26 @@ topology_rel="${OCUDU_ATTACH_TOPOLOGY:-examples/topology.ocudu-docker.cuda.yaml}
 # --network host <image>` (e.g. OCUDU_ATTACH_BROKER_IMAGE=ocudu-gpu-channel:latest).
 # Exercises the containerised broker against the live OCUDU + srsUE attach.
 broker_image="${OCUDU_ATTACH_BROKER_IMAGE:-}"
+# Multi-port knobs. The 1x1 defaults reproduce the original single-port gate
+# exactly, so an unset environment behaves as before.
+#   GNB_CONFIG  repo-relative gNB YAML to hand the container
+#   GNB_TX_PORTS comma-separated gNB TX ports to publish on the host; the
+#              matching RX port is always port+1, which is the convention the
+#              topologies and ru_sdr device_args already share
+#   MATRIX     1 = capture the wire and score y = Hx in the same run
+#   ALLOW_SILENT comma-separated `FROM>TO:TXIDX` declarations for transmit
+#              columns that are known not to radiate (see the gate wrappers)
+#   PING_COUNT ICMP packets the user-plane check must land
+gnb_config_rel="${OCUDU_ATTACH_GNB_CONFIG:-examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml}"
+gnb_tx_ports="${OCUDU_ATTACH_GNB_TX_PORTS:-2000}"
+# ssh flattens the remote argument vector into a single command string, so a
+# positional containing a space would arrive as two. Normalise any spaces the
+# caller used into the comma form the remote side splits on.
+gnb_tx_ports="${gnb_tx_ports// /,}"
+matrix_enabled="${OCUDU_ATTACH_MATRIX:-0}"
+matrix_allow_silent="${OCUDU_ATTACH_MATRIX_ALLOW_SILENT:-}"
+ping_count="${OCUDU_ATTACH_PING_COUNT:-3}"
+gate_name="${OCUDU_ATTACH_GATE_NAME:-ocudu-interop}"
 
 if [[ -z "${branch}" ]]; then
   echo "unable to determine current branch" >&2
@@ -54,7 +74,13 @@ remote_sh bash -s -- \
   "${srsran_ref}" \
   "${skip_remote_pull}" \
   "${topology_rel}" \
-  "${broker_image}" <<'REMOTE'
+  "${broker_image:--}" \
+  "${gnb_config_rel}" \
+  "${gnb_tx_ports}" \
+  "${matrix_enabled}" \
+  "$(printf '%s' "${matrix_allow_silent}" | base64 | tr -d '\n'):-" \
+  "${ping_count}" \
+  "${gate_name}" <<'REMOTE'
 set -euo pipefail
 
 workspace="$1"
@@ -72,6 +98,17 @@ topology_rel="${12}"
 # Default-empty: an empty trailing arg can be dropped in ssh transport, so
 # tolerate only 12 positionals arriving (native broker, the default mode).
 broker_image="${13:-}"
+[[ "${broker_image}" == "-" ]] && broker_image=""
+gnb_config_rel="${14}"
+gnb_tx_ports="${15}"
+matrix_enabled="${16}"
+matrix_allow_silent_b64="${17%:-}"
+matrix_allow_silent=""
+if [[ -n "${matrix_allow_silent_b64}" ]]; then
+  matrix_allow_silent="$(printf '%s' "${matrix_allow_silent_b64}" | base64 -d)"
+fi
+ping_count="${18}"
+gate_name="${19}"
 
 expand_remote_path() {
   case "$1" in
@@ -106,6 +143,9 @@ write_summary() {
   "tx_queue_overflows": ${tx_queue_overflows:-0},
   "tx_sequence_gaps": ${tx_sequence_gaps:-0},
   "zmq_errors": ${zmq_errors:-0},
+  "matrix_enabled": ${matrix_enabled:-0},
+  "matrix_status": ${matrix_status:-0},
+  "gate": "${gate_name}",
   "log_dir": "${log_dir}",
   "report_dir": "${report_dir}"
 }
@@ -144,8 +184,8 @@ fi
 source "${workspace}/tools/env.sh"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-log_dir="${results_root}/logs/ocudu-interop/${timestamp}"
-report_dir="${results_root}/reports/ocudu-interop/${timestamp}"
+log_dir="${results_root}/logs/${gate_name}/${timestamp}"
+report_dir="${results_root}/reports/${gate_name}/${timestamp}"
 config_dir="${workspace}/configs/ocudu/${timestamp}"
 cuda_build="${builds_root}/ocudu-gpu-channel/cuda-release"
 summary_path="${report_dir}/attach-summary.json"
@@ -159,6 +199,26 @@ rx_starvations=0
 tx_queue_overflows=0
 tx_sequence_gaps=0
 zmq_errors=0
+matrix_status=0
+
+# The matrix checker needs numpy and PyYAML, which are not part of the system
+# Python on a stock Ubuntu host and were not covered by any dependency manifest.
+# Provision them once into a dedicated venv under the workspace tools dir, so
+# the gate is self-sufficient rather than depending on an operator having
+# installed them by hand.
+matrix_python="/usr/bin/python3"
+if [[ "${matrix_enabled}" == "1" ]]; then
+  matrix_venv="${workspace}/tools/matrix-verify-venv"
+  if [[ ! -x "${matrix_venv}/bin/python" ]]; then
+    /usr/bin/python3 -m venv "${matrix_venv}" >/dev/null 2>&1
+    "${matrix_venv}/bin/pip" install --quiet --disable-pip-version-check numpy PyYAML >/dev/null 2>&1
+  fi
+  if ! "${matrix_venv}/bin/python" -c 'import numpy, yaml' >/dev/null 2>&1; then
+    echo "matrix verification needs numpy and PyYAML; provisioning ${matrix_venv} failed" >&2
+    exit 1
+  fi
+  matrix_python="${matrix_venv}/bin/python"
+fi
 
 if [[ "${skip_remote_pull}" == "1" ]]; then
   if [[ ! -f "${project_root}/CMakeLists.txt" ]]; then
@@ -201,7 +261,7 @@ compose_override="${config_dir}/docker-compose.ocudu-gpu-channel.yml"
 ocudu_dockerfile="${config_dir}/Dockerfile.ocudu-zmq"
 srsue_dockerfile="${config_dir}/Dockerfile.srsue"
 srsue_config="${config_dir}/srsue_zmq.conf"
-cp "${project_root}/examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml" "${gnb_config}"
+cp "${project_root}/${gnb_config_rel}" "${gnb_config}"
 
 awk '
   { print }
@@ -213,19 +273,105 @@ awk '
   }
 ' "${ocudu_root}/docker/Dockerfile" >"${ocudu_dockerfile}"
 
-cat >"${compose_override}" <<'YAML'
+# OCUDU's own docker-compose.yml hard-codes the `ran` subnet as 10.53.1.0/24
+# and `metrics` as 172.19.1.0/24. On a workstation that already hosts another
+# 5G stack those pools are usually taken, and compose fails the whole run with
+# "invalid pool request: Pool overlaps with other one on this address space"
+# before a single container starts. That is an environment collision, not a
+# defect in the gate, so the gate resolves it instead of requiring an operator
+# to free the subnet by hand. Pick the first candidate pool that no existing
+# Docker network claims, and pin the static addresses to match it.
+pick_free_subnet() {
+  local third
+  local -a taken
+  mapfile -t taken < <(docker network ls --format '{{.Name}}' | while read -r net; do
+    docker network inspect "${net}" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null
+  done | tr ' ' '\n' | sed '/^$/d')
+  for third in "$@"; do
+    local candidate="${third}"
+    local clash=0
+    local existing
+    for existing in "${taken[@]}"; do
+      [[ "${existing}" == "${candidate}" ]] && clash=1 && break
+    done
+    [[ "${clash}" -eq 0 ]] && printf '%s\n' "${candidate}" && return 0
+  done
+  return 1
+}
+
+ran_subnet="${OCUDU_ATTACH_RAN_SUBNET:-}"
+if [[ -z "${ran_subnet}" ]]; then
+  ran_subnet="$(pick_free_subnet 10.53.1.0/24 10.63.1.0/24 10.64.1.0/24 10.65.1.0/24 10.66.1.0/24)" || {
+    echo "no free /24 for the RAN network; set OCUDU_ATTACH_RAN_SUBNET" >&2
+    exit 1
+  }
+fi
+metrics_subnet="${OCUDU_ATTACH_METRICS_SUBNET:-}"
+if [[ -z "${metrics_subnet}" ]]; then
+  metrics_subnet="$(pick_free_subnet 172.19.1.0/24 172.29.1.0/24 172.30.1.0/24 172.31.1.0/24)" || {
+    echo "no free /24 for the metrics network; set OCUDU_ATTACH_METRICS_SUBNET" >&2
+    exit 1
+  }
+fi
+ran_prefix="${ran_subnet%.0/24}"
+metrics_prefix="${metrics_subnet%.0/24}"
+export OPEN5GS_IP="${ran_prefix}.2"
+export GNB_IP="${ran_prefix}.3"
+printf 'ran_subnet=%s\nmetrics_subnet=%s\nopen5gs_ip=%s\ngnb_ip=%s\n' \
+  "${ran_subnet}" "${metrics_subnet}" "${OPEN5GS_IP}" "${GNB_IP}" \
+  >"${log_dir}/network-selection.txt"
+
+# Open5GS binds its GTP-U socket to the literal address in its env file, so
+# moving the network without moving that value makes the core abort with
+# "socket bind(2) [10.53.1.2]:2152 failed (99:Cannot assign requested
+# address)". Render an env file carrying the selected address and point the
+# compose at it; everything else is copied from the upstream file verbatim.
+open5gs_env="${config_dir}/open5gs.env"
+sed -e "s|^OPEN5GS_IP=.*|OPEN5GS_IP=${OPEN5GS_IP}|" \
+    -e "s|^UPF_ADVERTISE_IP=.*|UPF_ADVERTISE_IP=${OPEN5GS_IP}|" \
+    "${ocudu_root}/docker/open5gs/open5gs.env" >"${open5gs_env}"
+export OPEN_5GS_ENV_FILE="${open5gs_env}"
+
+gnb_port_lines=""
+IFS=',' read -r -a gnb_tx_port_list <<<"${gnb_tx_ports}"
+for port in "${gnb_tx_port_list[@]}"; do
+  [[ -n "${port}" ]] || continue
+  gnb_port_lines+="      - \"${port}:${port}\"
+"
+done
+
+cat >"${compose_override}" <<YAML
 services:
   gnb:
     ports:
-      - "2000:2000"
-    extra_hosts:
+${gnb_port_lines}    extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      ran:
+        ipv4_address: ${GNB_IP}
+      metrics:
+        ipv4_address: ${metrics_prefix}.3
     build:
-      dockerfile: ${OCUDU_ZMQ_DOCKERFILE}
+      dockerfile: \${OCUDU_ZMQ_DOCKERFILE}
       args:
         EXTRA_CMAKE_ARGS: "-DENABLE_ZEROMQ=ON -DENABLE_EXPORT=ON -DZEROMQ_INCLUDE_DIRS=/usr/include -DZEROMQ_LIBRARIES=/usr/lib/x86_64-linux-gnu/libzmq.so"
         OS: "ubuntu"
         OS_VERSION: "24.04"
+  5gc:
+    networks:
+      ran:
+        ipv4_address: ${OPEN5GS_IP}
+networks:
+  ran:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${ran_subnet}
+  metrics:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${metrics_subnet}
 YAML
 
 cat >"${srsue_dockerfile}" <<'DOCKER'
@@ -365,9 +511,24 @@ wait_for_open5gs
 # host-namespace ZMQ binding the native binary has (so the gNB reaches it on
 # host.docker.internal identically); --gpus all attaches the GPU; the project
 # tree is mounted read-only so the same topology path resolves inside.
+# With matrix scoring on, the broker records raw wire IQ per port per
+# direction and flushes it at shutdown. The skip lets the attach settle so the
+# captured window covers registration and user-plane traffic rather than the
+# silent pre-attach period.
+capture_args=()
+capture_dir=""
+if [[ "${matrix_enabled}" == "1" ]]; then
+  capture_dir="${report_dir}/wire-capture"
+  mkdir -p "${capture_dir}"
+  capture_args=(--wire-capture-dir "${capture_dir}"
+                --wire-capture-samples "${OCUDU_ATTACH_CAPTURE_SAMPLES:-4608000}"
+                --wire-capture-skip "${OCUDU_ATTACH_CAPTURE_SKIP:-460800000}")
+fi
+
 if [[ -z "${broker_image}" ]]; then
   "${cuda_build}/ocudu-gpu-channel" \
     --config "${project_root}/${topology_rel}" \
+    "${capture_args[@]}" \
     --duration "${duration_seconds}s" >"${log_dir}/broker.log" 2>&1 &
   broker_pid="$!"
 else
@@ -419,7 +580,7 @@ if [[ "${rrc_connected}" -eq 1 && "${pdu_session_established}" -eq 1 ]]; then
       if ip netns list 2>/dev/null | grep -q ue1; then ns="ip netns exec ue1"; else ns=""; fi
       gw=$($ns ip route 2>/dev/null | awk "/default/ {print \$3; exit}")
       if [ -z "$gw" ]; then gw="10.45.1.1"; fi
-      $ns ping -c 3 -W 2 "$gw"
+      $ns ping -c '"${ping_count}"' -i 0.1 -W 2 "$gw"
     ' >"${log_dir}/ue-ping.log" 2>&1; then
     ping_ok=1
   fi
@@ -466,6 +627,33 @@ fi
 if [[ "${rrc_connected}" -ne 1 || "${pdu_session_established}" -ne 1 ]]; then
   write_summary "ue_stack_blocker_no_attach" 2
 fi
+# Score the declared channel matrix against the captured wire, in the same run
+# that carried the attach. The checker reads H from the topology and the
+# signals from the raw captures; it does not trust anything the broker reports.
+if [[ "${matrix_enabled}" == "1" ]]; then
+  matrix_report="${report_dir}/matrix-report.json"
+  allow_args=()
+  if [[ -n "${matrix_allow_silent}" ]]; then
+    IFS=',' read -r -a allow_specs <<<"${matrix_allow_silent}"
+    for spec in "${allow_specs[@]}"; do
+      [[ -n "${spec}" ]] && allow_args+=(--allow-silent-source "${spec}")
+    done
+  fi
+  if "${matrix_python}" "${project_root}/scripts/native/verify-mimo-matrix-capture.py" \
+      --capture-dir "${capture_dir}" \
+      --topology "${project_root}/${topology_rel}" \
+      --report "${matrix_report}" \
+      "${allow_args[@]}" >"${log_dir}/matrix-verify.log" 2>&1; then
+    matrix_status=1
+  else
+    matrix_status=0
+  fi
+  cat "${log_dir}/matrix-verify.log"
+  if [[ "${matrix_status}" -ne 1 ]]; then
+    write_summary "matrix_failed" 3
+  fi
+fi
+
 if [[ "${ping_ok}" -ne 1 ]]; then
   write_summary "ue_stack_blocker_ping_failed" 2
 fi

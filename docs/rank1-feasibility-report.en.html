@@ -145,7 +145,7 @@
   The live multi-port proof the assessment listed as a "Not yet demonstrated" delivery gate is closed, and the four
   integration constraints discovered along the way are each root-caused with the fix baked into the fixtures.</p>
   <div class="stats">
-    <div class="stat green"><div class="v">2 / 2 <span class="u">gates pass</span></div><div class="k">2×1 and 4×1 live gates (attach + PDU + ping + matrix judgement)</div></div>
+    <div class="stat green"><div class="v">2 / 2 <span class="u">gates pass</span></div><div class="k">2×1 and 4×1 live gates (attach + PDU + ping + matrix judgement), reproduced on a second host and harness</div></div>
     <div class="stat cyan"><div class="v">≤ 4.6e-05</div><div class="k">worst live y=Hx error (all UL rows; tolerance 1e-04)</div></div>
     <div class="stat blue"><div class="v">12.9 <span class="u">µs</span></div><div class="k">4×1 GPU kernel p50 (1 ms slot budget)</div></div>
     <div class="stat violet"><div class="v">0.01 <span class="u">dB</span></div><div class="k">oracle-precoding measurement vs prediction (MRT / duplication / null sweep)</div></div>
@@ -164,10 +164,10 @@
         <td><span class="ok">Yes</span> — RadioNode multi-port model, per-direction row/column vectors (<code>fixed_mimo</code>), live y=Hx ≤ 4.6e-05</td></tr>
     <tr><td>Does 2×1 / 1×2 rank-1 run live?</td>
         <td class="warn">Not yet demonstrated (delivery gate)</td>
-        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-2x1.sh</code> <b>result=pass</b> + matrix judgement passed (<span class="mono">20260817T091805Z</span>)</td></tr>
+        <td><span class="ok">UL 1&times;2 yes (multi-branch)</span> &middot; <span class="warn">DL 2&times;1 procedure only (single branch)</span> — <code>ocudu-rank1-2x1-smoke.sh</code> <b>result=pass</b>, matrix judgement passed. Both gNB receive ports take their own branch and are scored per row. srsRAN radiates on port 0 only, so the live DL row is a single-branch check; DL multi-branch evidence comes from the synthetic gates and the oracle experiment (see the residual limits).</td></tr>
     <tr><td>Does it extend to 4×1 / 1×4?</td>
         <td class="warn">Planned (gated on the two-port pass)</td>
-        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-4x1.sh</code> <b>result=pass</b> + all four UL rows pass y=Hx (<span class="mono">20260817T091856Z</span>)</td></tr>
+        <td><span class="ok">UL 1&times;4 yes (all four branches)</span> &middot; <span class="warn">DL 4&times;1 procedure only (single branch)</span> — <code>ocudu-rank1-4x1-smoke.sh</code> <b>result=pass</b>, all four UL rows pass y=Hx. DL transmit ports 1, 2 and 3 are declared silent, so the live downlink judgement reduces to the scalar y = h0&middot;x0.</td></tr>
     <tr><td>Does srsUE stay rank-1?</td>
         <td>Requirement</td>
         <td><span class="ok">Kept</span> — <code>nof_antennas = 1</code> unchanged, the 1×1 regression gate stays green, and every result is described as rank-1 MISO/SIMO only</td></tr>
@@ -245,8 +245,10 @@
   </div>
   <div class="tablewrap"><table>
     <tr><th>Gate</th><th>Run ID</th><th>Result</th><th>Live y=Hx (tolerance 1e-04)</th></tr>
-    <tr><td><b>2×1 DL + 1×2 UL</b></td><td class="mono">20260817T091805Z</td><td class="ok">pass</td><td>UL rows ≤ 2.2e-05 · DL row 3.7e-08</td></tr>
-    <tr><td><b>4×1 DL + 1×4 UL</b></td><td class="mono">20260817T091856Z</td><td class="ok">pass</td><td>UL rows = 4.6 / 2.2 / 1.7 / 2.8 ×e-05</td></tr>
+    <tr><td><b>2×1 DL + 1×2 UL</b></td><td class="mono">20260817T091805Z</td><td class="ok">pass</td><td>UL rows ≤ 2.2e-05 · DL row 3.7e-08 — live TX branches: UL <b>2/2</b>, DL <b>1/2</b></td></tr>
+    <tr><td><b>4×1 DL + 1×4 UL</b></td><td class="mono">20260817T091856Z</td><td class="ok">pass</td><td>UL rows = 4.6 / 2.2 / 1.7 / 2.8 ×e-05 — live TX branches: UL <b>4/4</b>, DL <b>1/4</b></td></tr>
+    <tr><td><b>2×1 reproduced</b> (container harness, 2026-08-19)</td><td class="mono">different host · different 5GC</td><td class="ok">pass</td><td>UL rows 4.62 / 2.12 ×e-05 · DL row 4.85e-08</td></tr>
+    <tr><td><b>4×1 reproduced</b> (container harness, 2026-08-19)</td><td class="mono">different host · different 5GC</td><td class="ok">pass</td><td>UL rows 4.61 / 2.16 / 1.59 / 2.68 ×e-05 · DL row 5.31e-08</td></tr>
     <tr><td>1×1 srsUE regression</td><td>same day</td><td class="ok">pass</td><td>legacy path unregressed</td></tr>
     <tr><td>Standing GPU sequence</td><td>same day</td><td class="ok">9/9 pass</td><td>synthetic relay · AWGN · graph · two-cell · TDL-A, etc.</td></tr>
   </table></div>
@@ -268,14 +270,22 @@
   </ul>
 
   <h3>Real-time budget (fully labelled)</h3>
-  <p class="mono" style="font-size:13px">Threadripper PRO 7965WX · one RTX 5090 · 23.04 MS/s · batch 23040 (= 1 ms slot) · CUDA backend · fixed_mimo (single tap) + TDL chain · 20 s gate runs · n=18 snapshots</p>
+  <div class="callout"><b>Method correction.</b> The previous edition computed these percentiles from the
+  1 Hz heartbeat, which publishes only the last completed slot — 18 samples out of the ~20,000 slots a 20 s run
+  processes, so its "p99" was really the maximum of 18 points. The broker now accumulates <em>every</em> slot into a
+  5 µs-bucket histogram and emits <code>event=process_latency_summary</code> at shutdown; the figures below are
+  whole-run percentiles. The old numbers were wrong in both directions: 2×1 understated the tail
+  (p99 131.9 → 205 µs) and 4×1 reported a single outlier as p99 (619.1 → 285 µs).</div>
+  <p class="mono" style="font-size:13px">Intel Core Ultra 9 285K · one RTX 5090 · 23.04 MS/s · batch 23040 (= 1 ms slot) · CUDA backend · fixed_mimo (single tap) + TDL chain · live container gate, 60 s run · every slot recorded</p>
   <div class="tablewrap"><table>
     <tr><th>Config</th><th>GPU h2d / kernel / d2h p50 (µs)</th><th>Node process p50 / p99 (µs)</th><th>Share of the 1 ms slot (p99)</th></tr>
-    <tr><td><b>2×1</b></td><td>7.7 / 11.3 / 7.9</td><td>80.2 / 131.9</td><td class="ok">13%</td></tr>
-    <tr><td><b>4×1</b></td><td>51.0 / 12.9 / 14.9</td><td>119.2 / 619.1</td><td class="ok">62%</td></tr>
+    <tr><td><b>2×1</b> gnb0 (n=57,753 slots)</td><td>kernel 10.6</td><td>80 / 205 (p99.9 340)</td><td class="ok">21% at p99</td></tr><tr><td><b>4×1</b> gnb0 (n=54,439 slots)</td><td>kernel 12.9</td><td>115 / 285 (p99.9 675)</td><td class="ok">31% at p99</td></tr>
   </table></div>
-  <p>Both configurations stay inside the slot budget, observed maxima included. The thinning p99 margin at four ports is
-  recorded as a re-measurement item before any 8-port+ extension.</p>
+  <p>Both configurations stay inside the 1 ms slot budget through p99.9. <b>One honest caveat:</b> the observed
+  maximum in both lands in the 5 ms overflow bucket. With p99.9 at 340 µs (2×1) and 675 µs (4×1) those slots are
+  fewer than 0.1% of the run and appear to sit at run start and teardown, but the previous edition's claim that the
+  budget holds "observed maxima included" no longer stands. Attributing that outlier is an open item, as is
+  re-measuring before any 8-port+ extension.</p>
 
   <h3>The oracle-precoding study — "gain exists only where the phases match", proven live</h3>
   <p>Precoding belongs to the gNB/RU, but srsRAN offers no injection knob — so the emulator declares the
@@ -350,14 +360,14 @@
   <h2>Evidence index</h2>
   <div class="tablewrap"><table>
     <tr><th>Evidence</th><th>Location</th></tr>
-    <tr><td>Live gates (re-runnable)</td><td class="mono">scripts/native/run-ocudu-rank1-2x1.sh · run-ocudu-rank1-4x1.sh · run-ocudu-legacy-1x1.sh</td></tr>
+    <tr><td>Live gates (re-runnable)</td><td class="mono">scripts/remote/ocudu-rank1-2x1-smoke.sh · ocudu-rank1-4x1-smoke.sh · ocudu-attach-smoke.sh (supported, reproducible) — scripts/native/run-ocudu-rank1-*.sh records the original runs but cannot be provisioned from this repository</td></tr>
     <tr><td>Gate artefacts (summary JSON · matrix report · logs · source pins)</td><td class="mono">~/ocudu-native-workspace/results/{reports,logs}/rank1-2x1/20260817T091805Z · rank1-4x1/20260817T091856Z</td></tr>
     <tr><td>Fixtures (constraint rationale inline)</td><td class="mono">examples/native/ocudu/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml · examples/native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml · topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml</td></tr>
     <tr><td>Independent matrix checker (reads H from the topology, trusts nothing the broker emits)</td><td class="mono">scripts/native/verify-mimo-matrix-capture.py</td></tr>
     <tr><td>Phase-sweep unit test (mutation-verified)</td><td class="mono">tests/test_processing.cpp — R1 section</td></tr>
     <tr><td>Full work & investigation narrative (incl. eliminated hypotheses)</td><td class="mono">AGENT_PROGRESS.md — "Rank-1 Workstream" section</td></tr>
     <tr><td>Roadmap · status · measurement labels</td><td class="mono">RANK1_MILESTONES.md</td></tr>
-    <tr><td>Commit history</td><td class="mono">branch rank1-miso-simo (fork point 1ddb240 · R0–R2 bbde668 · R3 root cause a44b8b5 · gate integration 43aa107 · oracle 4be3d7f)</td></tr>
+    <tr><td>Commit history</td><td class="mono">branch rank1-miso-simo, grafted onto upstream 216a28b (fork point 34f669e · R0–R2 06d27d1 · R3 root cause 4d98e2a · gate integration e31fe51 · oracle e630bba). These are the published hashes; the pre-graft private-tree hashes do not resolve on this branch.</td></tr>
   </table></div>
 </section>
 

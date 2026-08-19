@@ -1,0 +1,155 @@
+# Docker rank-1 4x1 DL MISO / 1x4 UL SIMO fixture for the containerised OCUDU gNB + srsUE gate
+# (scripts/remote/ocudu-rank1-smoke.sh).
+#
+# The channel matrices, model chain and port ordering are identical to the
+# native fixture of the same name. Only the ZMQ endpoint form differs: the
+# broker's REP sockets bind all interfaces (`*`) because the gNB and srsUE
+# containers reach them through host.docker.internal, while its REQ sockets
+# connect to loopback because the container TX ports are published there.
+#
+# Rank-1 asymmetric fixture, four-port edition (R3): DL is a 1x4 row and UL
+# a 4x1 column between a 4-port gNB node and a 1-port srsUE node. Verified
+# synthetically (all four UL rows and the DL row match y=Hx to <=1.3e-07)
+# and live (attach+PDU+ping with the 4T4R fixture, three consecutive runs).
+# Rank-1 asymmetric fixture: a 2-port OCUDU gNB radio node against a 1-port
+# srsUE radio node (R0/R2 of RANK1_MILESTONES.md).
+#
+# Downlink is a 1x2 row vector -- both gNB transmit ports combine through
+# their own coefficient into srsUE's single receive stream. Uplink is a 2x1
+# column vector -- srsUE's single transmit stream reaches each gNB receive
+# port over its own independently modelled branch. The UE side stays exactly
+# one port (`nof_antennas = 1` on srsUE); the matrix dimensions come from the
+# radio_nodes declarations, whose writing order IS the matrix index (M1).
+#
+# Claim boundary: this declares rank-1 MISO/SIMO propagation vectors. It does
+# not make the UE multi-antenna and it is never described as 2x2 MIMO.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+
+devices:
+  # The native OCUDU 2T2R gNB owns REP TX binds 2000/2002 and connects its
+  # REQ RX channels to the broker's loopback REP binds 2001/2003.
+  - id: gnb0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://*:2001
+  - id: gnb0_p1
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://*:2003
+  - id: gnb0_p2
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2004
+    rx_endpoint: tcp://*:2005
+  - id: gnb0_p3
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2006
+    rx_endpoint: tcp://*:2007
+
+  # srsUE owns REP TX bind 2101 and connects its REQ RX channel to the
+  # broker's loopback REP bind 2100 (same contract as the legacy 1x1 gate).
+  - id: ue0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://*:2100
+
+radio_nodes:
+  - id: gnb0
+    tx_ports:
+      - gnb0_p0
+      - gnb0_p1
+      - gnb0_p2
+      - gnb0_p3
+    rx_ports:
+      - gnb0_p0
+      - gnb0_p1
+      - gnb0_p2
+      - gnb0_p3
+  - id: ue0
+    tx_ports:
+      - ue0_p0
+    rx_ports:
+      - ue0_p0
+
+links:
+  - from: gnb0
+    to: ue0
+    model: dl_miso_4x1
+  - from: ue0
+    to: gnb0
+    model: ul_simo_1x4
+
+models:
+  # DL row vector h = [h0, h1]: distinct complex gains per gNB TX branch so
+  # branch isolation and phase relationships are measurable, with |h0| close
+  # to the legacy 1x1 budget because srsRAN precodes rank-1 PDSCH onto port 0.
+  dl_miso_4x1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.80
+          imag: 0.10
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.25
+          imag: -0.15
+        - tap: 0
+          rx: 0
+          tx: 2
+          real: -0.20
+          imag: 0.30
+        - tap: 0
+          rx: 0
+          tx: 3
+          real: 0.10
+          imag: 0.20
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+
+  # UL column vector h = [h0; h1]: one independently weighted branch per gNB
+  # receive port. OCUDU's PUSCH demodulator equalises across both ports, so
+  # this is the end-to-end receive-diversity path.
+  ul_simo_1x4:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.75
+          imag: -0.10
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.15
+          imag: 0.25
+        - tap: 0
+          rx: 2
+          tx: 0
+          real: -0.30
+          imag: 0.20
+        - tap: 0
+          rx: 3
+          tx: 0
+          real: 0.40
+          imag: -0.35
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0

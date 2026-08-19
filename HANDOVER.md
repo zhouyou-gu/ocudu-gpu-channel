@@ -12,7 +12,7 @@
 
 ## 0. 이 워크스페이스의 정체
 
-- **`/home/ubuntu/ocudu-gpu-channel-rank1` = `ocudu-gpu-channel-mimo-claude`의 2026-08-17 포크** (HEAD `1ddb240`, 브랜치 `rank1-miso-simo`). 사용자 지시로 생성.
+- **`/home/ubuntu/ocudu-gpu-channel-rank1` = `ocudu-gpu-channel-mimo-claude`의 2026-08-17 포크** (공개 브랜치 포크 기점 `34f669e`, 브랜치 `rank1-miso-simo`). 사용자 지시로 생성.
 - 미션: **rank-1 MISO/SIMO** — 상사 전달 보고서(`docs/mimo-integration-report.html`)에서 **Sionna 부분만 뺀 목표**. DL 2×1(→4×1) MISO + UL 1×2(→1×4) SIMO, srsUE는 `nof_antennas=1` 유지. 정본 미션은 이 트리의 `AGENT_GOAL.md`(포크 시 사용자 지시로 개정됨), 로드맵은 `RANK1_MILESTONES.md`.
 - **rank-2/OAI 워크스트림은 부모 트리(`ocudu-gpu-channel-mimo-claude`)에서 계속된다** — 여기서는 다루지 않는다. M6 하네스 파일들은 diff 최소화를 위해 남아 있을 뿐 이 트리의 게이트가 아니다.
 - Sionna RT는 다른 팀원 담당. 이 트리는 후일 병합을 막을 설계만 피하면 된다.
@@ -30,12 +30,27 @@ RadioNode 오버레이(공통 sample epoch, producer 단일 윈도), `fixed_mimo
 
 ## 3. 명령어 (부모와 동일 + 이 트리 경로)
 
+**지원 경로 (컨테이너 하네스, 이 저장소만으로 재현 가능)** — `.config`에 GPU 워크스테이션 정보를 넣고 로컬에서:
+
+```bash
+bash scripts/remote/gpu-test-sequence.sh          # 합성 9단계 GPU 검증
+bash scripts/remote/ocudu-attach-smoke.sh         # 1x1 srsUE 무회귀
+bash scripts/remote/ocudu-rank1-2x1-smoke.sh      # R2: 라이브 2x1 DL MISO + 1x2 UL SIMO + 행렬판정
+bash scripts/remote/ocudu-rank1-4x1-smoke.sh      # R3: 라이브 4x1 DL MISO + 1x4 UL SIMO + 행렬판정
+```
+
+세 라이브 게이트는 자체 Docker 네트워크와 5GC를 띄우고, 이미 점유된 서브넷을 피해 빈 /24를 스스로 고르며,
+행렬 검증에 필요한 numpy/PyYAML을 전용 venv로 자체 프로비저닝한다.
+
+**원본 native 경로 (기록용, 이 저장소만으로는 실행 불가)** — `bootstrap-workspace.sh`가 프로비저닝을 의도적으로
+비활성화하고 있고 `/home/ubuntu`·`/opt/conda` 경로가 하드코딩되어 있다:
+
 ```bash
 cd /home/ubuntu/ocudu-gpu-channel-rank1
 source scripts/native/env.sh
 cmake -S . -B build && cmake --build build -j8 && ctest --test-dir build --output-on-failure
-bash scripts/native/run-ocudu-legacy-1x1.sh   # 1x1 srsUE 무회귀 (그대로 유효)
-bash scripts/native/run-ocudu-rank1-2x1.sh    # R2: 라이브 2x1 DL MISO + 1x2 UL SIMO (약 2분)
+bash scripts/native/run-ocudu-legacy-1x1.sh
+bash scripts/native/run-ocudu-rank1-2x1.sh
 ```
 
 주의: 네이티브 게이트들은 `~/ocudu-native-workspace`를 공유하고 `repo_root`를 스크립트 위치에서 유도하므로 이 트리에서 실행하면 이 트리 기준으로 돈다. 부모 트리와 **동시에** 라이브 게이트를 돌리지 말 것(포트/워크스페이스 충돌).

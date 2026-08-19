@@ -162,10 +162,10 @@
         <td><span class="ok">Yes</span> — RadioNode 다중포트 모델, 방향별 행/열 벡터(<code>fixed_mimo</code>), 라이브 y=Hx ≤4.6e-05</td></tr>
     <tr><td>2×1 / 1×2 rank-1이 라이브로 도는가?</td>
         <td class="warn">Not yet demonstrated (delivery gate)</td>
-        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-2x1.sh</code> <b>result=pass</b> + 행렬판정 passed (<span class="mono">20260817T091805Z</span>)</td></tr>
+        <td><span class="ok">UL 1&times;2는 Yes (다중 branch)</span> &middot; <span class="warn">DL 2&times;1은 절차만 Yes (단일 branch)</span> — <code>ocudu-rank1-2x1-smoke.sh</code> <b>result=pass</b>, 행렬판정 passed. gNB 두 수신 포트가 각자 독립 branch를 받아 행별로 판정된다. srsRAN은 port0에만 방사하므로 라이브 DL 판정은 단일 branch 검사이며, DL 다중 branch 증명은 합성 게이트와 oracle 실험이 담당한다.</td></tr>
     <tr><td>4×1 / 1×4로 확장되는가?</td>
         <td class="warn">계획 (2포트 통과 후)</td>
-        <td><span class="ok">Yes</span> — <code>run-ocudu-rank1-4x1.sh</code> <b>result=pass</b> + UL 4행 y=Hx 통과 (<span class="mono">20260817T091856Z</span>)</td></tr>
+        <td><span class="ok">UL 1&times;4는 Yes (4 branch 전부)</span> &middot; <span class="warn">DL 4&times;1은 절차만 Yes (단일 branch)</span> — <code>ocudu-rank1-4x1-smoke.sh</code> <b>result=pass</b>, UL 4행 y=Hx 통과. DL TX 1&middot;2&middot;3은 무방사로 선언되어 라이브 DL 판정은 스칼라 y = h0&middot;x0로 축약된다.</td></tr>
     <tr><td>srsUE는 rank-1로 유지되는가?</td>
         <td>요구사항</td>
         <td><span class="ok">유지</span> — <code>nof_antennas = 1</code> 불변, 1×1 회귀 게이트 병행 green, 결과 표현은 rank-1 MISO/SIMO로 한정</td></tr>
@@ -261,13 +261,20 @@
   </ul>
 
   <h3>실시간 예산 (완전 라벨)</h3>
-  <p class="mono" style="font-size:13px">Threadripper PRO 7965WX · RTX 5090 ×1 · 23.04 MS/s · batch 23040 (= 1 ms 슬롯) · CUDA · fixed_mimo(1탭)+TDL 체인 · 20 s 게이트 런 · n=18</p>
+  <div class="callout"><b>측정 방법 정정.</b> 이전 판의 백분위는 1 Hz heartbeat가 발행하는 "마지막 슬롯" 값
+  18개에서 계산했다. 20 s 런은 약 2만 슬롯을 처리하므로 n=18의 p99는 사실상 18개의 최대값이었다. 브로커가 이제
+  <em>모든</em> 슬롯을 5 µs 버킷 히스토그램에 누적하고 종료 시 <code>event=process_latency_summary</code>로
+  발행하므로 아래는 전 슬롯 기준이다. 이전 수치는 양방향 모두 틀렸다: 2×1은 꼬리를 과소평가(p99 131.9 → 205 µs),
+  4×1은 이상치 하나를 p99로 보고(619.1 → 285 µs).</div>
+  <p class="mono" style="font-size:13px">Intel Core Ultra 9 285K · RTX 5090 ×1 · 23.04 MS/s · batch 23040 (= 1 ms 슬롯) · CUDA · fixed_mimo(1탭)+TDL 체인 · 라이브 컨테이너 게이트 60 s 런 · 전 슬롯 기록</p>
   <div class="tablewrap"><table>
-    <tr><th>구성</th><th>GPU h2d / kernel / d2h p50 (µs)</th><th>노드 process p50 / p99 (µs)</th><th>1 ms 슬롯 대비 (p99)</th></tr>
-    <tr><td><b>2×1</b></td><td>7.7 / 11.3 / 7.9</td><td>80.2 / 131.9</td><td class="ok">13%</td></tr>
-    <tr><td><b>4×1</b></td><td>51.0 / 12.9 / 14.9</td><td>119.2 / 619.1</td><td class="ok">62%</td></tr>
+    <tr><th>구성</th><th>n (슬롯)</th><th>GPU kernel p50 (µs)</th><th>노드 process p50 / p99 / p99.9 (µs)</th><th>1 ms 슬롯 대비 (p99)</th></tr>
+    <tr><td><b>2×1</b> gnb0</td><td>57,753</td><td>10.6</td><td>80 / 205 / 340</td><td class="ok">21%</td></tr>
+    <tr><td><b>4×1</b> gnb0</td><td>54,439</td><td>12.9</td><td>115 / 285 / 675</td><td class="ok">31%</td></tr>
   </table></div>
-  <p>두 구성 모두 관측 최대치 포함 슬롯 예산 내. 4포트의 p99 여유 추세는 8포트+ 확장 전 재측정 항목으로 기록.</p>
+  <p>p99.9까지 1 ms 슬롯 예산 안이다. <b>정직한 단서 하나</b>: 두 구성 모두 관측 최대값이 5 ms 오버플로 버킷에
+  걸린다. 해당 슬롯은 전체의 0.1% 미만이고 런 시작/종료 구간으로 보이지만, 이전 판의 "관측 최대치 포함 예산 내"는
+  더 이상 성립하지 않는다. 이 이상치의 출처 규명과 8포트+ 확장 전 재측정이 미해결 항목이다.</p>
 
   <h3>Oracle precoding 실험 — "이득은 위상 정합에서만"의 라이브 증명</h3>
   <p>프리코더는 gNB/RU 소속이나 srsRAN에 주입 노브가 없으므로, 물리 행 h = [0.80+0.10j, 0.25−0.15j]에 대해
@@ -331,14 +338,14 @@
   <h2>증거 색인</h2>
   <div class="tablewrap"><table>
     <tr><th>증거</th><th>위치</th></tr>
-    <tr><td>라이브 게이트 (재실행 가능)</td><td class="mono">scripts/native/run-ocudu-rank1-2x1.sh · run-ocudu-rank1-4x1.sh · run-ocudu-legacy-1x1.sh</td></tr>
+    <tr><td>라이브 게이트 (재실행 가능)</td><td class="mono">scripts/remote/ocudu-rank1-2x1-smoke.sh · ocudu-rank1-4x1-smoke.sh · ocudu-attach-smoke.sh (지원·재현 가능) — scripts/native/run-ocudu-rank1-*.sh는 최초 실행 기록이며 이 저장소만으로는 프로비저닝 불가</td></tr>
     <tr><td>게이트 산출물 (요약 JSON · 행렬 리포트 · 로그 · 소스 핀)</td><td class="mono">~/ocudu-native-workspace/results/{reports,logs}/rank1-2x1/20260817T091805Z · rank1-4x1/20260817T091856Z</td></tr>
     <tr><td>fixture (제약 근거 주석 포함)</td><td class="mono">examples/native/ocudu/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml · examples/native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml · topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml</td></tr>
     <tr><td>독립 행렬 checker (H는 토폴로지에서 읽음)</td><td class="mono">scripts/native/verify-mimo-matrix-capture.py</td></tr>
     <tr><td>위상 스윕 단위테스트 (뮤테이션 검증)</td><td class="mono">tests/test_processing.cpp — R1 절</td></tr>
     <tr><td>작업·규명 전체 서사 (기각 가설 포함)</td><td class="mono">AGENT_PROGRESS.md — "Rank-1 Workstream" 절</td></tr>
     <tr><td>로드맵 · 상태 · 측정 라벨</td><td class="mono">RANK1_MILESTONES.md</td></tr>
-    <tr><td>커밋 이력</td><td class="mono">rank1-miso-simo 브랜치 (포크 기점 1ddb240 · R0–R2 bbde668 · R3 규명 a44b8b5 · 게이트 통합 43aa107 · oracle 4be3d7f)</td></tr>
+    <tr><td>커밋 이력</td><td class="mono">rank1-miso-simo 브랜치, upstream 216a28b 위로 graft (포크 기점 34f669e · R0–R2 06d27d1 · R3 규명 4d98e2a · 게이트 통합 e31fe51 · oracle e630bba). 공개 브랜치의 정본 해시이며, graft 이전 사설 트리 해시는 여기 존재하지 않는다.</td></tr>
   </table></div>
 </section>
 

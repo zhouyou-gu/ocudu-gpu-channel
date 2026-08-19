@@ -338,7 +338,71 @@ struct WorkerDiag {
   // Atomically stored as bit-cast uint64 so the heartbeat thread can read them
   // lock-free.
   std::array<std::atomic<std::uint64_t>, 8> stage_us_bits{};
+
+  // Per-slot histogram of the producer's process stage.
+  //
+  // `stage_us_bits` above holds only the LAST completed slot, and the
+  // heartbeat samples it once a second. Percentiles taken over those samples
+  // describe ~20 slots out of the ~20000 a 20-second run actually processes,
+  // so a "p99" computed from them is just the maximum of a 20-point sample and
+  // says nothing about the tail that a real-time budget cares about. These
+  // buckets are written by the producer on EVERY slot instead, so the summary
+  // at shutdown is a percentile over the whole run.
+  //
+  // Fixed-width buckets of 5 us up to 5 ms, plus an overflow bucket. A slot at
+  // 23.04 MS/s is 1000 us, so this resolves the whole budget and five times
+  // past it at 0.5% granularity; anything slower than 5 ms is already a gross
+  // deadline miss and only its count matters. Relaxed increments are enough:
+  // the reader runs after the producers have joined.
+  static constexpr std::size_t kProcessBuckets = 1001;
+  static constexpr double kProcessBucketUs = 5.0;
+  std::array<std::atomic<std::uint64_t>, kProcessBuckets> process_hist{};
 };
+
+// Records one slot's process duration into the histogram above.
+inline void record_process_us(WorkerDiag& diag, double us)
+{
+  if (!(us >= 0.0)) {
+    return; // NaN or a negative clock reading is not a measurement
+  }
+  auto bucket = static_cast<std::size_t>(us / WorkerDiag::kProcessBucketUs);
+  if (bucket >= WorkerDiag::kProcessBuckets) {
+    bucket = WorkerDiag::kProcessBuckets - 1;
+  }
+  diag.process_hist[bucket].fetch_add(1, std::memory_order_relaxed);
+}
+
+// Percentile of the recorded distribution, reported at the upper edge of the
+// bucket the rank falls in. The overflow bucket reports its lower edge with the
+// caller expected to read it as "at least this".
+inline double process_percentile_us(const WorkerDiag& diag, double fraction)
+{
+  std::uint64_t total = 0;
+  for (const auto& bucket : diag.process_hist) {
+    total += bucket.load(std::memory_order_relaxed);
+  }
+  if (total == 0) {
+    return 0.0;
+  }
+  const auto target = static_cast<std::uint64_t>(fraction * static_cast<double>(total));
+  std::uint64_t seen = 0;
+  for (std::size_t i = 0; i != WorkerDiag::kProcessBuckets; ++i) {
+    seen += diag.process_hist[i].load(std::memory_order_relaxed);
+    if (seen > target) {
+      return static_cast<double>(i + 1) * WorkerDiag::kProcessBucketUs;
+    }
+  }
+  return static_cast<double>(WorkerDiag::kProcessBuckets) * WorkerDiag::kProcessBucketUs;
+}
+
+inline std::uint64_t process_sample_count(const WorkerDiag& diag)
+{
+  std::uint64_t total = 0;
+  for (const auto& bucket : diag.process_hist) {
+    total += bucket.load(std::memory_order_relaxed);
+  }
+  return total;
+}
 
 // Producer stage slots. room is the wait for output-ring headroom; align is
 // the first-slot cursor co-init; data is the wait for a common input window;
@@ -984,6 +1048,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         store_us(diag.stage_us_bits[kProducerStageData], data_us);
         store_us(diag.stage_us_bits[kProducerStageRead], read_us);
         store_us(diag.stage_us_bits[kProducerStageProcess], process_us);
+        record_process_us(diag, process_us);
         store_us(diag.stage_us_bits[kProducerStageThrottle], throttle_us);
         store_us(diag.stage_us_bits[kProducerStagePush], push_us);
         diag.last_samples.store(count);
@@ -1224,6 +1289,24 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
               << " producer[slots=" << s.progress.load() << " stall=" << s.blocked_iters.load() << "]"
               << " rep[replies=" << r.progress.load() << " idle=" << r.idle_waits.load()
               << " row_spin=" << r.blocked_iters.load() << "]\n";
+  }
+
+  // Whole-run latency distribution for the producer's process stage, one line
+  // per node. Unlike event=cpu_stage_timings -- which reports a single slot
+  // sampled once a second -- these percentiles cover EVERY slot the run
+  // processed, so they can be quoted as percentiles. `n` is the slot count they
+  // were computed from; quote it alongside any figure taken from this line.
+  // Values are bucket upper edges at 5 us resolution.
+  for (std::size_t n = 0; n != nodes.size(); ++n) {
+    const WorkerDiag& diag = producer_diag[n];
+    const std::uint64_t samples = process_sample_count(diag);
+    std::cout << "event=process_latency_summary node=" << nodes[n].id
+              << " n=" << samples
+              << " p50_us=" << process_percentile_us(diag, 0.50)
+              << " p95_us=" << process_percentile_us(diag, 0.95)
+              << " p99_us=" << process_percentile_us(diag, 0.99)
+              << " p999_us=" << process_percentile_us(diag, 0.999)
+              << " max_us=" << process_percentile_us(diag, 1.0) << '\n';
   }
   std::cout.flush();
 

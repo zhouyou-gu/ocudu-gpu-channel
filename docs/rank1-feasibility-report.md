@@ -19,11 +19,11 @@
 | 질문 | 보고서 시점 답 (a801155) | **현재 답 (실측 근거)** |
 |---|---|---|
 | 이 프로젝트가 다중 안테나 채널을 에뮬레이트할 수 있는가? | **No** — scalar/SISO per node | **Yes** — RadioNode 다중포트 모델, 방향별 행/열 벡터(`fixed_mimo`), 라이브에서 y=Hx ≤4.6e-05 검증 |
-| 2×1/1×2 rank-1이 라이브로 도는가? | Not yet demonstrated (delivery gate) | **Yes** — 게이트 `run-ocudu-rank1-2x1.sh` `result=pass` + 행렬판정 `passed` (실행 `20260817T091805Z`) |
-| 4×1/1×4로 확장되는가? | 계획 (2포트 통과 후 gate) | **Yes** — 게이트 `run-ocudu-rank1-4x1.sh` `result=pass` + UL 4행 전부 y=Hx 통과 (실행 `20260817T091856Z`) |
+| 2×1/1×2 rank-1이 라이브로 도는가? | Not yet demonstrated (delivery gate) | **UL 1×2는 Yes (다중 branch), DL 2×1은 절차만 Yes (단일 branch)** — 게이트 `run-ocudu-rank1-2x1.sh` `result=pass` + 행렬판정 `passed` (실행 `20260817T091805Z`). UL은 gNB 2개 수신 포트가 각자 독립 branch를 받아 행별로 판정된다. DL은 srsRAN이 port0에만 방사하므로(§6 잔여 한계) 라이브 판정이 사실상 1-branch이며, DL 다중 branch 증명은 합성 게이트와 oracle 실험이 담당한다. |
+| 4×1/1×4로 확장되는가? | 계획 (2포트 통과 후 gate) | **UL 1×4는 Yes (4 branch 전부), DL 4×1은 절차만 Yes (단일 branch)** — 게이트 `run-ocudu-rank1-4x1.sh` `result=pass`, UL 4행 전부 y=Hx 통과 (실행 `20260817T091856Z`). DL은 TX 1·2·3이 `--allow-silent-source`로 선언되어 라이브 행렬판정이 `y=h₀x₀` 스칼라 검사로 축약된다. |
 | srsUE는 rank-1로 유지되는가? | 요구사항 | **유지** — `nof_antennas = 1` 그대로, 1×1 회귀 게이트 병행 green, 모든 결과는 rank-1 MISO/SIMO로만 기술 |
 
-**Feasibility의 정의를 좁혀 말하면**: "실제 OCUDU 스택과 실제 srsUE가, 우리가 선언한 다중포트 채널 벡터를 통과해, 표준 절차(RA→RRC→NAS 등록→PDU→사용자 평면)를 완주하는가" — 이 정의로 **2포트·4포트 모두 Yes이며, 각 Yes는 반복 실행 가능한 게이트 스크립트로 잠겨 있다.**
+**Feasibility의 정의를 좁혀 말하면**: "실제 OCUDU 스택과 실제 srsUE가, 우리가 선언한 다중포트 채널 벡터를 통과해, 표준 절차(RA→RRC→NAS 등록→PDU→사용자 평면)를 완주하는가" — 이 정의로 **2포트·4포트 모두 Yes이며, 각 Yes는 반복 실행 가능한 게이트 스크립트로 잠겨 있다.** 단, 이 Yes는 *절차 완주*에 대한 것이다. 채널 내용 측면에서 라이브 다중 branch가 증명된 방향은 **업링크(1×2 / 1×4 SIMO)뿐**이며, 다운링크의 다중 branch 합성은 합성 게이트(R0/R1)와 oracle 유효채널 실험이 증명한다 — 이유는 §6 잔여 한계에 있다.
 
 ---
 
@@ -97,14 +97,25 @@ Feasibility의 1차 증거는 "실제 스택이 실제로 완주하는가"이다
 3. **채널 내용**: 브로커가 shutdown 시 flush한 500 ms wire 캡처를 독립 checker가 **선언된 토폴로지의 H로 y=Hx 재계산** — 트래픽 계수가 아니라 연산을 채점
 4. **출처 증거**: 소스 커밋 핀, 바이너리/설정 SHA-256, 채널 소스 manifest를 JSON으로 보존
 
-| 게이트 | 실행 ID | 결과 | 라이브 y=Hx (허용 1e-04) |
+| 게이트 | 실행 ID | 결과 | 라이브 y=Hx (허용 1e-04) | 라이브 활성 TX branch |
+|---|---|---|---|---|
+| 2×1 DL + 1×2 UL | `20260817T091805Z` (native) | **pass** | UL row0/row1 ≤ 2.2e-05, DL row 3.7e-08 | UL **2/2**, DL **1/2** |
+| 4×1 DL + 1×4 UL | `20260817T091856Z` (native) | **pass** | UL 4행 = 4.6e-05 / 2.2e-05 / 1.7e-05 / 2.8e-05 | UL **4/4**, DL **1/4** |
+
+**독립 재현 (2026-08-19, 컨테이너 하네스, 다른 호스트·다른 5GC·다른 네트워크 스택)**: 위 결과는
+`scripts/remote/ocudu-rank1-{2x1,4x1}-smoke.sh`로 재현되었다. attach + PDU + ping 250발 + strict counter 0,
+그리고 같은 실행 안에서의 행렬 판정:
+
+| 게이트 | 결과 | UL y=Hx (행별 max) | DL y=Hx |
 |---|---|---|---|
-| 2×1 DL + 1×2 UL | `20260817T091805Z` | **pass** | UL row0/row1 ≤ 2.2e-05, DL row 3.7e-08 |
-| 4×1 DL + 1×4 UL | `20260817T091856Z` | **pass** | UL 4행 = 4.6e-05 / 2.2e-05 / 1.7e-05 / 2.8e-05 |
+| 2×1 DL + 1×2 UL | **pass** | 4.62e-05 / 2.12e-05 | 4.85e-08 |
+| 4×1 DL + 1×4 UL | **pass** | 4.61e-05 / 2.16e-05 / 1.59e-05 / 2.68e-05 | 5.31e-08 |
+
+원본 native 실행과 행별로 자릿수까지 일치한다 — 결과가 특정 호스트나 특정 하네스의 산물이 아님을 뜻한다.
 | 1×1 srsUE 회귀 | 동일 일자 | **pass** | (기존 경로 무회귀) |
 | 상시 GPU 시퀀스 | 동일 일자 | **9/9 pass** | (합성 relay·AWGN·그래프·2셀·TDL-A 등) |
 
-UL 행별 RMS가 각 선언 계수 크기 |h_r|과 상대오차 ~6×10⁻⁷(fp32 바닥)로 일치한다 — 즉 **gNB의 2/4개 수신 포트 각각이 자신의 독립 branch를 정확히 받고 있으며, OCUDU가 그것을 실제로 결합해 복호한다.** 이것이 보고서가 "the strongest end-to-end diversity target"이라 부른 UL SIMO의 실증이다.
+마지막 열이 이 표의 해석을 결정한다: 라이브 다중 branch 증거는 업링크에만 있다. 다운링크 행은 `--allow-silent-source`로 선언된 무방사 포트를 제외하므로 단일 branch 검사이며, 통과해도 다중 branch 합성을 증명하지 않는다(에뮬레이터가 무방사 포트를 정확히 0으로 기여시킨다는 것까지는 증명한다). UL 행별 RMS가 각 선언 계수 크기 |h_r|과 상대오차 ~6×10⁻⁷(fp32 바닥)로 일치한다 — 즉 **gNB의 2/4개 수신 포트 각각이 자신의 독립 branch를 정확히 받고 있으며, OCUDU가 그것을 실제로 결합해 복호한다.** 이것이 보고서가 "the strongest end-to-end diversity target"이라 부른 UL SIMO의 실증이다.
 
 ---
 
@@ -122,14 +133,28 @@ UL 행별 RMS가 각 선언 계수 크기 |h_r|과 상대오차 ~6×10⁻⁷(fp3
 
 ### 5.3 실시간 예산 (완전 라벨)
 
-Threadripper PRO 7965WX · RTX 5090 1기 · 23.04 MS/s · batch 23040(=1 ms 슬롯) · CUDA 백엔드 · fixed_mimo(1탭)+TDL 체인 · 20 s 게이트 런 · heartbeat 스냅샷 n=18:
+**측정 방법 정정.** 이전 판의 p50/p99는 1 Hz heartbeat가 발행하는 "마지막 슬롯" 값 18개에서 계산한 것이었다.
+20 s 런은 약 2만 슬롯을 처리하므로 n=18의 p99는 사실상 그 18개의 최대값이며, 실시간 예산 논의가 필요로 하는
+꼬리를 나타내지 못한다. 브로커가 이제 **모든 슬롯**을 5 µs 버킷 히스토그램에 누적하고 종료 시
+`event=process_latency_summary`로 발행하므로, 아래 수치는 전 슬롯 기준이다.
 
-| 구성 | GPU h2d/kernel/d2h p50 (µs) | 노드 process p50 / p99 (µs) | 1 ms 슬롯 대비 |
-|---|---|---|---|
-| 2×1 | 7.7 / 11.3 / 7.9 | 80.2 / 131.9 | p99 기준 13% |
-| 4×1 | 51.0 / 12.9 / 14.9 | 119.2 / 619.1 | p99 기준 62% |
+Intel Core Ultra 9 285K · RTX 5090 1기 · 23.04 MS/s · batch 23040(=1 ms 슬롯) · CUDA 백엔드 ·
+fixed_mimo(1탭)+TDL 체인 · 라이브 Docker 게이트 60 s 런:
 
-두 구성 모두 관측 최대치 포함 슬롯 예산 내. 4포트의 p99 여유가 얇아지는 추세는 8포트+ 확장 시 재측정 항목으로 기록되어 있다.
+| 구성 | 노드 | n (슬롯) | process p50 | p95 | p99 | p99.9 | GPU kernel p50 |
+|---|---|---|---|---|---|---|---|
+| 2×1 | gnb0 | 57,753 | 80 µs | 135 µs | 205 µs | 340 µs | 10.6 µs |
+| 2×1 | ue0 | 54,794 | 75 µs | 150 µs | 230 µs | 380 µs | — |
+| 4×1 | gnb0 | 54,439 | 115 µs | 200 µs | 285 µs | 675 µs | 12.9 µs |
+| 4×1 | ue0 | 54,284 | 120 µs | 210 µs | 310 µs | 650 µs | — |
+
+p99.9까지 1 ms 슬롯 예산 안이며, 4포트 p99는 슬롯의 31%다. **정직한 단서 하나**: 두 구성 모두 관측
+최대값이 5 ms 오버플로 버킷에 걸린다. p99.9가 675 µs이므로 해당 슬롯은 전체의 0.1% 미만이고 런
+시작/종료 구간으로 보이지만, 이전 판의 "관측 최대치 포함 예산 내"라는 문장은 더 이상 성립하지 않는다.
+이 이상치의 출처 규명은 미해결 항목이다.
+
+이전 판의 수치(Threadripper PRO 7965WX, heartbeat n=18)는 표본 부족으로 **양방향 모두** 틀렸다:
+2×1은 꼬리를 과소평가했고(p99 131.9 → 205 µs), 4×1은 이상치 하나를 p99로 보고했다(619.1 → 285 µs).
 
 ### 5.4 Oracle precoding 실험 — "이득은 위상 정합에서만 나온다"의 라이브 증명
 
@@ -179,13 +204,14 @@ Feasibility 평가에서 가장 중요한 부분은 "되긴 되는데, **어떤 
 
 | 증거 | 위치 |
 |---|---|
-| 라이브 게이트 (재실행 가능) | `scripts/native/run-ocudu-rank1-2x1.sh`, `run-ocudu-rank1-4x1.sh`, `run-ocudu-legacy-1x1.sh` |
+| 라이브 게이트 (**재실행 가능, 지원 경로**) | `scripts/remote/ocudu-rank1-2x1-smoke.sh`, `ocudu-rank1-4x1-smoke.sh`, `ocudu-attach-smoke.sh` — 컨테이너 하네스. 자체 Docker 네트워크·5GC를 띄우고 빈 서브넷을 스스로 고르며 필요한 Python을 자체 프로비저닝하므로, 이 저장소 + GPU 워크스테이션만으로 재현된다. |
+| 라이브 게이트 (원본, 재현 불가) | `scripts/native/run-ocudu-rank1-{2x1,4x1}.sh`, `run-ocudu-legacy-1x1.sh` — 최초 실행 경로의 기록. `bootstrap-workspace.sh`가 프로비저닝을 의도적으로 비활성화하고 있고 `/home/ubuntu`·`/opt/conda` 경로가 하드코딩되어 있어, 이 저장소만으로는 실행할 수 없다. |
 | 게이트 실행 산출물 (요약 JSON·행렬 리포트·로그·소스 핀) | `~/ocudu-native-workspace/results/{reports,logs}/rank1-2x1/20260817T091805Z`, `rank1-4x1/20260817T091856Z` |
 | 채널/게이트 fixture (제약 근거 주석 포함) | `examples/native/ocudu/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml`, `examples/native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml`, `topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml` |
 | 독립 행렬 checker | `scripts/native/verify-mimo-matrix-capture.py` (H는 토폴로지에서 읽고 브로커 출력은 신뢰하지 않음) |
 | 위상 스윕 단위테스트 (뮤테이션 검증) | `tests/test_processing.cpp` R1 절 |
 | 작업·규명 전체 서사 (원인 규명, 기각 가설 포함) | `AGENT_PROGRESS.md` "Rank-1 Workstream" 절 |
 | 로드맵·상태·측정 라벨 | `RANK1_MILESTONES.md` |
-| 커밋 이력 | `rank1-miso-simo` 브랜치, 포크 기점 `1ddb240` 이후 (R0–R2: `bbde668`, R3 규명: `a44b8b5`, 게이트 통합: `43aa107`, oracle: `4be3d7f` 외) |
+| 커밋 이력 | `rank1-miso-simo` 브랜치, 포크 기점 `34f669e` 이후 (R0–R2: `06d27d1`, R3 규명: `4d98e2a`, 게이트 통합: `e31fe51`, oracle: `e630bba`). 공개 브랜치는 upstream `216a28b` 위로 graft되었으므로, 이 해시가 정본이다 — 포크 이전 사설 트리의 해시는 공개 브랜치에 존재하지 않는다. |
 
 *본 문서의 모든 주장은 위 산출물에서 재현 가능하다. 여기 없는 것은 주장하지 않는다.*

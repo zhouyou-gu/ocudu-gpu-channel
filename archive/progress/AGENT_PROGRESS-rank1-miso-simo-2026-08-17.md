@@ -21,7 +21,7 @@
 - Remote: `origin` points to `https://github.com/zhouyou-gu/ocudu-gpu-channel.git`, with setup pushed to `origin/main`.
 - Current ignored local config: `.config` contains the GPU workstation connection settings.
 - Local environment note: the requested `agent-files` skill was installed under `/Users/charles_gu/.codex/skills/agent-files`.
-- Remote workspace: `/home/zhouyou/ocudu-gpu-channel-workspace` exists on `zhouyou@10.34.23.184`.
+- Remote workspace: `/home/zhouyou/ocudu-gpu-channel-workspace` exists on the GPU workstation (connection details live in the ignored `.config`).
 - Remote project clone: `/home/zhouyou/ocudu-gpu-channel-workspace/ocudu-gpu-channel` exists and currently contains an rsynced copy of the local uncommitted scaffold for GPU validation.
 - Remote OCUDU checkout: `/home/zhouyou/ocudu-gpu-channel-workspace/ocudu` exists as a shallow upstream clone.
 - Remote validation directories: `builds/`, `configs/`, `results/`, `datasets/`, and `tmp/` exist under the remote workspace.

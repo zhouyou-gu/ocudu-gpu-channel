@@ -66,6 +66,57 @@
 - Branch ledger (parent-tree M0–M5 rebuild plus R0–R3 rank-1 detail): [`archive/progress/AGENT_PROGRESS-rank1-miso-simo-2026-08-17.md`](archive/progress/AGENT_PROGRESS-rank1-miso-simo-2026-08-17.md).
 - Upstream historical progress through 2026-08-16: [`archive/progress/AGENT_PROGRESS-2026-08-16.md`](archive/progress/AGENT_PROGRESS-2026-08-16.md).
 
+## Review Follow-up (2026-08-19)
+
+An independent review of this branch ran on the project's RTX 5090 workstation and drove the following
+changes. Every item below was verified on that host.
+
+- [Harness/Live] **The live rank-1 gates are now runnable from this repository.** They were ported to the
+  containerised harness in `scripts/remote/`: `ocudu-rank1-2x1-smoke.sh` and `ocudu-rank1-4x1-smoke.sh` run a
+  real OCUDU 2T2R/4T4R gNB, Open5GS and srsUE (`nof_antennas = 1`) through the CUDA broker and score
+  `y = Hx` on the captured wire in the same run. The `scripts/native/` originals remain as a record; they
+  cannot be provisioned from this repository because `bootstrap-workspace.sh` disables build mode by design
+  and the scripts hard-code `/home/ubuntu` and `/opt/conda` paths.
+- [Harness/Networking] The gates no longer assume the `10.53.1.0/24` and `172.19.1.0/24` Docker pools are
+  free. They select the first unclaimed /24 and render a matching Open5GS env file, because a workstation
+  co-hosting another 5G stack failed the whole run at network creation before any container started.
+- [Harness/Transport] Fixed two argument-transport defects in the remote harness: a port list containing
+  spaces was re-split by ssh into separate positionals, and a `FROM>TO:TXIDX` matrix specification was read
+  by the remote shell as a redirection, which truncated the specification and silently swallowed the gate's
+  stdout. Values that must survive the remote shell are now comma-separated or base64-encoded.
+- [Harness/Deps] `verify-mimo-matrix-capture.py` needs numpy and PyYAML, which are absent from a stock
+  Ubuntu system Python and were in no manifest. The gates now provision a private venv, and `probe.sh`
+  reports both the interpreter state and the Docker pool occupancy.
+- [Instrumentation/Latency] `event=cpu_stage_timings` publishes only the last completed slot and is sampled
+  once a second, so percentiles taken from it described ~18 of ~20000 slots. The broker now accumulates
+  every slot into a 5 us-bucket histogram and emits `event=process_latency_summary` at shutdown. Re-measured
+  over whole runs: 2x1 gnb0 p50 80 us / p99 205 us (n=57,753); 4x1 gnb0 p50 115 us / p99 285 us (n=54,439).
+  The published figures were wrong in both directions and have been corrected everywhere they appeared.
+- [Docs/Claims] The live downlink claim is qualified at the point of claim, not only in the limitations
+  section. Uplink is genuinely multi-branch; the downlink gate declares the non-radiating gNB transmit ports
+  silent, which collapses the live downlink judgement to a scalar check. The verdict tables, gate tables and
+  milestone roadmap now say so.
+- [Docs/Provenance] The evidence index cited five commits from the pre-graft private tree, none of which
+  exist on the published branch. They are remapped to the published hashes.
+- [Hygiene] Removed the workstation address and account from the archived progress files.
+
+### Verification performed on the RTX 5090
+
+| Check | Result |
+|---|---|
+| `gpu-test-sequence.sh` | 9/9 pass |
+| ctest, CUDA and CPU trees | 8/8 each |
+| ctest under ASan + UBSan + LeakSanitizer | 8/8 clean |
+| ThreadSanitizer, ctest and a live relay | no race in project code (all reports inside uninstrumented libzmq) |
+| Live 1x1 attach gate | pass (RRC + PDU + ping, integrity counters 0) |
+| Live 2x1 gate | pass; UL rows 4.62e-05 / 2.12e-05, DL row 4.85e-08 |
+| Live 4x1 gate | pass; UL rows 4.61 / 2.16 / 1.59 / 2.68 e-05, DL row 5.31e-08 |
+| Synthetic y=Hx, 2x2 / 2x1 / 4x1, both backends | pass, all rows <= 1.44e-07 |
+
+The live rows reproduce the original native-harness figures digit for digit on different hardware, a
+different 5GC deployment and a different container stack, which is the strongest available evidence that
+the results are a property of the emulator rather than of one machine.
+
 ## Blockers and Risks
 
 - No active blocker is recorded for the completed report and archive work.

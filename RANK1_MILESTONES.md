@@ -2,7 +2,7 @@
 
 미션: [`AGENT_GOAL.md`](AGENT_GOAL.md). 근거 문서: 상사 전달 보고서 [`docs/mimo-integration-report.html`](docs/mimo-integration-report.html)의 로드맵에서 **Sionna 단계를 제외**한 것 (Sionna는 다른 팀원 담당, 후일 병합).
 
-이 트리는 `ocudu-gpu-channel-mimo-claude`의 2026-08-17 HEAD(`1ddb240`) 포크다. 따라서 M0~M5의 전 자산 — RadioNode 오버레이, producer 단일 윈도, `fixed_mimo`, 비대칭 차원 단위테스트(M1), wire-capture 행렬 검증(M5.5), 네이티브 라이브 하네스 — 을 그대로 물려받고, 보고서가 "Not implemented"로 지목한 항목들의 상당수는 **이미 구현되어 있다**. 남는 것은 비대칭(2×1/1×2) 구성과 srsUE 라이브 통합이다. rank-2/OAI 자산(M6 게이트)은 이 트리에서 사용하지 않지만 제거하지도 않는다(부모 트리와의 diff를 최소로 유지).
+이 트리는 `ocudu-gpu-channel-mimo-claude`의 2026-08-17 HEAD 포크다 (공개 브랜치의 포크 기점 커밋은 `34f669e`). 따라서 M0~M5의 전 자산 — RadioNode 오버레이, producer 단일 윈도, `fixed_mimo`, 비대칭 차원 단위테스트(M1), wire-capture 행렬 검증(M5.5), 네이티브 라이브 하네스 — 을 그대로 물려받고, 보고서가 "Not implemented"로 지목한 항목들의 상당수는 **이미 구현되어 있다**. 남는 것은 비대칭(2×1/1×2) 구성과 srsUE 라이브 통합이다. rank-2/OAI 자산(M6 게이트)은 이 트리에서 사용하지 않지만 제거하지도 않는다(부모 트리와의 diff를 최소로 유지).
 
 | 단계 | 내용 | Exit 게이트 | 상태 |
 |---|---|---|---|
@@ -15,7 +15,20 @@
 
 **게이트 통합과 측정 (2026-08-17 후반)**: 두 라이브 게이트(R2/R3)는 이제 **같은 실행에서 행렬 판정을 함께 채점**한다 — 브로커가 shutdown 시 flush한 wire 캡처(500ms, 등록+ICMP 창)를 `verify-mimo-matrix-capture.py`가 선언 벡터로 재계산하고, gNB의 무방사 DL 포트(>0)는 `--allow-silent-source`로 근거와 함께 선언된다(검사 완화가 아니라 실측 사실의 선언; DL 다중-branch 콘텐츠 증명은 합성 게이트 담당). 통합 후 첫 실행: R2 `matrix_capture_status=passed`(UL row 오차 ≤2.2e-05), R3 passed(UL 4행 4.6e-05/2.2e-05/1.7e-05/2.8e-05). ping은 10Hz×60발 0% 손실을 요구한다. 상시 게이트 위생: `gpu-test-sequence.sh` 9/9가 이 트리에서 통과.
 
-**측정 라벨** (Threadripper PRO 7965WX + RTX 5090(1 GPU 사용), 23.04 MS/s, batch 23040=1ms 슬롯, CUDA 백엔드, fixed_mimo(1탭)+tdl 체인, 20s 게이트 런, heartbeat 스냅샷 n=18): 2×1 — GPU h2d/kernel/d2h p50 7.7/11.3/7.9µs, 노드 process p50 80.2µs·p99 131.9µs. 4×1 — 51.0/12.9/14.9µs, 노드 process p50 119.2µs·p99 619.1µs. 모두 1ms 슬롯 예산 내(관측 max 포함).
+**측정 라벨**: 노드 process 지연은 이제 브로커가 **모든 슬롯**을 히스토그램에 누적해 종료 시 `event=process_latency_summary`로 발행한다. 종전 수치는 1 Hz heartbeat가 발행하는 "마지막 슬롯" 값 18개에서 뽑은 것이라, n=18의 p99는 사실상 최대값이었고 꼬리를 나타내지 못했다. 아래는 전 슬롯 기준 재측정이다.
+
+- **재측정 (Intel Core Ultra 9 285K + RTX 5090 1기, 23.04 MS/s, batch 23040=1 ms 슬롯, CUDA 백엔드, fixed_mimo(1탭)+tdl 체인, 라이브 Docker 게이트 60 s 런, 5 µs 버킷)**
+
+| 구성 | 노드 | n (슬롯) | p50 | p95 | p99 | p99.9 |
+|---|---|---|---|---|---|---|
+| 2×1 | gnb0 | 57,753 | 80 µs | 135 µs | 205 µs | 340 µs |
+| 2×1 | ue0 | 54,794 | 75 µs | 150 µs | 230 µs | 380 µs |
+| 4×1 | gnb0 | 54,439 | 115 µs | 200 µs | 285 µs | 675 µs |
+| 4×1 | ue0 | 54,284 | 120 µs | 210 µs | 310 µs | 650 µs |
+
+  GPU 커널 p50은 2×1 10.6 µs, 4×1 12.9 µs (heartbeat 표본, 커널 자체는 슬롯 간 변동이 작다). p50/p95/p99/p99.9는 모두 1 ms 슬롯 예산 안이다. **다만 두 구성 모두 관측 최대값이 5 ms 오버플로 버킷에 걸린다** — 전체 5만여 슬롯 중 극소수(p99.9가 675 µs이므로 0.1% 미만)이며 런 시작/종료 구간으로 보이나, "관측 max까지 예산 내"라고는 더 이상 말할 수 없다. 이 이상치의 출처 규명은 미해결 항목이다.
+
+  종전 라벨(Threadripper PRO 7965WX, heartbeat n=18: 2×1 p99 131.9 µs, 4×1 p99 619.1 µs)은 표본이 부족해 양방향으로 틀렸다 — 2×1은 꼬리를 과소평가했고(131.9 → 205), 4×1은 이상치 하나를 p99로 보고했다(619.1 → 285).
 
 **주장 경계 (보고서 writing-requirements 준용)**: 모든 결과는 "2×1/4×1 DL MISO, 1×2/1×4 UL SIMO"로 기술한다. "end-to-end 4×4 MIMO", rank>1, UE 수신 빔포밍, PMI 폐루프, MU-MIMO를 주장하지 않는다. 고정 DL 가중치의 이득은 위상이 채널과 정합할 때만 성립하므로, 검증된 프리코더 메타데이터 없이 "diversity"라 부르지 않는다.
 
