@@ -31,6 +31,10 @@ ping_count="${OCUDU_MUE_PING_COUNT:-3}"
 # How many srsUEs to attach. Two is the historical value and keeps this gate's
 # original behaviour; the harness itself is not limited to two.
 ue_count="${OCUDU_MUE_UE_COUNT:-2}"
+# Hold each not-yet-launched UE's transmit port open with a placeholder source,
+# so the cell never stalls waiting for a radio that does not exist yet. See the
+# launch loop for why this is what makes more than two UEs attach.
+ue_placeholders="${OCUDU_MUE_PLACEHOLDERS:-0}"
 # Multi-port knobs. Defaults reproduce the original single-antenna gate, so an
 # unset environment behaves exactly as before. Values crossing the ssh hop must
 # be whitespace-free: ssh flattens the remote argument vector into one string.
@@ -70,6 +74,7 @@ remote_sh bash -s -- \
   "$(printf '%s' "${matrix_args}" | base64 | tr -d '\n'):-" \
   "${ping_count}" \
   "${ue_count}" \
+  "${ue_placeholders}" \
   "${gate_name}" <<'REMOTE'
 set -euo pipefail
 
@@ -96,7 +101,8 @@ if [[ -n "${matrix_args_b64}" ]]; then
 fi
 ping_count="${16}"
 ue_count="${17}"
-gate_name="${18}"
+ue_placeholders="${18}"
+gate_name="${19}"
 
 expand_remote_path() {
   case "$1" in
@@ -138,7 +144,7 @@ cuda_build="${builds_root}/ocudu-gpu-channel/cuda-release"
 summary_path="${report_dir}/multi-ue-summary.json"
 mkdir -p "${log_dir}" "${report_dir}" "${config_dir}" "${cuda_build}"
 
-declare -a rrc pdu ping ue_pids
+declare -a rrc pdu ping ue_pids placeholder_pids
 for ((i = 0; i < ue_count; i++)); do
   rrc[i]=0; pdu[i]=0; ping[i]=0; ue_pids[i]=""
 done
@@ -387,6 +393,7 @@ cleanup() {
   set +e
   for ((i = 0; i < ue_count; i++)); do
     [[ -n "${ue_pids[i]:-}" ]] && kill "${ue_pids[i]}" >/dev/null 2>&1
+    [[ -n "${placeholder_pids[i]:-}" ]] && kill "${placeholder_pids[i]}" >/dev/null 2>&1
   done
   [[ -n "${broker_pid}" ]] && kill "${broker_pid}" >/dev/null 2>&1
   [[ -n "${broker_image}" ]] && docker rm -f ocudu_broker_mue >/dev/null 2>&1
@@ -448,13 +455,50 @@ run_srsue() {
     "${srsue_image}" -lc 'mkdir -p /var/run/netns && ip netns add ue1 && exec srsue /config/ue.conf' \
     >"$4" 2>&1 &
 }
-# Launch the UEs one at a time. srsRAN ZMQ radios share the broker's lock-step
-# virtual time, so UEs started together transmit the identical RACH preamble on
-# the identical PRACH occasion and the gNB merges them onto one C-RNTI. Each UE
-# after the first waits for its predecessor to reach RRC (capped at
-# ue_stagger_seconds) so it RACHes on a later occasion.
+# Launch the UEs one at a time, and keep every UE's transmit port occupied the
+# whole time.
+#
+# Why the placeholders. A destination cannot advance a slot until every incoming
+# link has data, so a cell with N UEs produces nothing until the last UE's radio
+# starts. While it is stalled the broker's virtual clock does not advance, so
+# the wall-clock stagger below buys no separation at all in UE frame time: every
+# UE started during that stall begins at the same tti, shares a PRACH occasion
+# and preamble, and ends up sharing a C-RNTI with the others. Measured, exactly
+# one UE per distinct occasion completes a PDU session, so N UEs attached one at
+# a time into a stalled cell yields one working UE.
+#
+# A placeholder ocudu-zmq-source bound to each unlaunched UE's transmit port
+# keeps every incoming link fed, so the cell runs from the first UE onward. Each
+# real UE then starts against an advancing clock and lands on its own occasion.
+# Swapping a placeholder for its real UE stalls the cell only for as long as
+# that one container takes to bind the port, and only one UE is ever starting
+# during that window -- which is the property the whole arrangement exists to
+# guarantee.
+declare -a placeholder_pids
+if [[ "${ue_placeholders}" == "1" ]]; then
+  for ((i = 0; i < ue_count; i++)); do
+    # Paced and silent: it must behave like a radio that is powered on and
+    # transmitting nothing, at exactly the cell's sample rate. An unpaced
+    # placeholder answers every request instantly, which feeds the gNB faster
+    # than its PHY consumes -- measured, that produced ~12 million
+    # "Real-time failure in RF: overflow" lines and wedged the whole relay.
+    "${cuda_build}/ocudu-zmq-source" --endpoint "tcp://*:$((2101 + 2 * i))" \
+      --sample-rate-hz "${OCUDU_MUE_SAMPLE_RATE_HZ:-23040000}" --silent \
+      --duration "$((duration_seconds + 60))s" >"${log_dir}/placeholder${i}.log" 2>&1 &
+    placeholder_pids[i]="$!"
+  done
+  sleep 2
+fi
+
 for ((i = 0; i < ue_count; i++)); do
-  if [[ "${i}" -gt 0 && "${ue_stagger_seconds}" -gt 0 ]]; then
+  if [[ "${ue_placeholders}" == "1" && -n "${placeholder_pids[i]:-}" ]]; then
+    # `wait` on a process we just killed exits 143, which under `set -e` would
+    # abort the gate. Both are expected here.
+    kill "${placeholder_pids[i]}" >/dev/null 2>&1 || true
+    wait "${placeholder_pids[i]}" >/dev/null 2>&1 || true
+    placeholder_pids[i]=""
+    sleep 1   # let the port clear before the container binds it
+  elif [[ "${i}" -gt 0 && "${ue_stagger_seconds}" -gt 0 ]]; then
     for _ in $(seq 1 "${ue_stagger_seconds}"); do
       grep -q 'RRC Connected' "${log_dir}/srsue$((i - 1)).log" 2>/dev/null && break
       sleep 1
@@ -463,6 +507,15 @@ for ((i = 0; i < ue_count; i++)); do
   fi
   run_srsue "ocudu_srsue_${i}" "$((2101 + 2 * i))" "${srsue_configs[i]}" "${log_dir}/srsue${i}.log"
   ue_pids[i]="$!"
+  # With placeholders the cell is live, so a UE can be waited for properly:
+  # hold the next launch until this one has actually attached, which keeps one
+  # UE per PRACH occasion. Capped so a failing UE cannot hang the gate.
+  if [[ "${ue_placeholders}" == "1" ]]; then
+    for _ in $(seq 1 "${OCUDU_MUE_ATTACH_WAIT_SECONDS:-25}"); do
+      grep -q 'PDU Session Establishment successful' "${log_dir}/srsue${i}.log" 2>/dev/null && break
+      sleep 1
+    done
+  fi
 done
 
 deadline=$((SECONDS + duration_seconds))

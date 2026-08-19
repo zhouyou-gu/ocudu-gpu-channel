@@ -139,11 +139,51 @@ gNB container -- a lock-step ZMQ radio alternating transmit and receive -- was
 still waiting to be pulled; its transmit ring drained, the UEs lost downlink and
 never synced.
 
-So the input-window rule is doing two jobs, and only one of them is wrong. It
-correctly keeps a lock-step radio's two directions in step, and it incorrectly
-extends that to peers that do not exist yet. A working version has to keep the
-first while dropping the second -- bounding how far a node may run ahead of its
-slowest *live* peer, rather than letting a cold lane license unbounded progress.
+### Second attempt: an external placeholder radio
+
+The same goal was then pursued without touching the broker at all. If every
+unlaunched UE's transmit port is held open by a placeholder source, the cell
+never stalls, so each real UE starts against an advancing clock and lands on its
+own occasion. The placeholder was made *paced* to the cell sample rate and
+*silent*, so that it behaves like a radio powered on and transmitting nothing
+(`ocudu-zmq-source --sample-rate-hz --silent`, added for this).
+
+It fails the same way, and the gNB says why:
+
+| Run | gNB `Real-time failure in RF` lines | Outcome |
+|---|---|---|
+| 2×1 single-UE gate | **0** | passes |
+| 2×1 two-UE gate | **0** | passes |
+| four-UE, single antenna, no placeholders | **0** | 1 of 4 attaches |
+| four-UE with placeholders, unpaced | **12,161,310** | 0 of 4 even transmit |
+| four-UE with placeholders, paced + silent | **12,168,638** | 0 of 4 even transmit |
+
+Pacing changed nothing. The gNB receives uplink from the instant the cell comes
+up, before it is ready to consume it, overflows continuously, and then spends
+the run emitting some 67,000 log lines per second, which is what actually wedges
+it. Every configuration that works has exactly zero of these.
+
+### What this says
+
+Two independent approaches -- one inside the broker, one entirely outside it --
+produce the same failure: the moment the gNB's uplink can advance without a real
+lock-step peer on every link, the radio's timing breaks.
+
+So the input-window rule is not merely conservative, and it is not separable
+from the stall. In this design the broker's REQ/REP exchange *is* the radio's
+clock, and a lock-step radio requires every one of its peers to be present and
+driving that clock from the start. Admitting absent peers is not a patch to the
+window calculation; it needs a startup contract in which a node can advance
+against declared-absent peers *without* the destination radio seeing uplink it
+has not asked for -- gating on the destination's own consumption rather than on
+output room. That is a design change to the pacing model, and it should be
+designed rather than attempted incrementally, which is what these two attempts
+were.
+
+The paced/silent placeholder options are kept because they are a genuine
+improvement to the test source, and `OCUDU_MUE_PLACEHOLDERS` is kept as an
+opt-in for anyone continuing this, but it defaults to off because it breaks the
+gates.
 
 Until that exists, **two UEs per cell is the supported multi-user configuration**,
 and it is verified on distinct C-RNTIs and completed PDU sessions rather than on
