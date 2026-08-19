@@ -113,6 +113,59 @@ equal receive power removed the capture effect during contention. It changed
 nothing, and the spread is retained in the fixture only because it is more
 realistic.
 
+### Attempted fix, and why it was reverted
+
+The second mechanism has an obvious fix: let a destination advance while a
+source has never connected, treating that source as contributing silence. An
+absent radio does transmit nothing, and it would also let a UE join a running
+cell. It was implemented and reverted; recorded here so the next attempt starts
+from the result rather than repeating it.
+
+The change was narrow. A lane whose source ring had never produced a sample was
+excluded from the `common = min(available)` window calculation, fed zeros for
+that slot, and had its cursor held still so it would enter at its peer's true
+start once it connected. Cursor co-initialisation was deferred until every lane
+had joined, so a late peer still got a correct epoch. It builds, and `ctest`
+stays 8/8.
+
+On the live four-UE gate it is **worse than the problem it targets**:
+
+```
+before: gnb0 stalls on input_data;      1 of 4 UEs attaches
+after:  gnb0 stalls on output_room x72, 0 of 4 UEs even transmit,
+        gnb0 TX ring empty
+```
+
+Uplink and downlink stop advancing together. Once the gNB node can process
+uplink slots against silence it runs ahead and fills its own receive rings,
+while the gNB container -- a lock-step ZMQ radio that alternates transmit and
+receive -- is still waiting to be pulled. Its transmit ring drains to empty, the
+UEs lose downlink and never sync, and the relay deadlocks with the receive side
+full and the transmit side starved.
+
+So the input-window rule is not merely conservative. It is what keeps a
+lock-step radio's two directions in step, and relaxing it for cold sources needs
+a paired mechanism -- bounding how far a node may run ahead of its slowest
+*live* peer, or gating on the destination radio's own consumption rather than
+only on output room. The one-sided version does not survive contact with a real
+radio.
+
+## What would have to change
+
+Two independent things, either of which alone leaves four UEs blocked:
+
+1. **The search-space conflict**, which is the binding one. Multi-antenna
+   downlink forces `ss2_type: ue_dedicated`, and beyond about two UEs that
+   prevents the rest completing random access. This lives in the RAN stack, not
+   the emulator, so it is a question for OCUDU rather than something this
+   repository can configure around.
+2. **Cold-source admission**, per the reverted attempt above, so UEs can join a
+   running cell and start against an advancing clock instead of all landing on
+   one PRACH occasion.
+
+Until both are addressed, **two UEs per cell is the supported multi-user
+configuration**, and it is verified.
+
 ## Synthetic control
 
 Before any of the live multi-UE work, the superposition arithmetic was checked
