@@ -54,189 +54,74 @@ as passing gates. Do not cite them as demonstrated capability.
 
 ## Why three and four UEs do not attach
 
-**One UE attaches per distinct PRACH occasion.** Every UE started while the cell
-is stalled begins at the same virtual instant, so they share an occasion, share
-a preamble, share an RA-RNTI, and end up sharing a C-RNTI. Only the UE whose
-arrival ends the stall gets its own.
+**Root cause: every UE sat at the same propagation delay, so the gNB could not
+tell their preambles apart.**
 
-### The evidence
+srsUE always transmits preamble index 0. When several UEs share a PRACH
+occasion, the only thing that separates them at the receiver is timing advance —
+exactly as in a real cell, where UEs at different distances produce correlation
+peaks at different offsets. Every link in the multi-UE fixtures declared
+`delay_samples: 0.0`, so four identical preambles arrived at the identical
+instant and summed into ONE correlation peak.
 
-C-RNTI and first RACH occasion, per UE, across the runs:
-
-| Run | first tti per UE | C-RNTI per UE | PDU sessions |
-|---|---|---|---|
-| 2 UEs | 334 / **1294** | 0x4601 / **0x4602** | **2 / 2** |
-| 3 UEs | 334 / 334 / **1134** | 0x4601 / 0x4601 / **0x4602** | 1 / 3 |
-| 4 UEs, single antenna | 334 / 334 / 334 / **1134** | 0x4601 x3 / **0x4602** | 1 / 4 |
-
-The rule is exact: as many UEs complete as there are distinct occasions. Two UEs
-pass because N-1 = 1, and one UE on an occasion is not a collision.
-
-### RRC Connected is not proof of attach
-
-This is what made the earlier diagnoses wrong, and it is worth stating plainly:
-**srsUE reports `RRC Connected` even when it lost contention resolution.** In the
-four-UE single-antenna run all four logged `RRC Connected`, but three of them
-were holding C-RNTI 0x4601 -- the same one. They had all decoded the same Msg4
-and each concluded it had won. Only the UE with its own C-RNTI ever completed a
-PDU session.
-
-So `RRC Connected` counts three UEs that do not exist. Any multi-UE result here
-must be judged on **distinct C-RNTIs and completed PDU sessions**, never on the
-RRC line.
-
-### Correction: this is not about `ss2_type`
-
-An earlier revision of this document concluded that `ss2_type: ue_dedicated`,
-which multi-antenna downlink forces, was the blocker. That was wrong, and it was
-wrong because it trusted the RRC line. Reverting `ss2_type` to `common` appeared
-to fix four UEs -- 4/4 `RRC Connected` -- but the C-RNTIs show three of those
-four were the same UE, and the PDU count stayed at 1 exactly as before.
-
-`ss2_type` changes only how the losers fail. With `ue_dedicated` they are
-dropped and honestly keep retrying (200 attempts, no RRC). With `common` they
-silently persist on a duplicate C-RNTI and falsely report success. The second is
-the more dangerous behaviour, not the better one. **Neither setting changes how
-many UEs actually attach, which is governed entirely by distinct occasions.**
-
-Two other rejected hypotheses, both from the same misreading: `preamble_trans_max`
-(7 -> 200 changed only the attempt count) and a near/far power spread across the
-UEs (no effect).
-
-### Why they share an occasion
-
-A destination cannot advance a slot until every incoming link has data, so a
-cell with N UEs produces nothing until the last UE's radio starts -- the broker
-logs `event=node_stall node=gnb0 phase=input_data` with the producer in
-`state=wait_data slots=0`. The UEs are started one at a time precisely to keep
-them apart, but that stagger is in wall-clock seconds while the UEs count frames
-in the broker's virtual time, and that clock is not advancing. Every UE started
-during the stall therefore begins at tti=334. The last UE's arrival ends the
-stall, so it alone starts against a running clock and lands on its own occasion
-around tti=1134.
-
-### The fix, and the failed attempt
-
-The fix is to let a destination advance while a source has never connected,
-treating it as contributing silence. Then the cell runs from the first UE
-onwards, each UE starts against an advancing clock, and the wall-clock stagger
-produces real separation. It would also let a UE join a running cell.
-
-This was implemented and reverted. The change excluded never-connected lanes
-from the `common = min(available)` window, fed them zeros, held their cursors
-still, and deferred cursor co-initialisation until every lane joined. It builds
-and `ctest` stays 8/8, but on the live gate it is worse than the problem:
+The gNB's own detector output says it plainly:
 
 ```
-before: gnb0 stalls on input_data;      1 of 4 UEs attaches
-after:  gnb0 stalls on output_room x72, 0 of 4 UEs even transmit,
-        gnb0 TX ring empty
+detected_preambles=[{idx=0 ta=0.00us detection_metric=86.9 power_dB=15.13}]
 ```
 
-Uplink and downlink stopped advancing together. Once the gNB node could process
-uplink against silence it ran ahead and filled its own receive rings while the
-gNB container -- a lock-step ZMQ radio alternating transmit and receive -- was
-still waiting to be pulled; its transmit ring drained, the UEs lost downlink and
-never synced.
+One peak, `ta=0.00us`, for the whole run. The gNB was not ignoring the other
+UEs; it could not see them. Only one RA procedure ever existed, so only one
+TC-RNTI was ever allocated, and the remaining UEs decoded that RAR — its
+RA-RNTI is derived from the PRACH occasion position and its RAPID matched their
+preamble 0 — and adopted its TC-RNTI. Three processes then reported
+`RRC Connected` on one identity while only one held a PDU session.
 
-### Second attempt: an external placeholder radio
+Giving each UE a distinct delay (0 / 16 / 32 / 48 samples) changes the gNB's
+view completely:
 
-The same goal was then pursued without touching the broker at all. If every
-unlaunched UE's transmit port is held open by a placeholder source, the cell
-never stalls, so each real UE starts against an advancing clock and lands on its
-own occasion. The placeholder was made *paced* to the cell sample rate and
-*silent*, so that it behaves like a radio powered on and transmitting nothing
-(`ocudu-zmq-source --sample-rate-hz --silent`, added for this).
-
-It fails the same way, and the gNB says why:
-
-| Run | gNB `Real-time failure in RF` lines | Outcome |
+| | identical delays | distinct delays |
 |---|---|---|
-| 2×1 single-UE gate | **0** | passes |
-| 2×1 two-UE gate | **0** | passes |
-| four-UE, single antenna, no placeholders | **0** | 1 of 4 attaches |
-| four-UE with placeholders, unpaced | **12,161,310** | 0 of 4 even transmit |
-| four-UE with placeholders, paced + silent | **12,168,638** | 0 of 4 even transmit |
+| PRACH detections | 1 (whole run) | **204** |
+| TC-RNTIs allocated | 1 (`0x4601`) | **204** (`0x4601`…`0x46cc`) |
 
-Pacing changed nothing. The gNB receives uplink from the instant the cell comes
-up, before it is ready to consume it, overflows continuously, and then spends
-the run emitting some 67,000 log lines per second, which is what actually wedges
-it. Every configuration that works has exactly zero of these.
+So the detection collapse is fixed and the diagnosis is settled. Attach still
+does not complete — the detections are weak (`detection_metric` 86.9 → 3.6) and
+still report `ta=0.00us` where a 16-sample delay should read ≈0.69 µs — so
+something downstream of preamble detection remains. That is the open item.
 
-### Third attempt: answer cold receive requests with silence
+The emulator's delay itself is **not** the problem, and this was checked rather
+than assumed. A synthetic capture with a declared 16-sample delay reproduces it
+exactly:
 
-The loop analysis says the deadlock is that a lock-step radio blocks in receive
-until answered, so it never reaches transmit. The narrowest fix for that is in
-the REP worker rather than the producer: while a port has **never** delivered
-real IQ, answer a receive request with silence instead of holding it. Once the
-first real row goes out the flag latches and the strict rule applies for the
-rest of the run, so an established stream can never be zero-filled.
+```
+lag=0    max|y - h*x[n-lag]| = 1.86e-02
+lag=15   max|y - h*x[n-lag]| = 1.16e-03
+lag=16   max|y - h*x[n-lag]| = 1.31e-07   <- declared value
+lag=17   max|y - h*x[n-lag]| = 1.16e-03
+```
 
-It builds, `ctest` stays 8/8, and on the live gate it fails the same way:
-9,407,829 RF overflow lines, no UE transmits.
+### Corrections to earlier explanations
 
-The reason completes the picture. The grace period was 20 ms, so each cold reply
-delivered 1 ms of samples after a 20 ms wait -- the gNB fell twenty times behind
-wall-clock and reported real-time failure. Answering *faster* is not the fix
-either: with no data to pace it, the broker would answer instantly and the gNB
-would free-run ahead of real time, which is the failure mode of the first two
-attempts. The correct cold-start behaviour is to emit silence at exactly the
-sample rate, which is precisely what the node producer's throttle already does
-when it has real inputs -- and which attempt one showed is not sufficient on its
-own either.
+Three explanations were published in this branch before this one and are all
+wrong. They are recorded because each was disproved by a specific measurement:
 
-### What this says
+- *"The gNB merges the preambles onto one C-RNTI."* It issues a fresh C-RNTI per
+  detected preamble; `rnti_manager::allocate()` increments until it finds a free
+  one, so it cannot reuse a registered RNTI. Only one preamble was ever
+  detected.
+- *"`ss2_type: ue_dedicated`, which multi-antenna downlink forces, is the
+  blocker."* Reverting it appeared to fix four UEs, but the C-RNTIs show three
+  of those four were the same UE and the PDU count stayed at 1. `ss2_type`
+  changes only how the losers fail, not how many attach.
+- *"The multi-source stall freezes virtual time, so UEs cannot be separated."*
+  The stall is real, but UEs sharing an occasion is survivable when they are
+  physically distinguishable; separation in time was never the binding
+  requirement.
 
-Three independent attempts -- the producer's input window, an external
-placeholder radio, and the REP worker's reply policy -- fail identically. Taken
-together they bracket the problem:
-
-| Attempt | Where | Result |
-|---|---|---|
-| Cold source contributes silence | producer input window | gNB stalls on output_room, TX ring empties |
-| Paced silent placeholder radio | outside the broker entirely | 12.1M RF overflow |
-| Cold receive answered with silence | REP reply policy | 9.4M RF overflow |
-
-Answer too slowly and the radio reports real-time failure; answer too quickly
-and it runs ahead of its own clock. There is no setting of a timeout that is
-both. What a lock-step radio needs is silence delivered *at the sample rate*,
-from a source that is itself paced by the same clock as the rest of the relay --
-in other words, an absent peer has to be modelled as a real participant that
-transmits nothing, not as a special case in whichever component happened to
-notice it was missing.
-
-That is a startup-contract change, and it belongs in one place: a node whose
-peer has not connected should be driven by the same throttle that paces every
-other node, emitting silence into the loop at real time, with the destination's
-own consumption -- not output-ring room -- as the back-pressure signal. None of
-the three attempts above put it there, which is why all three failed in
-different components for the same underlying reason.
-
-
-
-Two independent approaches -- one inside the broker, one entirely outside it --
-produce the same failure: the moment the gNB's uplink can advance without a real
-lock-step peer on every link, the radio's timing breaks.
-
-So the input-window rule is not merely conservative, and it is not separable
-from the stall. In this design the broker's REQ/REP exchange *is* the radio's
-clock, and a lock-step radio requires every one of its peers to be present and
-driving that clock from the start. Admitting absent peers is not a patch to the
-window calculation; it needs a startup contract in which a node can advance
-against declared-absent peers *without* the destination radio seeing uplink it
-has not asked for -- gating on the destination's own consumption rather than on
-output room. That is a design change to the pacing model, and it should be
-designed rather than attempted incrementally, which is what these two attempts
-were.
-
-The paced/silent placeholder options are kept because they are a genuine
-improvement to the test source, and `OCUDU_MUE_PLACEHOLDERS` is kept as an
-opt-in for anyone continuing this, but it defaults to off because it breaks the
-gates.
-
-Until that exists, **two UEs per cell is the supported multi-user configuration**,
-and it is verified on distinct C-RNTIs and completed PDU sessions rather than on
-the RRC line.
+`RRC Connected` is not proof of attach: srsUE reports it even when it lost
+contention resolution. Judge multi-UE results on distinct C-RNTIs and completed
+PDU sessions.
 
 ## Synthetic control
 
