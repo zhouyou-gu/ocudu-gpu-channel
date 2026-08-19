@@ -49,51 +49,80 @@ as passing gates. Do not cite them as demonstrated capability.
 
 ## Why three and four UEs do not work yet
 
-Two mechanisms compound, and both were confirmed by measurement rather than
-inferred.
+The failure is a Msg3 contention collision, caused by the emulator's virtual
+clock collapsing the UE start stagger to zero.
 
-**A destination cannot advance until every incoming link has data.** A gNB with
-N UEs has N incoming links, and its producer waits for a common input window
-across all of them. With four UEs the broker logs
-`event=node_stall node=gnb0 phase=input_data` and the producer sits in
-`state=wait_data slots=0` for the whole startup, so no uplink reaches the gNB
-until the last UE's radio is running. Downlink is unaffected -- the UEs sync to
-the cell and transmit RACH into a cell that cannot answer.
+**Virtual time is frozen while the cell is stalled.** A destination cannot
+advance a slot until every incoming link has data, so a gNB with N UEs produces
+nothing on the uplink until all N radios are running -- the broker logs
+`event=node_stall node=gnb0 phase=input_data` with the producer in
+`state=wait_data slots=0`. The UEs are deliberately started one at a time, but
+that stagger is in wall-clock seconds while the UEs count frames in the broker's
+virtual time, which is not advancing. Every UE started during the stall
+therefore begins RACH at the *same* virtual instant.
 
-**The UEs are phase-locked in the broker's virtual time.** They share one
-lock-step clock and all use `preamble_index=0` on `prach_occasion=0`, so the gNB
-sees a single merged preamble (`detected_preambles=[{idx=0 ...}]`, one
-`tc-rnti`) and contention resolution awards it to one UE. The UEs are started
-one at a time precisely to avoid this, but the stall above means the earlier UEs
-are still retrying when the later ones arrive.
+Measured, four UEs with a 12 s wall-clock stagger between each:
 
-Measured, four UEs, `preamble_trans_max` raised from 7 to 200:
+```
+ue0: ra-rnti=0x39, tti=334   ra-rnti=0x39, tti=494   ra-rnti=0x39, tti=654
+ue1: ra-rnti=0x39, tti=334   ra-rnti=0x39, tti=494   ra-rnti=0x39, tti=654
+ue2: ra-rnti=0x39, tti=334   ra-rnti=0x39, tti=494   ra-rnti=0x39, tti=654
+ue3: ra-rnti=0x39, tti=974
+```
 
-| Stagger | ue0 | ue1 | ue2 | ue3 |
-|---|---|---|---|---|
-| 10 s | 200 attempts, no RRC | 200, no RRC | 200, no RRC | 1 attempt, RRC + PDU |
-| 9 s | 200 attempts, no RRC | 200, no RRC | 200, no RRC | 1 attempt, RRC + PDU |
-| 0 s (simultaneous) | 200, no RRC | 200, no RRC | 200, no RRC | 200, no RRC |
+Three UEs on the identical PRACH occasion, retrying in lockstep on the same
+160 ms cadence. Only ue3 -- whose arrival is what ends the stall -- gets a
+distinct start.
 
-Only the last-started UE attaches, deterministically. Starting them together is
-strictly worse -- then none attaches, which is the merged-preamble case in its
-pure form. Two hypotheses were tested and rejected: the default
-`preamble_trans_max` of 7 (raising it to 200 changed nothing but the attempt
-count) and retry-phase aliasing against the 160 ms RACH retry period (a stagger
-chosen not to be a multiple of it behaved identically).
+**Same occasion means same grant means collided Msg3.** Sharing a PRACH occasion
+and preamble gives the same RA-RNTI, so those UEs decode the *same* RAR and
+transmit Msg3 on the *same* PUSCH resources. At comparable receive power none of
+them decodes. The gNB side shows exactly that -- preamble detection and RAR both
+work, a fresh C-RNTI is issued per attempt, and the attempt dies at Msg3:
 
-With three UEs all three reach RRC on their first attempt, but the PDU session
-is unreliable -- one run lost ue0, another lost ue0 and ue1.
+```
+rnti=0x46bc h_id=0: Discarding UL HARQ process TB with tbs=11.
+              Cause: Maximum number of reTxs 4 exceeded
+rnti=0x46bd ... (a new C-RNTI every 16 slots, each failing the same way)
+```
+
+**This predicts the observed N.** N UEs put N-1 of them on the same occasion:
+
+| N | Simultaneous colliders | Outcome |
+|---|---|---|
+| 2 | 1 | no collision -- passes |
+| 3 | 2 | one wins, the other backs off and retries later (`ue1` recovered at tti=3374) -- reaches RRC, PDU unreliable |
+| 4 | 3 | none decodes; they stay locked together and retry forever |
+
+Starting all four together is strictly worse, as the model predicts: then all
+four collide and none attaches at all.
+
+Two hypotheses were tested and rejected before arriving at this. Raising
+`preamble_trans_max` from 7 to 200 changed only the attempt count, because the
+UEs were never running out of attempts -- they were failing every one. A stagger
+chosen not to be a multiple of the 160 ms RACH retry period behaved identically,
+because the stagger is wall-clock and never reaches the UEs' virtual clock at
+all.
+
+*Correction: an earlier version of this document attributed the failure to the
+gNB merging the preambles onto one C-RNTI. That is wrong -- the gNB issues a
+fresh C-RNTI per attempt and the collision is at Msg3.*
 
 ### What would have to change
 
-The binding constraint is the first mechanism: a cell cannot serve any UE until
-every UE is already transmitting, which makes incremental attach impossible.
+The binding constraint is the stall: a cell cannot serve any UE until every UE
+is already transmitting, which both makes incremental attach impossible and
+collapses the start stagger that keeps UEs off each other's PRACH occasion.
 Letting a destination treat a not-yet-connected source as contributing zero
-would fix it, and would also allow UEs to join and leave a running cell, which
-is ordinary behaviour for a multi-UE emulator. That is a real change to broker
+would fix both -- UEs could join a running cell, and each would start against an
+advancing clock and so land on its own occasion. That is a real change to broker
 semantics and interacts with the documented rule that the broker never
 zero-fills a reply, so it needs design work rather than a patch.
+
+A narrower workaround, if the stall is left alone: stagger the UEs by *virtual*
+time rather than wall-clock -- hold each UE until the broker's slot counter has
+advanced past the previous UE's PRACH occasion. That does not help while the
+clock is fully stopped, so it only becomes useful once a source can be absent.
 
 Until then, **two UEs per cell is the supported multi-user configuration.**
 

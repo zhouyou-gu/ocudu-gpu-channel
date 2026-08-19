@@ -74,23 +74,20 @@ cell_cfg:
       coreset0_index: 12
   prach:
     prach_config_index: 1
-    # Multi-UE only, and load-bearing rather than tuning.
+    # Multi-UE only. Raised from the default 7, but note this was NOT the
+    # cause of the multi-UE attach failure -- see docs/live-gate-results.md.
     #
-    # A destination node in this emulator cannot advance a slot until EVERY
-    # incoming link has data, so a cell with N UEs produces nothing until all N
-    # radios are running. The UEs are started one at a time on purpose -- they
-    # share the broker's lock-step virtual time, so simultaneous starts put
-    # every UE on the same PRACH occasion with the same preamble and the gNB
-    # merges them onto one C-RNTI. During that staggered startup the first UE is
-    # already transmitting RACH into a cell that cannot answer yet, and with the
-    # default preamble_trans_max of 7 it exhausts its attempts and gives up
-    # permanently before the last UE is up. Measured with four UEs: ue0 made
-    # exactly 7 attempts and died, and only the last-started UE attached.
+    # A destination in this emulator cannot advance a slot until every incoming
+    # link has data, so a cell with N UEs produces no uplink until all N radios
+    # are running. During that stall the broker's virtual clock does not
+    # advance, so the wall-clock stagger between UE starts collapses to zero in
+    # UE frame time and every UE started during the stall RACHes on the same
+    # occasion. Raising this limit lets those UEs keep retrying instead of
+    # giving up, which is worth having, but they collide at Msg3 regardless:
+    # sharing an occasion means sharing a RAR and therefore a Msg3 grant.
     #
-    # Raising the limit lets the early UEs keep retrying across the startup
-    # window instead of failing it. It does not weaken the gate: every UE still
-    # has to complete RA, RRC, NAS registration, a PDU session and user-plane
-    # traffic to pass.
+    # Measured with four UEs: raising 7 -> 200 changed only the attempt count
+    # (7 failures became 200 failures). It does not make N > 2 work.
     preamble_trans_max: 200
   pdsch:
     mcs_table: qam64
