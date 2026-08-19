@@ -1,0 +1,121 @@
+# Docker rank-1 MISO/SIMO gNB fixture (2T2R) for MULTI-UE gates
+#
+# Identical to gnb_zmq_b210_fdd_2t2r_rank1_srsue.yaml except for the
+# prach.preamble_trans_max raise documented below, which only matters when
+# several UEs attach to one cell.
+#
+# Original header follows.
+#
+# Docker rank-1 MISO/SIMO gNB fixture (2T2R)
+# Generated from the native fixture of the same name; the cell configuration
+# is byte-identical and only ru_sdr endpoints and log paths differ.
+#
+# Original header follows.
+#
+# Native rank-1 MISO/SIMO gNB fixture (R2 of RANK1_MILESTONES.md): the
+# legacy B210 FDD srsUE cell raised to 2T2R, with the three adaptations the
+# R2 controls established -- each one measured, none optional:
+#
+#   - pdcch.dedicated is ue_dedicated with DCI 0_1/1_1: OCUDU's validator
+#     forbids nof_antennas_dl > 1 with fallback DCI in SS#2
+#     (du_cell_config_validation.cpp:290), and the R2 1x1 control proved
+#     srsUE attaches fine on the non-fallback formats.
+#   - csi_rs_enabled: false + nof_cell_csi_res: 0: with 2 DL antennas OCUDU
+#     builds a 2-port NZP-CSI-RS (FD-CDM2) that srsUE's PoC NR RRC cannot
+#     apply ("Resource mapping is invalid or not implemented"), which kills
+#     the whole connection-setup procedure. Disabling CSI-RS removes the
+#     resource and srsUE attaches.
+#   - pcap.mac_enable: disable: OCUDU rejects MAC pcap with >1 DL antenna.
+#
+# Claim boundary: this cell serves ONE UE layer. The srsUE side stays
+# nof_antennas = 1; results are rank-1 2x1 DL MISO and 1x2 UL SIMO.
+# SPDX-FileCopyrightText: Copyright (C) 2021-2026 Software Radio Systems Limited
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# Derived from OCUDU configs/gnb_rf_b210_fdd_srsUE.yml for Docker/ZMQ
+# interop with ocudu-gpu-channel. Only the ru_sdr section is changed from
+# UHD/external-clock hardware to ZMQ endpoints on the Docker bridge.
+
+cu_cp:
+  amf:
+    addrs: 10.53.1.2
+    port: 38412
+    bind_addrs: 10.53.1.3
+    supported_tracking_areas:
+      - tac: 7
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+
+ru_sdr:
+  device_driver: zmq
+  device_args: tx_port0=tcp://*:2000,tx_port1=tcp://*:2002,rx_port0=tcp://host.docker.internal:2001,rx_port1=tcp://host.docker.internal:2003,base_srate=23.04e6
+  clock: default
+  srate: 23.04
+  tx_gain: 0
+  rx_gain: 0
+
+cell_cfg:
+  nof_antennas_dl: 2
+  nof_antennas_ul: 2
+  dl_arfcn: 368500
+  band: 3
+  channel_bandwidth_MHz: 20
+  common_scs: 15
+  plmn: "00101"
+  tac: 7
+  pdcch:
+    dedicated:
+      ss2_type: ue_dedicated
+      dci_format_0_1_and_1_1: true
+    common:
+      ss0_index: 0
+      coreset0_index: 12
+  prach:
+    prach_config_index: 1
+    # Multi-UE only, and load-bearing rather than tuning.
+    #
+    # A destination node in this emulator cannot advance a slot until EVERY
+    # incoming link has data, so a cell with N UEs produces nothing until all N
+    # radios are running. The UEs are started one at a time on purpose -- they
+    # share the broker's lock-step virtual time, so simultaneous starts put
+    # every UE on the same PRACH occasion with the same preamble and the gNB
+    # merges them onto one C-RNTI. During that staggered startup the first UE is
+    # already transmitting RACH into a cell that cannot answer yet, and with the
+    # default preamble_trans_max of 7 it exhausts its attempts and gives up
+    # permanently before the last UE is up. Measured with four UEs: ue0 made
+    # exactly 7 attempts and died, and only the last-started UE attached.
+    #
+    # Raising the limit lets the early UEs keep retrying across the startup
+    # window instead of failing it. It does not weaken the gate: every UE still
+    # has to complete RA, RRC, NAS registration, a PDU session and user-plane
+    # traffic to pass.
+    preamble_trans_max: 200
+  pdsch:
+    mcs_table: qam64
+  csi:
+    csi_rs_enabled: false
+  pucch:
+    nof_cell_csi_res: 0
+  pusch:
+    mcs_table: qam64
+    # max_ue_mcs is load-bearing, not tuning: with CSI-RS disabled (the srsUE
+    # 2-port CSI-RS workaround) UL link adaptation runs on the gNB's own SNR
+    # estimate, which saturates at ~11 dB on this noiseless digital channel
+    # while the actual residual distortion does not follow AWGN statistics.
+    # Uncapped, the gNB retries 16QAM/64QAM into a standing ~20% PUSCH KO
+    # rate and registration survives only by luck (measured bimodal, worse
+    # with more RX ports). Capped at 9, KO drops to zero and full 4T4R
+    # attaches 3/3. See AGENT_PROGRESS.md R3 root-cause section.
+    max_ue_mcs: 9
+
+log:
+  filename: /tmp/gnb.log
+  all_level: info
+
+pcap:
+  mac_enable: disable
+  mac_filename: /tmp/gnb_mac.pcap
+  ngap_enable: enable
+  ngap_filename: /tmp/gnb_ngap.pcap

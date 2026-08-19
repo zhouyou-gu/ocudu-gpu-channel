@@ -28,6 +28,9 @@ broker_image="${OCUDU_MUE_BROKER_IMAGE:-}"
 ue_stagger_seconds="${OCUDU_MUE_UE_STAGGER_SECONDS:-10}"
 srsran_ref="${SRSRAN_4G_REF:-release_23_11}"
 ping_count="${OCUDU_MUE_PING_COUNT:-3}"
+# How many srsUEs to attach. Two is the historical value and keeps this gate's
+# original behaviour; the harness itself is not limited to two.
+ue_count="${OCUDU_MUE_UE_COUNT:-2}"
 # Multi-port knobs. Defaults reproduce the original single-antenna gate, so an
 # unset environment behaves exactly as before. Values crossing the ssh hop must
 # be whitespace-free: ssh flattens the remote argument vector into one string.
@@ -66,6 +69,7 @@ remote_sh bash -s -- \
   "${matrix_enabled}" \
   "$(printf '%s' "${matrix_args}" | base64 | tr -d '\n'):-" \
   "${ping_count}" \
+  "${ue_count}" \
   "${gate_name}" <<'REMOTE'
 set -euo pipefail
 
@@ -91,7 +95,8 @@ if [[ -n "${matrix_args_b64}" ]]; then
   matrix_args="$(printf '%s' "${matrix_args_b64}" | base64 -d)"
 fi
 ping_count="${16}"
-gate_name="${17}"
+ue_count="${17}"
+gate_name="${18}"
 
 expand_remote_path() {
   case "$1" in
@@ -133,7 +138,10 @@ cuda_build="${builds_root}/ocudu-gpu-channel/cuda-release"
 summary_path="${report_dir}/multi-ue-summary.json"
 mkdir -p "${log_dir}" "${report_dir}" "${config_dir}" "${cuda_build}"
 
-rrc0=0; rrc1=0; pdu0=0; pdu1=0; ping0=0; ping1=0
+declare -a rrc pdu ping ue_pids
+for ((i = 0; i < ue_count; i++)); do
+  rrc[i]=0; pdu[i]=0; ping[i]=0; ue_pids[i]=""
+done
 broker_status=0; rx_starvations=0; tx_queue_overflows=0; tx_sequence_gaps=0; zmq_errors=0; gnb_overflow=0
 
 write_summary() {
@@ -144,8 +152,11 @@ write_summary() {
   "timestamp": "${timestamp}",
   "status": "${status}",
   "duration_seconds": ${duration_seconds},
-  "ue0": { "rrc_connected": ${rrc0}, "pdu_session_established": ${pdu0}, "ping_ok": ${ping0} },
-  "ue1": { "rrc_connected": ${rrc1}, "pdu_session_established": ${pdu1}, "ping_ok": ${ping1} },
+  "ue_count": ${ue_count},
+  "ues": [$(for ((i = 0; i < ue_count; i++)); do
+      printf '%s{ "id": "ue%d", "rrc_connected": %d, "pdu_session_established": %d, "ping_ok": %d }' \
+        "$([[ $i -gt 0 ]] && printf ', ')" "$i" "${rrc[i]}" "${pdu[i]}" "${ping[i]}"
+    done)],
   "gnb_rt_overflow": ${gnb_overflow},
   "broker_status": ${broker_status},
   "rx_starvations": ${rx_starvations},
@@ -346,19 +357,24 @@ filename = /tmp/srsue.log
 enable = none
 CONF
 }
-srsue0_config="${config_dir}/srsue0_zmq.conf"
-srsue1_config="${config_dir}/srsue1_zmq.conf"
-write_srsue_config "${srsue0_config}" 2101 2100 001010123456780 353490069873319
-write_srsue_config "${srsue1_config}" 2103 2102 001010123456781 353490069873320
+# One srsUE config and one subscriber per UE. Port pairs step by two from
+# 2101/2100, IMSIs and IPs step by one, matching the topology fixtures.
+declare -a srsue_configs
+for ((i = 0; i < ue_count; i++)); do
+  srsue_configs[i]="${config_dir}/srsue${i}_zmq.conf"
+  write_srsue_config "${srsue_configs[i]}" \
+    "$((2101 + 2 * i))" "$((2100 + 2 * i))" \
+    "$(printf '00101012345678%d' "$i")" "$(printf '35349006987331%d' "$((9 + i))")"
+done
 
-# Two-UE Open5GS subscriber CSV (name,imsi,key,op_type,opc,amf,qci,ip). Replaces
-# the docker-auto-created placeholder so the base compose mounts a real file.
+# Open5GS subscriber CSV (name,imsi,key,op_type,opc,amf,qci,ip). Replaces the
+# single-UE inline SUBSCRIBER_DB via the compose override.
 subscriber_db="${ocudu_root}/docker/open5gs/subscriber_db.csv"
 rm -rf "${subscriber_db}"
-cat >"${subscriber_db}" <<'CSV'
-ue0,001010123456780,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8000,9,10.45.1.2
-ue1,001010123456781,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8000,9,10.45.1.3
-CSV
+for ((i = 0; i < ue_count; i++)); do
+  printf 'ue%d,%s,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8000,9,10.45.1.%d\n' \
+    "$i" "$(printf '00101012345678%d' "$i")" "$((2 + i))" >>"${subscriber_db}"
+done
 
 compose=(docker compose -f "${ocudu_root}/docker/docker-compose.yml" -f "${compose_override}")
 export GNB_CONFIG_PATH="${gnb_config}"
@@ -366,16 +382,15 @@ export OCUDU_ZMQ_DOCKERFILE="${ocudu_dockerfile}"
 export OS=ubuntu OS_VERSION=24.04
 srsue_image="ocudu-gpu-channel/srsue-zmq:${srsran_ref}"
 broker_pid=""
-ue0_pid=""
-ue1_pid=""
 
 cleanup() {
   set +e
-  [[ -n "${ue0_pid}" ]] && kill "${ue0_pid}" >/dev/null 2>&1
-  [[ -n "${ue1_pid}" ]] && kill "${ue1_pid}" >/dev/null 2>&1
+  for ((i = 0; i < ue_count; i++)); do
+    [[ -n "${ue_pids[i]:-}" ]] && kill "${ue_pids[i]}" >/dev/null 2>&1
+  done
   [[ -n "${broker_pid}" ]] && kill "${broker_pid}" >/dev/null 2>&1
   [[ -n "${broker_image}" ]] && docker rm -f ocudu_broker_mue >/dev/null 2>&1
-  docker rm -f ocudu_srsue_0 ocudu_srsue_1 >/dev/null 2>&1
+  for ((i = 0; i < ue_count; i++)); do docker rm -f "ocudu_srsue_${i}" >/dev/null 2>&1; done
   docker cp ocudu_gnb:/tmp/gnb.log "${log_dir}/ocudu-gnb-internal.log" >/dev/null 2>&1
   "${compose[@]}" logs --no-color >"${log_dir}/docker-compose.log" 2>&1
   docker logs open5gs_5gc >"${log_dir}/open5gs.log" 2>&1
@@ -384,7 +399,7 @@ cleanup() {
 trap cleanup EXIT
 
 "${compose[@]}" down --remove-orphans --volumes >"${log_dir}/docker-preclean.log" 2>&1 || true
-docker rm -f open5gs_5gc ocudu_gnb ocudu_srsue_0 ocudu_srsue_1 >"${log_dir}/docker-rm.log" 2>&1 || true
+docker rm -f open5gs_5gc ocudu_gnb $(for ((i = 0; i < ue_count; i++)); do printf "ocudu_srsue_%d " "$i"; done) >"${log_dir}/docker-rm.log" 2>&1 || true
 
 if [[ "${build_docker}" == "1" ]]; then
   "${compose[@]}" build 5gc gnb >"${log_dir}/docker-build.log" 2>&1
@@ -433,29 +448,35 @@ run_srsue() {
     "${srsue_image}" -lc 'mkdir -p /var/run/netns && ip netns add ue1 && exec srsue /config/ue.conf' \
     >"$4" 2>&1 &
 }
-run_srsue ocudu_srsue_0 2101 "${srsue0_config}" "${log_dir}/srsue0.log"
-ue0_pid="$!"
-# Hold ue1 until ue0 is RRC-connected (capped at ue_stagger_seconds), then a
-# short settle, so the two UEs RACH on different PRACH occasions instead of
-# colliding on a single shared C-RNTI in the broker's lock-step virtual time.
-if [[ "${ue_stagger_seconds}" -gt 0 ]]; then
-  for _ in $(seq 1 "${ue_stagger_seconds}"); do
-    grep -q 'RRC Connected' "${log_dir}/srsue0.log" 2>/dev/null && break
-    sleep 1
-  done
-  sleep 2
-fi
-run_srsue ocudu_srsue_1 2103 "${srsue1_config}" "${log_dir}/srsue1.log"
-ue1_pid="$!"
+# Launch the UEs one at a time. srsRAN ZMQ radios share the broker's lock-step
+# virtual time, so UEs started together transmit the identical RACH preamble on
+# the identical PRACH occasion and the gNB merges them onto one C-RNTI. Each UE
+# after the first waits for its predecessor to reach RRC (capped at
+# ue_stagger_seconds) so it RACHes on a later occasion.
+for ((i = 0; i < ue_count; i++)); do
+  if [[ "${i}" -gt 0 && "${ue_stagger_seconds}" -gt 0 ]]; then
+    for _ in $(seq 1 "${ue_stagger_seconds}"); do
+      grep -q 'RRC Connected' "${log_dir}/srsue$((i - 1)).log" 2>/dev/null && break
+      sleep 1
+    done
+    sleep 2
+  fi
+  run_srsue "ocudu_srsue_${i}" "$((2101 + 2 * i))" "${srsue_configs[i]}" "${log_dir}/srsue${i}.log"
+  ue_pids[i]="$!"
+done
 
 deadline=$((SECONDS + duration_seconds))
 while [[ "${SECONDS}" -lt "${deadline}" ]]; do
-  grep -q 'RRC Connected' "${log_dir}/srsue0.log" 2>/dev/null && rrc0=1
-  grep -q 'RRC Connected' "${log_dir}/srsue1.log" 2>/dev/null && rrc1=1
-  grep -q 'PDU Session Establishment successful' "${log_dir}/srsue0.log" 2>/dev/null && pdu0=1
-  grep -q 'PDU Session Establishment successful' "${log_dir}/srsue1.log" 2>/dev/null && pdu1=1
-  [[ "${rrc0}" -eq 1 && "${rrc1}" -eq 1 && "${pdu0}" -eq 1 && "${pdu1}" -eq 1 ]] && break
-  if ! kill -0 "${ue0_pid}" 2>/dev/null && ! kill -0 "${ue1_pid}" 2>/dev/null; then break; fi
+  all_up=1
+  any_alive=0
+  for ((i = 0; i < ue_count; i++)); do
+    grep -q 'RRC Connected' "${log_dir}/srsue${i}.log" 2>/dev/null && rrc[i]=1
+    grep -q 'PDU Session Establishment successful' "${log_dir}/srsue${i}.log" 2>/dev/null && pdu[i]=1
+    [[ "${rrc[i]}" -eq 1 && "${pdu[i]}" -eq 1 ]] || all_up=0
+    kill -0 "${ue_pids[i]}" 2>/dev/null && any_alive=1
+  done
+  [[ "${all_up}" -eq 1 ]] && break
+  [[ "${any_alive}" -eq 0 ]] && break
   sleep 2
 done
 
@@ -468,14 +489,16 @@ ping_ue() {
       $ns ping -c '"${ping_count}"' -i 0.1 -W 2 "$gw"
     ' >/dev/null 2>&1 && echo 1 || echo 0
 }
-[[ "${rrc0}" -eq 1 && "${pdu0}" -eq 1 ]] && ping0="$(ping_ue ocudu_srsue_0)"
-[[ "${rrc1}" -eq 1 && "${pdu1}" -eq 1 ]] && ping1="$(ping_ue ocudu_srsue_1)"
+for ((i = 0; i < ue_count; i++)); do
+  [[ "${rrc[i]}" -eq 1 && "${pdu[i]}" -eq 1 ]] && ping[i]="$(ping_ue "ocudu_srsue_${i}")"
+done
 
 # Matrix scoring needs live uplink traffic inside the capture window, and the
 # verdict ping above is over long before the window closes. Keep both UEs
 # transmitting in the background for the remainder of the broker run.
 if [[ "${matrix_enabled}" == "1" ]]; then
-  for container in ocudu_srsue_0 ocudu_srsue_1; do
+  for ((i = 0; i < ue_count; i++)); do
+    container="ocudu_srsue_${i}"
     docker exec -d "${container}" sh -lc '
         if ip netns list 2>/dev/null | grep -q ue1; then ns="ip netns exec ue1"; else ns=""; fi
         gw=$($ns ip route 2>/dev/null | awk "/default/ {print \$3; exit}")
@@ -487,10 +510,11 @@ fi
 
 set +e
 wait "${broker_pid}"; broker_status="$?"; broker_pid=""
-docker rm -f ocudu_srsue_0 ocudu_srsue_1 >/dev/null 2>&1
-[[ -n "${ue0_pid}" ]] && { kill "${ue0_pid}" >/dev/null 2>&1; wait "${ue0_pid}" >/dev/null 2>&1; }
-[[ -n "${ue1_pid}" ]] && { kill "${ue1_pid}" >/dev/null 2>&1; wait "${ue1_pid}" >/dev/null 2>&1; }
-ue0_pid=""; ue1_pid=""
+for ((i = 0; i < ue_count; i++)); do
+  docker rm -f "ocudu_srsue_${i}" >/dev/null 2>&1
+  [[ -n "${ue_pids[i]:-}" ]] && { kill "${ue_pids[i]}" >/dev/null 2>&1; wait "${ue_pids[i]}" >/dev/null 2>&1; }
+  ue_pids[i]=""
+done
 set -e
 
 docker cp ocudu_gnb:/tmp/gnb.log "${log_dir}/ocudu-gnb-internal.log" >/dev/null 2>&1 || true
@@ -513,13 +537,19 @@ zmq_errors="$(extract_counter zmq_errors "${broker_stop}")"
 if [[ "${broker_status}" -ne 0 || "${tx_queue_overflows}" -ne 0 || "${tx_sequence_gaps}" -ne 0 || "${zmq_errors}" -ne 0 ]]; then
   write_summary "broker_failed" 1
 fi
-if [[ "${rrc0}" -ne 1 || "${rrc1}" -ne 1 ]]; then
+all_rrc=1; all_pdu=1; all_ping=1
+for ((i = 0; i < ue_count; i++)); do
+  [[ "${rrc[i]}" -eq 1 ]] || all_rrc=0
+  [[ "${pdu[i]}" -eq 1 ]] || all_pdu=0
+  [[ "${ping[i]}" -eq 1 ]] || all_ping=0
+done
+if [[ "${all_rrc}" -ne 1 ]]; then
   write_summary "ue_stack_blocker_no_attach" 2
 fi
-if [[ "${pdu0}" -ne 1 || "${pdu1}" -ne 1 ]]; then
+if [[ "${all_pdu}" -ne 1 ]]; then
   write_summary "ue_stack_blocker_no_pdu" 2
 fi
-if [[ "${ping0}" -ne 1 || "${ping1}" -ne 1 ]]; then
+if [[ "${all_ping}" -ne 1 ]]; then
   write_summary "ue_stack_blocker_ping_failed" 2
 fi
 # Score the declared channel matrices against the captured wire. Both uplinks

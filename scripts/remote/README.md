@@ -29,6 +29,13 @@ Reproducible workflows that run on the RTX workstation. Every script sources
 | `ocudu-rank1-4x1-smoke.sh` | R3 | 4T4R gNB + 1-antenna srsUE: 4x1 DL MISO / 1x4 UL SIMO, attach + PDU + ping + live y=Hx |
 | `ocudu-rank1-2x1-multi-ue-smoke.sh` | R2-MU | 2T2R gNB + **two** 1-antenna srsUEs: both uplinks superpose on the two gNB receive ports |
 | `ocudu-rank1-4x1-multi-ue-smoke.sh` | R3-MU | 4T4R gNB + **two** 1-antenna srsUEs: both uplinks superpose on the four gNB receive ports |
+| `ocudu-rank1-2x1-triple-ue-smoke.sh` | — | 2T2R + **three** srsUEs. **Blocked**: all three reach RRC, PDU unreliable |
+| `ocudu-rank1-2x1-quad-ue-smoke.sh` | — | 2T2R + **four** srsUEs. **Blocked**: only the last-started UE attaches |
+
+Measured results for every gate above, including why the three- and four-UE
+gates are blocked, are recorded in [`docs/live-gate-results.md`](../../docs/live-gate-results.md).
+The three- and four-UE scripts are committed as reproducible investigations, not
+as passing gates; **two UEs per cell is the supported multi-user configuration.**
 | `ocudu-multi-ue-smoke.sh` | B | 1 gNB + 2 UEs on one cell |
 | `ocudu-multi-gnb-smoke.sh` | C | 2 gNBs + 2 UEs, inter-cell interference |
 | `ocudu-interop-smoke.sh` | — | Broader OCUDU interop sanity |
