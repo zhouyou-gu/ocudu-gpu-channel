@@ -27,6 +27,8 @@ Reproducible workflows that run on the RTX workstation. Every script sources
 | `ocudu-attach-smoke.sh` | A | 1 gNB + 1 UE, attach + ping verification |
 | `ocudu-rank1-2x1-smoke.sh` | R2 | 2T2R gNB + 1-antenna srsUE: 2x1 DL MISO / 1x2 UL SIMO, attach + PDU + ping + live y=Hx |
 | `ocudu-rank1-4x1-smoke.sh` | R3 | 4T4R gNB + 1-antenna srsUE: 4x1 DL MISO / 1x4 UL SIMO, attach + PDU + ping + live y=Hx |
+| `ocudu-rank1-2x1-multi-ue-smoke.sh` | R2-MU | 2T2R gNB + **two** 1-antenna srsUEs: both uplinks superpose on the two gNB receive ports |
+| `ocudu-rank1-4x1-multi-ue-smoke.sh` | R3-MU | 4T4R gNB + **two** 1-antenna srsUEs: both uplinks superpose on the four gNB receive ports |
 | `ocudu-multi-ue-smoke.sh` | B | 1 gNB + 2 UEs on one cell |
 | `ocudu-multi-gnb-smoke.sh` | C | 2 gNBs + 2 UEs, inter-cell interference |
 | `ocudu-interop-smoke.sh` | — | Broader OCUDU interop sanity |
@@ -65,6 +67,23 @@ original runs were performed, not as a path a reader can execute.
 The rank-1 gates above are the Docker ports of `scripts/native/run-ocudu-rank1-*.sh`.
 They use the same channel matrices, the same gNB cell configuration and the same
 matrix checker; only the ZMQ endpoint form and the container plumbing differ.
+
+## Multi-user rank-1 gates
+
+The two `-multi-ue-` gates put two srsUEs on one multi-antenna cell. Each UE
+still has exactly one antenna, so each user's downlink is a 1xNt row and each
+uplink an Ntx1 column -- the claims stay rank-1 MISO/SIMO and nothing here is
+2x2.
+
+What they add is **superposition at a multi-port receiver**: both uplinks arrive
+on the same gNB receive ports, so every gNB RX row is the sum of both users'
+columns. The matrix checker reconstructs each row from all incoming links, and
+then removes one link at a time and requires the match to break -- a relay that
+served only one user, or that summed the wrong pair, cannot pass.
+
+Claim boundary: this is two single-layer users sharing a cell **in time**, not
+same-PRB MU-MIMO. The emulator superposes whatever the scheduler actually
+transmits; it does not make the gNB serve both users on the same resources.
 
 ## Live rank-1 gates: what they do and do not prove
 

@@ -27,6 +27,17 @@ broker_image="${OCUDU_MUE_BROKER_IMAGE:-}"
 # C-RNTIs. 0 disables the stagger (the both-at-once collision repro).
 ue_stagger_seconds="${OCUDU_MUE_UE_STAGGER_SECONDS:-10}"
 srsran_ref="${SRSRAN_4G_REF:-release_23_11}"
+ping_count="${OCUDU_MUE_PING_COUNT:-3}"
+# Multi-port knobs. Defaults reproduce the original single-antenna gate, so an
+# unset environment behaves exactly as before. Values crossing the ssh hop must
+# be whitespace-free: ssh flattens the remote argument vector into one string.
+gnb_config_rel="${OCUDU_MUE_GNB_CONFIG:-examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml}"
+gnb_tx_ports="${OCUDU_MUE_GNB_TX_PORTS:-2000}"
+gnb_tx_ports="${gnb_tx_ports// /,}"
+topology_rel="${OCUDU_MUE_TOPOLOGY:-examples/topology.ocudu-docker.multi-ue.cuda.yaml}"
+matrix_enabled="${OCUDU_MUE_MATRIX:-0}"
+matrix_args="${OCUDU_MUE_MATRIX_ARGS:-}"
+gate_name="${OCUDU_MUE_GATE_NAME:-ocudu-multi-ue}"
 
 case "${REMOTE_PROJECT_ROOT}" in
   "~/"*) remote_dest="${REMOTE_PROJECT_ROOT#\~/}" ;;
@@ -48,7 +59,14 @@ remote_sh bash -s -- \
   "${build_docker}" \
   "${srsran_ref}" \
   "${ue_stagger_seconds}" \
-  "${broker_image}" <<'REMOTE'
+  "${broker_image:--}" \
+  "${gnb_config_rel}" \
+  "${gnb_tx_ports}" \
+  "${topology_rel}" \
+  "${matrix_enabled}" \
+  "$(printf '%s' "${matrix_args}" | base64 | tr -d '\n'):-" \
+  "${ping_count}" \
+  "${gate_name}" <<'REMOTE'
 set -euo pipefail
 
 workspace="$1"
@@ -62,6 +80,18 @@ srsran_ref="$8"
 ue_stagger_seconds="$9"
 # Default-empty: an empty trailing arg can be dropped in ssh transport.
 broker_image="${10:-}"
+[[ "${broker_image}" == "-" ]] && broker_image=""
+gnb_config_rel="${11}"
+gnb_tx_ports="${12}"
+topology_rel="${13}"
+matrix_enabled="${14}"
+matrix_args_b64="${15%:-}"
+matrix_args=""
+if [[ -n "${matrix_args_b64}" ]]; then
+  matrix_args="$(printf '%s' "${matrix_args_b64}" | base64 -d)"
+fi
+ping_count="${16}"
+gate_name="${17}"
 
 expand_remote_path() {
   case "$1" in
@@ -96,8 +126,8 @@ if [[ ! -d "${ocudu_root}/docker" ]]; then
 fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-log_dir="${results_root}/logs/ocudu-multi-ue/${timestamp}"
-report_dir="${results_root}/reports/ocudu-multi-ue/${timestamp}"
+log_dir="${results_root}/logs/${gate_name}/${timestamp}"
+report_dir="${results_root}/reports/${gate_name}/${timestamp}"
 config_dir="${workspace}/configs/ocudu-multi-ue/${timestamp}"
 cuda_build="${builds_root}/ocudu-gpu-channel/cuda-release"
 summary_path="${report_dir}/multi-ue-summary.json"
@@ -122,6 +152,9 @@ write_summary() {
   "tx_queue_overflows": ${tx_queue_overflows},
   "tx_sequence_gaps": ${tx_sequence_gaps},
   "zmq_errors": ${zmq_errors},
+  "matrix_enabled": ${matrix_enabled:-0},
+  "matrix_status": ${matrix_status:-0},
+  "gate": "${gate_name}",
   "log_dir": "${log_dir}"
 }
 JSON
@@ -142,7 +175,7 @@ gnb_config="${config_dir}/gnb_zmq_b210_fdd_srsue.yaml"
 compose_override="${config_dir}/docker-compose.ocudu-gpu-channel.yml"
 ocudu_dockerfile="${config_dir}/Dockerfile.ocudu-zmq"
 srsue_dockerfile="${config_dir}/Dockerfile.srsue"
-cp "${project_root}/examples/ocudu/gnb_zmq_b210_fdd_srsue.yaml" "${gnb_config}"
+cp "${project_root}/${gnb_config_rel}" "${gnb_config}"
 
 awk '
   { print }
@@ -156,22 +189,93 @@ awk '
 
 # Compose override: publish the gNB TX port, and point Open5GS at a two-UE
 # subscriber CSV (environment overrides the single-UE inline SUBSCRIBER_DB).
-cat >"${compose_override}" <<'YAML'
+# OCUDU's compose hard-codes the `ran` and `metrics` subnets. On a workstation
+# already hosting another 5G stack those pools are taken and compose fails the
+# whole run before a container starts, so pick pools nothing else claims and
+# render an Open5GS env file carrying the matching address -- the core binds the
+# literal address from that file and aborts if it is left behind.
+pick_free_subnet() {
+  local -a taken
+  mapfile -t taken < <(docker network ls --format '{{.Name}}' | while read -r net; do
+    docker network inspect "${net}" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null
+  done | tr ' ' '\n' | sed '/^$/d')
+  local candidate existing clash
+  for candidate in "$@"; do
+    clash=0
+    for existing in "${taken[@]}"; do
+      [[ "${existing}" == "${candidate}" ]] && clash=1 && break
+    done
+    [[ "${clash}" -eq 0 ]] && printf '%s\n' "${candidate}" && return 0
+  done
+  return 1
+}
+ran_subnet="${OCUDU_MUE_RAN_SUBNET:-$(pick_free_subnet 10.53.1.0/24 10.63.1.0/24 10.64.1.0/24 10.65.1.0/24)}"
+metrics_subnet="${OCUDU_MUE_METRICS_SUBNET:-$(pick_free_subnet 172.19.1.0/24 172.29.1.0/24 172.30.1.0/24)}"
+[[ -n "${ran_subnet}" && -n "${metrics_subnet}" ]] || { echo "no free /24 for the gate networks" >&2; exit 1; }
+ran_prefix="${ran_subnet%.0/24}"
+metrics_prefix="${metrics_subnet%.0/24}"
+export OPEN5GS_IP="${ran_prefix}.2"
+export GNB_IP="${ran_prefix}.3"
+printf 'ran_subnet=%s\nmetrics_subnet=%s\n' "${ran_subnet}" "${metrics_subnet}" >"${log_dir}/network-selection.txt"
+
+open5gs_env="${config_dir}/open5gs.env"
+sed -e "s|^OPEN5GS_IP=.*|OPEN5GS_IP=${OPEN5GS_IP}|" \
+    -e "s|^UPF_ADVERTISE_IP=.*|UPF_ADVERTISE_IP=${OPEN5GS_IP}|" \
+    "${ocudu_root}/docker/open5gs/open5gs.env" >"${open5gs_env}"
+export OPEN_5GS_ENV_FILE="${open5gs_env}"
+
+gnb_port_lines=""
+IFS=',' read -r -a gnb_tx_port_list <<<"${gnb_tx_ports}"
+for port in "${gnb_tx_port_list[@]}"; do
+  [[ -n "${port}" ]] || continue
+  gnb_port_lines+="      - \"${port}:${port}\"
+"
+done
+
+capture_args=()
+capture_dir=""
+if [[ "${matrix_enabled}" == "1" ]]; then
+  capture_dir="${report_dir}/wire-capture"
+  mkdir -p "${capture_dir}"
+  capture_args=(--wire-capture-dir "${capture_dir}"
+                --wire-capture-samples "${OCUDU_MUE_CAPTURE_SAMPLES:-4608000}"
+                --wire-capture-skip "${OCUDU_MUE_CAPTURE_SKIP:-460800000}")
+fi
+
+cat >"${compose_override}" <<YAML
 services:
   5gc:
     environment:
       SUBSCRIBER_DB: /open5gs/subscriber_db.csv
+    networks:
+      ran:
+        ipv4_address: ${OPEN5GS_IP}
   gnb:
     ports:
-      - "2000:2000"
-    extra_hosts:
+${gnb_port_lines}    extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      ran:
+        ipv4_address: ${GNB_IP}
+      metrics:
+        ipv4_address: ${metrics_prefix}.3
     build:
-      dockerfile: ${OCUDU_ZMQ_DOCKERFILE}
+      dockerfile: \${OCUDU_ZMQ_DOCKERFILE}
       args:
         EXTRA_CMAKE_ARGS: "-DENABLE_ZEROMQ=ON -DENABLE_EXPORT=ON -DZEROMQ_INCLUDE_DIRS=/usr/include -DZEROMQ_LIBRARIES=/usr/lib/x86_64-linux-gnu/libzmq.so"
         OS: "ubuntu"
         OS_VERSION: "24.04"
+networks:
+  ran:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${ran_subnet}
+  metrics:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${metrics_subnet}
 YAML
 
 cat >"${srsue_dockerfile}" <<'DOCKER'
@@ -303,7 +407,8 @@ echo "open5gs: ${h:-?}"
 # Native binary by default; container image when OCUDU_MUE_BROKER_IMAGE is set.
 if [[ -z "${broker_image}" ]]; then
   "${cuda_build}/ocudu-gpu-channel" \
-    --config "${project_root}/examples/topology.ocudu-docker.multi-ue.cuda.yaml" \
+    --config "${project_root}/${topology_rel}" \
+    "${capture_args[@]}" \
     --duration "${duration_seconds}s" >"${log_dir}/broker.log" 2>&1 &
   broker_pid="$!"
 else
@@ -312,7 +417,7 @@ else
     --gpus all --network host \
     -v "${project_root}:/work:ro" \
     "${broker_image}" \
-    --config "/work/examples/topology.ocudu-docker.multi-ue.cuda.yaml" \
+    --config "/work/${topology_rel}" \
     --duration "${duration_seconds}s" >"${log_dir}/broker.log" 2>&1 &
   broker_pid="$!"
 fi
@@ -360,11 +465,25 @@ ping_ue() {
       if ip netns list 2>/dev/null | grep -q ue1; then ns="ip netns exec ue1"; else ns=""; fi
       gw=$($ns ip route 2>/dev/null | awk "/default/ {print \$3; exit}")
       [ -z "$gw" ] && gw="10.45.1.1"
-      $ns ping -c 3 -W 2 "$gw"
+      $ns ping -c '"${ping_count}"' -i 0.1 -W 2 "$gw"
     ' >/dev/null 2>&1 && echo 1 || echo 0
 }
 [[ "${rrc0}" -eq 1 && "${pdu0}" -eq 1 ]] && ping0="$(ping_ue ocudu_srsue_0)"
 [[ "${rrc1}" -eq 1 && "${pdu1}" -eq 1 ]] && ping1="$(ping_ue ocudu_srsue_1)"
+
+# Matrix scoring needs live uplink traffic inside the capture window, and the
+# verdict ping above is over long before the window closes. Keep both UEs
+# transmitting in the background for the remainder of the broker run.
+if [[ "${matrix_enabled}" == "1" ]]; then
+  for container in ocudu_srsue_0 ocudu_srsue_1; do
+    docker exec -d "${container}" sh -lc '
+        if ip netns list 2>/dev/null | grep -q ue1; then ns="ip netns exec ue1"; else ns=""; fi
+        gw=$($ns ip route 2>/dev/null | awk "/default/ {print \$3; exit}")
+        [ -z "$gw" ] && gw="10.45.1.1"
+        $ns ping -i 0.05 -W 2 "$gw"
+      ' >/dev/null 2>&1 || true
+  done
+fi
 
 set +e
 wait "${broker_pid}"; broker_status="$?"; broker_pid=""
@@ -403,5 +522,32 @@ fi
 if [[ "${ping0}" -ne 1 || "${ping1}" -ne 1 ]]; then
   write_summary "ue_stack_blocker_ping_failed" 2
 fi
+# Score the declared channel matrices against the captured wire. Both uplinks
+# land on the same gNB receive rows, so the checker reconstructs each row from
+# ALL incoming links and additionally proves each one moved it.
+if [[ "${matrix_enabled}" == "1" ]]; then
+  matrix_venv="${workspace}/tools/matrix-verify-venv"
+  if [[ ! -x "${matrix_venv}/bin/python" ]]; then
+    /usr/bin/python3 -m venv "${matrix_venv}" >/dev/null 2>&1
+    "${matrix_venv}/bin/pip" install --quiet --disable-pip-version-check numpy PyYAML >/dev/null 2>&1
+  fi
+  if ! "${matrix_venv}/bin/python" -c 'import numpy, yaml' >/dev/null 2>&1; then
+    echo "matrix verification needs numpy and PyYAML; provisioning ${matrix_venv} failed" >&2
+    write_summary "matrix_deps_missing" 3
+  fi
+  if "${matrix_venv}/bin/python" \
+      "${project_root}/scripts/native/verify-mimo-matrix-capture.py" \
+      --capture-dir "${capture_dir}" \
+      --topology "${project_root}/${topology_rel}" \
+      --report "${report_dir}/matrix-report.json" \
+      ${matrix_args} >"${log_dir}/matrix-verify.log" 2>&1; then
+    matrix_status=1
+  else
+    matrix_status=0
+  fi
+  cat "${log_dir}/matrix-verify.log"
+  [[ "${matrix_status}" -eq 1 ]] || write_summary "matrix_failed" 3
+fi
+
 write_summary "passed" 0
 REMOTE

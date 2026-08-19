@@ -131,6 +131,75 @@ def matrix_from_model(model: dict, name: str, nr: int, nt: int, checks: Checks):
     return matrix
 
 
+def check_superposed_destination(
+    checks: Checks,
+    label: str,
+    contributions: list,          # [(link_label, matrix, columns)]
+    rows: list,
+    tolerance: float,
+) -> None:
+    """Check a destination fed by more than one link.
+
+    Every receive row of such a node carries the SUM of the incoming links'
+    contributions -- two UEs transmitting to one gNB is exactly this. Scoring
+    each link on its own against the same captured row would compare a partial
+    model against a full measurement and fail a correct relay, so the rows are
+    reconstructed from all incoming links at once.
+
+    The per-link residual is also reported: if a row matches the total but
+    dropping one link still matches, that link carried nothing and the run
+    proves less than it appears to.
+    """
+    lengths = [column.size for _, _, columns in contributions for column in columns]
+    lengths += [row.size for row in rows]
+    usable = min(lengths) if lengths else 0
+    if not checks.require(usable > 0, f"{label}: nothing was captured on one of the ports"):
+        return
+    checks.measure(f"{label}_compared_samples", int(usable))
+    checks.measure(f"{label}_incoming_links", len(contributions))
+
+    rows = [row[:usable].astype(np.complex128) for row in rows]
+    prepared = [
+        (link_label, matrix, [column[:usable].astype(np.complex128) for column in columns])
+        for link_label, matrix, columns in contributions
+    ]
+
+    for r, row in enumerate(rows):
+        total = np.zeros(usable, dtype=np.complex128)
+        per_link = {}
+        for link_label, matrix, columns in prepared:
+            term = np.zeros(usable, dtype=np.complex128)
+            for t, column in enumerate(columns):
+                term = term + matrix[r][t] * column
+            per_link[link_label] = term
+            total = total + term
+
+        max_error = float(np.abs(row - total).max())
+        checks.measure(f"{label}_row{r}_rms", round(float(np.sqrt(np.mean(np.abs(row) ** 2))), 6))
+        checks.measure(f"{label}_row{r}_max_abs_error", float(f"{max_error:.3e}"))
+        checks.measure(f"{label}_row{r}_tolerance", tolerance)
+        checks.require(
+            max_error <= tolerance,
+            f"{label}: row {r} differs from the summed contribution of its "
+            f"{len(prepared)} incoming links (max |y - sum Hx| = {max_error:.3e} > {tolerance:.3e})",
+        )
+
+        # Every incoming link must actually move the row. Without this a relay
+        # that ignored one source would still pass whenever that source's
+        # contribution happened to be small.
+        for link_label, term in per_link.items():
+            rms = float(np.sqrt(np.mean(np.abs(term) ** 2)))
+            checks.measure(f"{label}_row{r}_from_{link_label}_rms", round(rms, 6))
+            if rms > 0.0:
+                without = float(np.abs(row - (total - term)).max())
+                checks.measure(f"{label}_row{r}_without_{link_label}_error", float(f"{without:.3e}"))
+                checks.require(
+                    without > tolerance,
+                    f"{label}: row {r} still matches with {link_label} removed, so that "
+                    f"link contributed nothing measurable",
+                )
+
+
 def check_link(
     checks: Checks,
     label: str,
@@ -289,6 +358,10 @@ def main() -> int:
                     f"({mismatches} of {captured_column.size} samples differ)",
                 )
 
+    # Group by destination first. A node fed by several links receives their
+    # sum on every row, so the links cannot be scored independently -- see
+    # check_superposed_destination.
+    by_destination: dict = {}
     for link in topology.get("links") or []:
         source_id = link["from"]
         destination_id = link["to"]
@@ -308,21 +381,44 @@ def main() -> int:
         matrix = matrix_from_model(model, model_name, len(rx_ports), len(tx_ports), checks)
         if matrix is None:
             continue
-        link_label = f"{source_id}->{destination_id}"
-        allowed_silent = frozenset(
-            int(spec.rsplit(":", 1)[1])
-            for spec in args.allow_silent_source
-            if spec.rsplit(":", 1)[0] == link_label
+        by_destination.setdefault(destination_id, []).append(
+            (f"{source_id}->{destination_id}", matrix, tx_ports, rx_ports)
         )
-        check_link(
+
+    for destination_id, incoming in by_destination.items():
+        rx_ports = incoming[0][3]
+        rows = [load(port, "rx_out") for port in rx_ports]
+
+        if len(incoming) == 1:
+            # Single source: keep the original per-link report verbatim, which
+            # also carries the off-diagonal-share check.
+            link_label, matrix, tx_ports, _ = incoming[0]
+            allowed_silent = frozenset(
+                int(spec.rsplit(":", 1)[1])
+                for spec in args.allow_silent_source
+                if spec.rsplit(":", 1)[0] == link_label
+            )
+            check_link(
+                checks,
+                link_label,
+                matrix,
+                [load(port, "tx_in") for port in tx_ports],
+                rows,
+                args.tolerance,
+                args.cross_floor,
+                allowed_silent,
+            )
+            continue
+
+        check_superposed_destination(
             checks,
-            link_label,
-            matrix,
-            [load(port, "tx_in") for port in tx_ports],
-            [load(port, "rx_out") for port in rx_ports],
+            f"*->{destination_id}",
+            [
+                (link_label, matrix, [load(port, "tx_in") for port in tx_ports])
+                for link_label, matrix, tx_ports, _ in incoming
+            ],
+            rows,
             args.tolerance,
-            args.cross_floor,
-            allowed_silent,
         )
 
     passed = not checks.failures
