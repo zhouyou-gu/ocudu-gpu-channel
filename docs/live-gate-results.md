@@ -163,7 +163,56 @@ up, before it is ready to consume it, overflows continuously, and then spends
 the run emitting some 67,000 log lines per second, which is what actually wedges
 it. Every configuration that works has exactly zero of these.
 
+### Third attempt: answer cold receive requests with silence
+
+The loop analysis says the deadlock is that a lock-step radio blocks in receive
+until answered, so it never reaches transmit. The narrowest fix for that is in
+the REP worker rather than the producer: while a port has **never** delivered
+real IQ, answer a receive request with silence instead of holding it. Once the
+first real row goes out the flag latches and the strict rule applies for the
+rest of the run, so an established stream can never be zero-filled.
+
+It builds, `ctest` stays 8/8, and on the live gate it fails the same way:
+9,407,829 RF overflow lines, no UE transmits.
+
+The reason completes the picture. The grace period was 20 ms, so each cold reply
+delivered 1 ms of samples after a 20 ms wait -- the gNB fell twenty times behind
+wall-clock and reported real-time failure. Answering *faster* is not the fix
+either: with no data to pace it, the broker would answer instantly and the gNB
+would free-run ahead of real time, which is the failure mode of the first two
+attempts. The correct cold-start behaviour is to emit silence at exactly the
+sample rate, which is precisely what the node producer's throttle already does
+when it has real inputs -- and which attempt one showed is not sufficient on its
+own either.
+
 ### What this says
+
+Three independent attempts -- the producer's input window, an external
+placeholder radio, and the REP worker's reply policy -- fail identically. Taken
+together they bracket the problem:
+
+| Attempt | Where | Result |
+|---|---|---|
+| Cold source contributes silence | producer input window | gNB stalls on output_room, TX ring empties |
+| Paced silent placeholder radio | outside the broker entirely | 12.1M RF overflow |
+| Cold receive answered with silence | REP reply policy | 9.4M RF overflow |
+
+Answer too slowly and the radio reports real-time failure; answer too quickly
+and it runs ahead of its own clock. There is no setting of a timeout that is
+both. What a lock-step radio needs is silence delivered *at the sample rate*,
+from a source that is itself paced by the same clock as the rest of the relay --
+in other words, an absent peer has to be modelled as a real participant that
+transmits nothing, not as a special case in whichever component happened to
+notice it was missing.
+
+That is a startup-contract change, and it belongs in one place: a node whose
+peer has not connected should be driven by the same throttle that paces every
+other node, emitting silence into the loop at real time, with the destination's
+own consumption -- not output-ring room -- as the back-pressure signal. None of
+the three attempts above put it there, which is why all three failed in
+different components for the same underlying reason.
+
+
 
 Two independent approaches -- one inside the broker, one entirely outside it --
 produce the same failure: the moment the gNB's uplink can advance without a real
