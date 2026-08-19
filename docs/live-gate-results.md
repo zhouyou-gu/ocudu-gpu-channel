@@ -41,8 +41,8 @@ to break.
 | `ocudu-multi-ue-smoke.sh` (1T1R) | 2 | **pass** |
 | `ocudu-rank1-2x1-multi-ue-smoke.sh` (2T2R) | 2 | **pass** — rows 4.54e-05 / 4.53e-05; removing either UE breaks the match by 91.3 to 236.9 |
 | `ocudu-rank1-4x1-multi-ue-smoke.sh` (4T4R) | 2 | **pass** — rows 6.76 / 5.33 / 2.91 / 3.99 e-05 |
-| `ocudu-rank1-2x1-triple-ue-smoke.sh` (2T2R) | 3 | **blocked** — all three reach RRC, PDU session unreliable |
-| `ocudu-rank1-2x1-quad-ue-smoke.sh` (2T2R) | 4 | **blocked** — only the last-started UE attaches |
+| `ocudu-rank1-2x1-triple-ue-smoke.sh` (2T2R) | 3 | **blocked** — 1 of 3 truly attaches; two share a C-RNTI |
+| `ocudu-rank1-2x1-quad-ue-smoke.sh` (2T2R) | 4 | **blocked** — 1 of 4 truly attaches; three share a C-RNTI |
 
 Control experiments used for the diagnosis below, not gates:
 `examples/topology.ocudu-docker.multi-ue-quad.cuda.yaml` (stock single-antenna
@@ -54,81 +54,78 @@ as passing gates. Do not cite them as demonstrated capability.
 
 ## Why three and four UEs do not attach
 
-**The cause is `ss2_type: ue_dedicated`, which multi-antenna downlink forces.**
-It is not the MIMO channel, not the emulator's superposition, and not the
-multi-source stall. It was isolated by bisection, and two earlier explanations
-were wrong and are corrected below.
+**One UE attaches per distinct PRACH occasion.** Every UE started while the cell
+is stalled begins at the same virtual instant, so they share an occasion, share
+a preamble, share an RA-RNTI, and end up sharing a C-RNTI. Only the UE whose
+arrival ends the stall gets its own.
 
-### The bisection
+### The evidence
 
-Each row is four srsUEs on one cell, everything else held constant.
+C-RNTI and first RACH occasion, per UE, across the runs:
 
-| Antennas | Cell settings | UEs reaching RRC |
-|---|---|---|
-| 1T1R | stock (`ss2_type: common`) | **4 / 4**, one RA procedure each |
-| 2T2R | rank-1 MIMO set (`ss2_type: ue_dedicated`, CSI-RS off, `max_ue_mcs: 9`, pcap off) | **1 / 4** |
-| 1T1R | the MIMO set applied to a *single-antenna* cell | **1 / 4** |
-| 1T1R | the MIMO set, but `ss2_type` reverted to `common` | **4 / 4**, one RA procedure each |
+| Run | first tti per UE | C-RNTI per UE | PDU sessions |
+|---|---|---|---|
+| 2 UEs | 334 / **1294** | 0x4601 / **0x4602** | **2 / 2** |
+| 3 UEs | 334 / 334 / **1134** | 0x4601 / 0x4601 / **0x4602** | 1 / 3 |
+| 4 UEs, single antenna | 334 / 334 / 334 / **1134** | 0x4601 x3 / **0x4602** | 1 / 4 |
 
-Rows two and three isolate it away from the antenna count: one antenna with the
-MIMO settings fails exactly as two antennas do. Rows three and four isolate the
-single setting: reverting only the search-space type, while keeping CSI-RS off,
-the MCS cap and pcap disabled, restores all four attaches.
+The rule is exact: as many UEs complete as there are distinct occasions. Two UEs
+pass because N-1 = 1, and one UE on an occasion is not a collision.
 
-### Why this is a hard conflict
+### RRC Connected is not proof of attach
 
-The rank-1 fixtures do not choose `ue_dedicated` freely. OCUDU's validator
-forbids fallback DCI in SS#2 when `nof_antennas_dl > 1`
-(`du_cell_config_validation.cpp:290`), so any multi-antenna downlink cell must
-use `ss2_type: ue_dedicated` with DCI 0_1/1_1. That is the same adaptation the
-single-UE rank-1 gates needed and documented.
+This is what made the earlier diagnoses wrong, and it is worth stating plainly:
+**srsUE reports `RRC Connected` even when it lost contention resolution.** In the
+four-UE single-antenna run all four logged `RRC Connected`, but three of them
+were holding C-RNTI 0x4601 -- the same one. They had all decoded the same Msg4
+and each concluded it had won. Only the UE with its own C-RNTI ever completed a
+PDU session.
 
-So **multi-antenna downlink and multi-UE scale are in direct conflict on this
-stack**, through one setting neither side can give up: multi-antenna requires
-`ue_dedicated`, and beyond about two UEs `ue_dedicated` prevents the rest from
-completing random access. Two UEs works because it stays under that threshold.
+So `RRC Connected` counts three UEs that do not exist. Any multi-UE result here
+must be judged on **distinct C-RNTIs and completed PDU sessions**, never on the
+RRC line.
 
-### A separate, pre-existing limitation
+### Correction: this is not about `ss2_type`
 
-Even with `ss2_type: common` and four UEs attaching, only one reaches a PDU
-session. The stock single-antenna four-UE control behaves identically -- 4/4 RRC,
-1/4 PDU. That failure predates this work, is unrelated to MIMO, and is not
-diagnosed here.
+An earlier revision of this document concluded that `ss2_type: ue_dedicated`,
+which multi-antenna downlink forces, was the blocker. That was wrong, and it was
+wrong because it trusted the RRC line. Reverting `ss2_type` to `common` appeared
+to fix four UEs -- 4/4 `RRC Connected` -- but the C-RNTIs show three of those
+four were the same UE, and the PDU count stayed at 1 exactly as before.
 
-### Corrections to earlier explanations
+`ss2_type` changes only how the losers fail. With `ue_dedicated` they are
+dropped and honestly keep retrying (200 attempts, no RRC). With `common` they
+silently persist on a duplicate C-RNTI and falsely report success. The second is
+the more dangerous behaviour, not the better one. **Neither setting changes how
+many UEs actually attach, which is governed entirely by distinct occasions.**
 
-Two explanations were published and are wrong:
+Two other rejected hypotheses, both from the same misreading: `preamble_trans_max`
+(7 -> 200 changed only the attempt count) and a near/far power spread across the
+UEs (no effect).
 
-- *"The gNB merges the preambles onto one C-RNTI."* It does not. Preamble
-  detection and RAR both work and a fresh C-RNTI is issued per attempt.
-- *"The multi-source stall freezes virtual time, collapsing the start stagger,
-  so N-1 UEs collide at Msg3."* The stall is real and observable
-  (`event=node_stall node=gnb0 phase=input_data`), and UEs do start on the same
-  PRACH occasion because of it. But it is not what blocks attach: with
-  `ss2_type: common` the UEs still share that occasion, and all four attach
-  anyway. Shared occasions are survivable; `ue_dedicated` is not.
+### Why they share an occasion
 
-A near/far power spread across the four UEs was also tested, on the theory that
-equal receive power removed the capture effect during contention. It changed
-nothing, and the spread is retained in the fixture only because it is more
-realistic.
+A destination cannot advance a slot until every incoming link has data, so a
+cell with N UEs produces nothing until the last UE's radio starts -- the broker
+logs `event=node_stall node=gnb0 phase=input_data` with the producer in
+`state=wait_data slots=0`. The UEs are started one at a time precisely to keep
+them apart, but that stagger is in wall-clock seconds while the UEs count frames
+in the broker's virtual time, and that clock is not advancing. Every UE started
+during the stall therefore begins at tti=334. The last UE's arrival ends the
+stall, so it alone starts against a running clock and lands on its own occasion
+around tti=1134.
 
-### Attempted fix, and why it was reverted
+### The fix, and the failed attempt
 
-The second mechanism has an obvious fix: let a destination advance while a
-source has never connected, treating that source as contributing silence. An
-absent radio does transmit nothing, and it would also let a UE join a running
-cell. It was implemented and reverted; recorded here so the next attempt starts
-from the result rather than repeating it.
+The fix is to let a destination advance while a source has never connected,
+treating it as contributing silence. Then the cell runs from the first UE
+onwards, each UE starts against an advancing clock, and the wall-clock stagger
+produces real separation. It would also let a UE join a running cell.
 
-The change was narrow. A lane whose source ring had never produced a sample was
-excluded from the `common = min(available)` window calculation, fed zeros for
-that slot, and had its cursor held still so it would enter at its peer's true
-start once it connected. Cursor co-initialisation was deferred until every lane
-had joined, so a late peer still got a correct epoch. It builds, and `ctest`
-stays 8/8.
-
-On the live four-UE gate it is **worse than the problem it targets**:
+This was implemented and reverted. The change excluded never-connected lanes
+from the `common = min(available)` window, fed them zeros, held their cursors
+still, and deferred cursor co-initialisation until every lane joined. It builds
+and `ctest` stays 8/8, but on the live gate it is worse than the problem:
 
 ```
 before: gnb0 stalls on input_data;      1 of 4 UEs attaches
@@ -136,35 +133,21 @@ after:  gnb0 stalls on output_room x72, 0 of 4 UEs even transmit,
         gnb0 TX ring empty
 ```
 
-Uplink and downlink stop advancing together. Once the gNB node can process
-uplink slots against silence it runs ahead and fills its own receive rings,
-while the gNB container -- a lock-step ZMQ radio that alternates transmit and
-receive -- is still waiting to be pulled. Its transmit ring drains to empty, the
-UEs lose downlink and never sync, and the relay deadlocks with the receive side
-full and the transmit side starved.
+Uplink and downlink stopped advancing together. Once the gNB node could process
+uplink against silence it ran ahead and filled its own receive rings while the
+gNB container -- a lock-step ZMQ radio alternating transmit and receive -- was
+still waiting to be pulled; its transmit ring drained, the UEs lost downlink and
+never synced.
 
-So the input-window rule is not merely conservative. It is what keeps a
-lock-step radio's two directions in step, and relaxing it for cold sources needs
-a paired mechanism -- bounding how far a node may run ahead of its slowest
-*live* peer, or gating on the destination radio's own consumption rather than
-only on output room. The one-sided version does not survive contact with a real
-radio.
+So the input-window rule is doing two jobs, and only one of them is wrong. It
+correctly keeps a lock-step radio's two directions in step, and it incorrectly
+extends that to peers that do not exist yet. A working version has to keep the
+first while dropping the second -- bounding how far a node may run ahead of its
+slowest *live* peer, rather than letting a cold lane license unbounded progress.
 
-## What would have to change
-
-Two independent things, either of which alone leaves four UEs blocked:
-
-1. **The search-space conflict**, which is the binding one. Multi-antenna
-   downlink forces `ss2_type: ue_dedicated`, and beyond about two UEs that
-   prevents the rest completing random access. This lives in the RAN stack, not
-   the emulator, so it is a question for OCUDU rather than something this
-   repository can configure around.
-2. **Cold-source admission**, per the reverted attempt above, so UEs can join a
-   running cell and start against an advancing clock instead of all landing on
-   one PRACH occasion.
-
-Until both are addressed, **two UEs per cell is the supported multi-user
-configuration**, and it is verified.
+Until that exists, **two UEs per cell is the supported multi-user configuration**,
+and it is verified on distinct C-RNTIs and completed PDU sessions rather than on
+the RRC line.
 
 ## Synthetic control
 
