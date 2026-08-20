@@ -1,6 +1,7 @@
 # ocudu-gpu-channel
 
-Lead: **Zhouyou Gu**, SUTD · rank-1 MISO/SIMO: **MinwooEun** — see [Contributors](#contributors)
+Leading Contributor: **Zhouyou Gu**, SUTD  
+Contributors: **MinwooEun** — rank-1 MISO/SIMO ([details](#contributors))
 
 **GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks.**
 Drops between two ZMQ radios, routes `cf32` IQ across multi-gNB / multi-UE
