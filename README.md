@@ -277,6 +277,38 @@ GPU runs, with all broker data-integrity counters at zero.
 - [Project structure](docs/project-structure.md) — local repo and remote RTX
   workstation layout.
 
+## Contributors
+
+**[Zhouyou Gu](https://github.com/zhouyou-gu)** — lead. Created the project and
+wrote the GPU channel emulator: the lock-step broker and its ZMQ transport, the
+CPU and CUDA backends, the topology/YAML model and validator, the TDL +
+Jakes-Doppler fading and fractional-delay paths, the runtime control plane, the
+unit tests and benchmarks, the Docker packaging, and the OCUDU + srsRAN interop
+gates (single-UE attach, multi-UE on one cell, multi-gNB with inter-cell
+interference). Also the multi-UE attach fix — root-causing it to srsUE's fixed
+PRACH preamble index and patching
+[srsRAN_4G](https://github.com/zhouyou-gu/srsRAN_4G) — and the four-UE 4T4R
+rank-1 gate.
+
+**[MinwooEun](https://github.com/MinwooEun)** — rank-1 MISO/SIMO workstream:
+
+- Multi-port radio nodes and the physical-link state model
+  (`include/ocudu_gpu_channel/physical_link.h`) — one clock and one fading
+  realisation per link, so a link's lanes cannot drift out of the same `H(t)`.
+- `fixed_mimo` matrix links, expanded into Nt × Nr scalar lanes summed per
+  receive row, plus spatial correlation and coherent LOS
+  (`src/correlation.cpp`).
+- Live rank-1 gates: 2×1 DL MISO + 1×2 UL SIMO, extended to 4×1 / 1×4, through
+  the CUDA broker to a real OCUDU gNB and srsUE.
+- `y = Hx` wire-capture scoring (`scripts/native/verify-mimo-matrix-capture.py`)
+  and the two-port transport peer (`apps/ocudu_mimo_transport_peer.cpp`), so the
+  matrix claim is measured per run rather than asserted.
+- Root-caused the UL-4R flakiness to over-aggressive UL link adaptation with
+  CSI-RS disabled, and the two-port freeze to a self-deadlock in OCUDU's ZMQ
+  radio.
+- The oracle-precoding study (live MRT gain +0.54 dB, matching prediction to
+  0.01 dB) and the OAI nrUE integration scouting.
+
 ## License
 
 Released under the [MIT License](LICENSE). Copyright © 2026 Zhouyou Gu.
