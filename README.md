@@ -32,10 +32,14 @@ the **unit tests** (`ctest`) and the **synthetic GPU validation**
 - **Milestone B — multi-UE on one cell.** Four srsUEs through one gNB over a
   realistic per-UE channel (per-edge path-loss + phase + AWGN); all four
   attached with distinct C-RNTIs, PDU sessions and IPs, each on its first
-  random-access attempt. The smokes build srsUE from the latest
+  random-access attempt. Multi-UE attach needs a recent srsUE: on
+  `release_23_11` a UE that loses RACH contention reports a successful attach
+  and stops retrying, so only one of four ever gets a session. The smokes build
+  srsUE from the latest
   [`zhouyou-gu/srsRAN_4G`](https://github.com/zhouyou-gu/srsRAN_4G) `master`,
-  which adds a `SRSUE_PRACH_PREAMBLE_INDEX` override so each UE is pinned to its
-  own preamble and a run is reproducible.
+  which fixes that, plus a `SRSUE_PRACH_PREAMBLE_INDEX` override that pins each
+  UE to its own preamble — not required for attach, but it avoids the contention
+  altogether so every UE succeeds first try and runs are reproducible.
 - **Milestone C — multi-gNB with interference.** Two OCUDU gNBs + two srsUEs
   (one per cell) on a 4-node / 8-edge inter-cell-interference topology; each
   gNB's RX is the GPU superposition of its serving UE plus the other cell's
