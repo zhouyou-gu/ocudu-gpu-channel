@@ -2,18 +2,28 @@
 # Locked-in GPU validation sequence for the RTX workstation.
 #
 # Runs, in order, on the remote GPU host:
-#   [1/7] CUDA release build
-#   [2/7] ctest (config, processing incl. the CUDA AWGN/delay checks, ring, broker)
-#   [3/7] synthetic CUDA relay loop  -- clean 0 dB channel, must relay IQ both
+#   [1/9] CUDA release build
+#   [2/9] ctest (config, processing incl. the CUDA AWGN/delay checks, ring, broker)
+#   [3/9] synthetic CUDA relay loop  -- clean 0 dB channel, must relay IQ both
 #         ways with zero data-integrity counters
-#   [4/7] synthetic CUDA relay loop  -- AWGN channel, sink power must equal
+#   [4/9] synthetic CUDA relay loop  -- AWGN channel, sink power must equal
 #         signal power + noise_power
-#   [5/7] synthetic CUDA 3-node interference graph -- the two UE uplinks must
+#   [5/9] synthetic CUDA 3-node interference graph -- the two UE uplinks must
 #         superpose at the gNB RX (gnb0 RX power ~= 2x a desired uplink),
 #         exercising the GPU superposition kernel and the multi-device broker
-#   [6/7] synthetic CUDA 2-cell multi-gNB graph -- four nodes, eight links;
+#   [6/9] synthetic CUDA 2-cell multi-gNB graph -- four nodes, eight links;
 #         every RX is its serving link plus the other cell's interference
-#   [7/7] synthetic CUDA TDL-A profile relay -- TR 38.901 §7.7.2 NLOS 23-tap
+#   [9/9] live control plane -- a correlation_swap REQ sent to a RUNNING broker
+#         must change the received power. Until M4.6 every control-plane gate
+#         called the handler directly, so the wire path (REQ in, shadow written,
+#         snapped at a slot boundary, output changed) had never run end to end.
+#   [8/9] synthetic CUDA 2x2 correlated MIMO relay -- a declared spatial
+#         correlation must be visible in the received power, and the same
+#         topology with kind: iid must not show it. This is the only
+#         broker-level test of the MIMO path: M1-M3 built lane expansion,
+#         multi-row output, correlation and coherent LOS, and every one of
+#         their gates called the processor directly.
+#   [7/9] synthetic CUDA TDL-A profile relay -- TR 38.901 §7.7.2 NLOS 23-tap
 #         multipath with Jakes fading on a bidirectional gNB↔UE pair; broker
 #         counters must stay clean and the sink avg_power must match the sum
 #         of tap powers (≈0.50 for the published TDL-A profile)
@@ -73,7 +83,117 @@ mkdir -p "${cuda_build}"
 
 fail() { echo "GPU TEST SEQUENCE FAILED: $1" >&2; exit 1; }
 
-echo "== [1/7] CUDA release build =="
+# 2x2 MIMO through the real broker: four TX ports feeding four RX rows, with a
+# declared TX-side correlation. Every source emits the SAME unit-power tone, so
+# a row receives (g_r0 + g_r1) x and its expected power is
+#   P_taps * (1 + 1 + 2*Re(R_tx)) = 3.468 * 2.8 = 9.71   (kronecker, R_tx = 0.4)
+#   P_taps * (1 + 1)              = 3.468 * 2   = 6.94   (iid)
+# The two are 2.8 apart, which is what makes this a test of the correlation and
+# not merely of the relay: an implementation that dropped the mixing lands on
+# the iid number with everything else looking healthy.
+run_mimo_correlated_check() {
+  local label="$1" topo="$2" expect="$3" tol="$4" base="$5"
+  local dir; dir="$(mktemp -d)"
+  local tx=("${base}" "$((base+2))" "$((base+4))" "$((base+6))")
+  local rx=("$((base+1))" "$((base+3))" "$((base+5))" "$((base+7))")
+  for p in "${tx[@]}" "${rx[@]}"; do
+    if ss -ltn 2>/dev/null | grep -q ":${p}\b"; then fail "${label}: port ${p} busy"; fi
+  done
+  for p in "${tx[@]}"; do
+    "${cuda_build}/ocudu-zmq-source" --endpoint "tcp://*:${p}" --batch-samples 23040 \
+      --duration 7s >"${dir}/src_${p}" 2>&1 &
+  done
+  "${cuda_build}/ocudu-gpu-channel" --config "${topo}" --duration 7s >"${dir}/broker" 2>&1 &
+  sleep 1
+  for p in "${rx[@]}"; do
+    "${cuda_build}/ocudu-zmq-sink" --endpoint "tcp://127.0.0.1:${p}" --duration 5s \
+      >"${dir}/sink_${p}" 2>&1 &
+  done
+  wait
+
+  local stop; stop="$(grep event=stop "${dir}/broker" || true)"
+  [[ -n "${stop}" ]] || { cat "${dir}/broker"; fail "${label}: broker did not finish"; }
+  local ovf gap zmq pulls
+  ovf="$(counter_of tx_queue_overflows "${stop}")"; gap="$(counter_of tx_sequence_gaps "${stop}")"
+  zmq="$(counter_of zmq_errors "${stop}")"; pulls="$(counter_of tx_pulls "${stop}")"
+  [[ "${ovf:-1}" == 0 && "${gap:-1}" == 0 && "${zmq:-1}" == 0 ]] \
+    || fail "${label}: broker data-integrity counter nonzero -- ${stop}"
+  [[ "${pulls:-0}" -gt 0 ]] || fail "${label}: broker relayed no IQ"
+  grep -q "event=radio_node_resolved id=gnb .*implicit=false" "${dir}/broker" \
+    || fail "${label}: the broker did not resolve the declared multi-port nodes"
+
+  # Judge the mean over the four RX ports: a single port's power carries the
+  # whole single-realization spread of a 23-tap Rayleigh profile, the mean about
+  # half of it.
+  local sum=0 n=0 ap all=""
+  for p in "${rx[@]}"; do
+    ap="$(power_of "${dir}/sink_${p}")"
+    [[ -n "${ap}" ]] || fail "${label}: RX port ${p} received no IQ"
+    all="${all}${ap} "
+    sum="$(awk -v a="${sum}" -v b="${ap}" 'BEGIN{print a+b}')"
+    n=$((n+1))
+  done
+  local mean; mean="$(awk -v s="${sum}" -v n="${n}" 'BEGIN{print s/n}')"
+  awk -v v="${mean}" -v e="${expect}" -v t="${tol}" \
+    'BEGIN{d=v-e; if(d<0)d=-d; exit !(d<=t)}' \
+    || fail "${label}: mean RX power ${mean} not within ${tol} of ${expect} (ports: ${all})"
+  echo "    ${label}: pulls=${pulls} mean_rx_power=${mean} (expected ~${expect}) -- counters clean"
+}
+
+# A correlation_swap against a live broker. The topology declares `kind: iid`,
+# which is the opt-in that makes a link runtime-correlatable; the REQ then turns
+# on a TX-side correlation of 0.4 partway through the run. Received power is the
+# observable: 3.468 * 2 = 6.94 while iid, 3.468 * 2.8 = 9.71 once correlated, so
+# the cumulative average lands between them and well above the iid figure.
+run_control_swap_check() {
+  local label="$1" topo="$2" base="$3" control_port="$4"
+  local dir; dir="$(mktemp -d)"
+  local tx=("${base}" "$((base+2))" "$((base+4))" "$((base+6))")
+  local rx=("$((base+1))" "$((base+3))" "$((base+5))" "$((base+7))")
+  for p in "${tx[@]}"; do
+    "${cuda_build}/ocudu-zmq-source" --endpoint "tcp://*:${p}" --batch-samples 23040 \
+      --duration 9s >"${dir}/src_${p}" 2>&1 &
+  done
+  "${cuda_build}/ocudu-gpu-channel" --config "${topo}" --duration 9s \
+    --control-endpoint "tcp://*:${control_port}" >"${dir}/broker" 2>&1 &
+  sleep 1
+  for p in "${rx[@]}"; do
+    "${cuda_build}/ocudu-zmq-sink" --endpoint "tcp://127.0.0.1:${p}" --duration 7s \
+      >"${dir}/sink_${p}" 2>&1 &
+  done
+  sleep 1
+  local swapped=0
+  for link in "gnb>ue:tdl_a_corr" "ue>gnb:tdl_a_corr"; do
+    if "${cuda_build}/ocudu-control-req" --endpoint "tcp://127.0.0.1:${control_port}" \
+        --message "{\"type\":\"correlation_swap\",\"link_id\":\"${link}\",\"kind\":\"kronecker\",\"tx\":[{\"i\":0,\"j\":1,\"re\":0.4,\"im\":0.0}]}" \
+        >>"${dir}/req" 2>&1; then
+      swapped=$((swapped+1))
+    fi
+  done
+  wait
+
+  [[ "${swapped}" == 2 ]] || { cat "${dir}/req"; fail "${label}: the broker refused the swap"; }
+  local stop; stop="$(grep event=stop "${dir}/broker" || true)"
+  [[ -n "${stop}" ]] || { cat "${dir}/broker"; fail "${label}: broker did not finish"; }
+  grep -q "param=correlation_swap" "${dir}/broker" \
+    || fail "${label}: the broker logged no correlation_swap"
+
+  local sum=0 n=0 ap
+  for p in "${rx[@]}"; do
+    ap="$(power_of "${dir}/sink_${p}")"
+    [[ -n "${ap}" ]] || fail "${label}: RX port ${p} received no IQ"
+    sum="$(awk -v a="${sum}" -v b="${ap}" 'BEGIN{print a+b}')"
+    n=$((n+1))
+  done
+  local mean; mean="$(awk -v s="${sum}" -v n="${n}" 'BEGIN{print s/n}')"
+  # Must have moved decisively off the iid value (6.94) toward 9.71. The
+  # midpoint is 8.3; anything at or below it means the swap did not take.
+  awk -v v="${mean}" 'BEGIN{exit !(v > 8.3)}' \
+    || fail "${label}: mean RX power ${mean} did not move off the iid value -- the swap did not take"
+  echo "    ${label}: mean_rx_power=${mean} after the swap (iid would be ~6.94) -- applied live"
+}
+
+echo "== [1/9] CUDA release build =="
 cmake -S "${project_root}" -B "${cuda_build}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DOCUDU_GPU_CHANNEL_ENABLE_CUDA=ON \
@@ -84,7 +204,7 @@ cmake --build "${cuda_build}" -j"$(nproc)" >/tmp/gpu-seq-build.log 2>&1 \
   || { tail -25 /tmp/gpu-seq-build.log; fail "cmake build"; }
 echo "    build OK"
 
-echo "== [2/7] unit tests =="
+echo "== [2/9] unit tests =="
 ctest --test-dir "${cuda_build}" --output-on-failure >/tmp/gpu-seq-ctest.log 2>&1 \
   || { tail -25 /tmp/gpu-seq-ctest.log; fail "ctest"; }
 grep -E "tests passed" /tmp/gpu-seq-ctest.log | sed 's/^/    /'
@@ -255,7 +375,7 @@ run_multi_gnb_check() {
   echo "    ${label}: pulls=${pulls} -- counters clean"
 }
 
-echo "== [3/7] synthetic CUDA relay loop -- clean 0 dB channel =="
+echo "== [3/9] synthetic CUDA relay loop -- clean 0 dB channel =="
 clean_topo="$(mktemp --suffix=.yaml)"
 write_topology "${clean_topo}" "      - type: tdl
         taps:
@@ -264,20 +384,20 @@ write_topology "${clean_topo}" "      - type: tdl
             phase_rad: 0.0"
 run_relay_check "clean relay" "${clean_topo}" 1.0 0.05
 
-echo "== [4/7] synthetic CUDA relay loop -- AWGN channel (noise_power 0.25) =="
+echo "== [4/9] synthetic CUDA relay loop -- AWGN channel (noise_power 0.25) =="
 awgn_topo="$(mktemp --suffix=.yaml)"
 write_topology "${awgn_topo}" "      - type: awgn
         noise_power: 0.25"
 # Unit-power tone + AWGN noise_power 0.25 -> sink avg_power ~= 1.25.
 run_relay_check "AWGN relay" "${awgn_topo}" 1.25 0.05
 
-echo "== [5/7] synthetic CUDA 3-node interference graph =="
+echo "== [5/9] synthetic CUDA 3-node interference graph =="
 run_graph_check "${project_root}/examples/topology.graph.cuda.yaml"
 
-echo "== [6/7] synthetic CUDA 2-cell multi-gNB graph =="
+echo "== [6/9] synthetic CUDA 2-cell multi-gNB graph =="
 run_multi_gnb_check "${project_root}/examples/topology.multi-gnb.cuda.yaml"
 
-echo "== [7/7] synthetic CUDA TDL-A profile relay (TR 38.901 §7.7.2, 23-tap NLOS, Jakes 100 Hz) =="
+echo "== [7/9] synthetic CUDA TDL-A profile relay (TR 38.901 §7.7.2, 23-tap NLOS, Jakes 100 Hz) =="
 # Sum of TDL-A tap linear powers ≈ 3.468 -- the ensemble-mean sink avg_power for
 # a unit-power input (uncorrelated Rayleigh taps, WSSUS). A single 5 s
 # realization has ~±0.5 stddev cross-tap residual because Rayleigh tap pairs
@@ -293,6 +413,27 @@ sed -e 's|tcp://127.0.0.1:17000|tcp://127.0.0.1:15000|' \
     -e 's|tcp://\*:17100|tcp://*:15100|' \
     "${project_root}/examples/topology.tdl-a.cuda.yaml" > "${tdl_a_topo}"
 run_relay_check "TDL-A profile" "${tdl_a_topo}" 3.468 1.5
+
+echo "== [8/9] synthetic CUDA 2x2 correlated MIMO relay =="
+# Correlated first, then the SAME topology with the correlation block stripped.
+# Running both is the point: 9.71 alone could be a coincidence of the profile,
+# while 9.71 next to 6.94 is the declared R_tx and nothing else.
+mimo_corr_topo="$(mktemp --suffix=.yaml)"
+sed -e 's|:172|:152|g' "${project_root}/examples/topology.mimo-2x2-correlated.cuda.yaml" \
+  > "${mimo_corr_topo}"
+run_mimo_correlated_check "2x2 correlated" "${mimo_corr_topo}" 9.71 1.5 15200
+
+mimo_iid_topo="$(mktemp --suffix=.yaml)"
+sed -e 's|:172|:153|g' "${project_root}/examples/topology.mimo-2x2-correlated.cuda.yaml" \
+  | awk '/^    spatial_correlation:/{skip=1} /^    chain:/{skip=0} !skip' > "${mimo_iid_topo}"
+run_mimo_correlated_check "2x2 iid (control)" "${mimo_iid_topo}" 6.94 1.5 15300
+
+echo "== [9/9] live control plane -- correlation_swap against a running broker =="
+control_topo="$(mktemp --suffix=.yaml)"
+sed -e 's|:172|:154|g' "${project_root}/examples/topology.mimo-2x2-correlated.cuda.yaml" \
+  | awk '/^      kind: kronecker/{print "      kind: iid"; skip=1; next} /^    chain:/{skip=0} !skip' \
+  > "${control_topo}"
+run_control_swap_check "live correlation_swap" "${control_topo}" 15400 15599
 
 echo "GPU TEST SEQUENCE PASSED"
 REMOTE

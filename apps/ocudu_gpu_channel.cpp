@@ -4,6 +4,7 @@
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/control_server.h"
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -16,7 +17,9 @@ void usage()
   std::cout << "usage: ocudu-gpu-channel --config topology.yaml [--duration 60s] [--strict-realtime] "
                "[--control-endpoint tcp://*:5559] "
                "[--telemetry-endpoint tcp://*:5560 --telemetry-rate-hz 20] "
-               "[--hardware-strict] [--control-warmup-cap-slots N]\n";
+               "[--hardware-strict] [--control-warmup-cap-slots N] "
+               "[--wire-capture-dir DIR --wire-capture-samples N "
+               "[--wire-capture-skip N]]\n";
 }
 
 } // namespace
@@ -31,6 +34,9 @@ int main(int argc, char** argv)
   double      telemetry_rate_hz = 20.0;
   bool        hardware_strict = false;  // v3.2 opt-in
   int         warmup_cap_slots = 3;     // v2.2 follow-on; 0 = disabled
+  std::string wire_capture_dir;         // empty = wire capture disabled
+  std::size_t wire_capture_samples = 0; // per port, per direction
+  std::size_t wire_capture_skip = 0;    // samples let past before recording
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -54,6 +60,12 @@ int main(int argc, char** argv)
       hardware_strict = true;
     } else if (arg == "--control-warmup-cap-slots" && i + 1 < argc) {
       warmup_cap_slots = std::atoi(argv[++i]);
+    } else if (arg == "--wire-capture-dir" && i + 1 < argc) {
+      wire_capture_dir = argv[++i];
+    } else if (arg == "--wire-capture-samples" && i + 1 < argc) {
+      wire_capture_samples = static_cast<std::size_t>(std::atoll(argv[++i]));
+    } else if (arg == "--wire-capture-skip" && i + 1 < argc) {
+      wire_capture_skip = static_cast<std::size_t>(std::atoll(argv[++i]));
     } else {
       std::cerr << "unknown or incomplete argument: " << arg << "\n";
       usage();
@@ -123,6 +135,12 @@ int main(int argc, char** argv)
     }
 
     ocg::Broker broker(std::move(config));
+    if (!wire_capture_dir.empty() && wire_capture_samples > 0) {
+      broker.set_wire_capture({wire_capture_dir, wire_capture_samples, wire_capture_skip});
+    } else if (!wire_capture_dir.empty() || wire_capture_samples > 0) {
+      std::cerr << "--wire-capture-dir and --wire-capture-samples must be given together\n";
+      return 2;
+    }
 
     // Phase 3 C3b: optional ZMQ REP control plane. Disabled unless the user
     // passes --control-endpoint. Lifetime spans the broker run; the

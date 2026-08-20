@@ -1,8 +1,12 @@
 #include "ocudu_gpu_channel/config.h"
+#include "ocudu_gpu_channel/correlation.h"
 #include "ocudu_gpu_channel/processing.h"
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <cmath>
+#include <complex>
+#include <set>
 #include <stdexcept>
 
 namespace {
@@ -1485,6 +1489,1300 @@ models:
   }
   require(rejected, "is_los with defaulted los_k_db (= 0) must be rejected");
 
+  // runtime.rx_ring_batches sizes each RX port's output ring in the broker.
+  // Two is the floor: one batch is the producer's run-ahead bound and the
+  // second is the slack that lets a full batch land while the REP worker is
+  // still draining the previous one.
+  const char* rx_ring_path = "test_rx_ring_batches_topology.yaml";
+  const auto write_rx_ring_config = [&](const char* rx_ring_line) {
+    std::ofstream f(rx_ring_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+)yaml";
+    if (rx_ring_line != nullptr) {
+      f << rx_ring_line << "\n";
+    }
+    f << R"yaml(devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+links:
+  - from: gnb0
+    to: ue0
+    model: clean
+  - from: ue0
+    to: gnb0
+    model: clean
+models:
+  clean:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+)yaml";
+  };
+
+  write_rx_ring_config(nullptr);
+  const auto rx_ring_default = ocg::load_config_file(rx_ring_path);
+  require(rx_ring_default.runtime.rx_ring_batches == 2,
+          "runtime.rx_ring_batches defaults to 2 when omitted");
+
+  write_rx_ring_config("  rx_ring_batches: 4");
+  const auto rx_ring_explicit = ocg::load_config_file(rx_ring_path);
+  require(rx_ring_explicit.runtime.rx_ring_batches == 4,
+          "runtime.rx_ring_batches parses an explicit value");
+
+  write_rx_ring_config("  rx_ring_batches: 1");
+  rejected = false;
+  try {
+    (void)ocg::load_config_file(rx_ring_path);
+  } catch (const std::runtime_error&) {
+    rejected = true;
+  }
+  require(rejected, "runtime.rx_ring_batches below 2 must be rejected");
+
+  // ---- radio_nodes (M1) ---------------------------------------------------
+  //
+  // Writing order in tx_ports/rx_ports IS the canonical matrix index, so these
+  // check that the parser preserves order and that the validator rejects every
+  // way the mapping from port to index could become ambiguous.
+  const char* rn_path = "test_radio_nodes_topology.yaml";
+  const auto write_rn_config = [&](const char* devices_block, const char* nodes_block,
+                                   const char* links_block) {
+    std::ofstream f(rn_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+)yaml";
+    f << devices_block;
+    if (nodes_block != nullptr) {
+      f << "radio_nodes:\n" << nodes_block;
+    }
+    f << "links:\n" << links_block;
+    f << R"yaml(models:
+  clean:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+)yaml";
+  };
+
+  // Two two-port radios. gnb0 is deliberately written with its ports in
+  // NON-alphabetical order so a parser that sorted, or that inferred order from
+  // the numeric suffix, would be caught.
+  const char* two_port_devices = R"yaml(  - id: gnb_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+)yaml";
+  const char* two_port_nodes = R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml";
+  const char* node_links = R"yaml(  - from: gnb
+    to: ue
+    model: clean
+  - from: ue
+    to: gnb
+    model: clean
+)yaml";
+
+  write_rn_config(two_port_devices, two_port_nodes, node_links);
+  const auto rn = ocg::load_config_file(rn_path);
+  require(rn.radio_nodes.size() == 2, "radio_nodes parses both nodes");
+  require(rn.radio_nodes[0].id == "gnb", "first radio node id parses");
+  require(rn.radio_nodes[0].tx_ports.size() == 2 && rn.radio_nodes[0].rx_ports.size() == 2,
+          "radio node port lists parse");
+  require(rn.radio_nodes[0].tx_ports[0] == "gnb_b" && rn.radio_nodes[0].tx_ports[1] == "gnb_a",
+          "tx_ports keeps writing order, it is the canonical matrix index");
+  require(ocg::find_radio_node(rn, "ue") != nullptr, "find_radio_node resolves a declared node");
+  require(ocg::find_radio_node(rn, "nope") == nullptr, "find_radio_node returns null for unknown ids");
+  require(ocg::validate_config(rn).empty(), "a well-formed radio_nodes topology validates");
+
+  // Each rejection below is a distinct way the port -> matrix index mapping
+  // could become ambiguous or unowned.
+  const auto rn_rejects = [&](const char* devices_block, const char* nodes_block,
+                              const char* links_block, const char* what) {
+    write_rn_config(devices_block, nodes_block, links_block);
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(rn_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, what);
+  };
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_b
+    rx_ports:
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links, "a port listed twice in one node must be rejected");
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - missing_device
+    rx_ports:
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links, "a port naming an unknown device must be rejected");
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+      - gnb_a
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links, "a device claimed by two radio nodes must be rejected");
+
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb_a
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", R"yaml(  - from: gnb_a
+    to: ue
+    model: clean
+)yaml", "a radio node id colliding with a device id must be rejected");
+
+  // Partial declaration: ue_b exists but no node claims it.
+  rn_rejects(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+    rx_ports:
+      - ue_a
+)yaml", node_links, "an unclaimed device must be rejected when radio_nodes is declared");
+
+  rn_rejects(two_port_devices, two_port_nodes, R"yaml(  - from: gnb_a
+    to: ue
+    model: clean
+)yaml", "a link naming a device rather than a node must be rejected");
+
+  // A node owns one sample epoch; siblings must agree on rate and TX offset.
+  const char* mixed_rate_devices = R"yaml(  - id: gnb_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_a
+    sample_rate_hz: 2000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+)yaml";
+  rn_rejects(mixed_rate_devices, two_port_nodes, node_links,
+             "sibling ports disagreeing on sample_rate_hz must be rejected");
+
+  const char* mixed_offset_devices = R"yaml(  - id: gnb_b
+    sample_rate_hz: 1000000
+    tx_timing_offset_samples: 4.0
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_a
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_b
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+)yaml";
+  rn_rejects(mixed_offset_devices, two_port_nodes, node_links,
+             "sibling ports disagreeing on tx_timing_offset_samples must be rejected");
+
+  // The parser already refuses flow style globally; assert it for the port
+  // lists specifically, since writing order carries meaning here.
+  write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports: [gnb_b, gnb_a]
+    rx_ports:
+      - gnb_b
+)yaml", node_links);
+  rejected = false;
+  try {
+    (void)ocg::load_config_file(rn_path);
+  } catch (const std::runtime_error&) {
+    rejected = true;
+  }
+  require(rejected, "flow-style port lists must be rejected");
+
+  // ---- resolve_topology (M1.4) --------------------------------------------
+  //
+  // One definition of the lane set, the lane order and the per-lane key, shared
+  // by the broker and both backends.
+  {
+    // 2x2: gnb(tx gnb_b,gnb_a) -> ue(rx ue_a,ue_b) is four lanes.
+    write_rn_config(two_port_devices, two_port_nodes, node_links);
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "2x2 radio_nodes topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.nodes.size() == 2, "resolve_topology keeps both declared nodes");
+    require(!res.nodes[0].implicit, "declared nodes are not marked implicit");
+    require(res.lanes.size() == 8, "two 2x2 links expand to 8 lanes");
+
+    // Lanes of one destination row must be contiguous, so the CUDA kernel can
+    // take a row as a [row_begin[r], row_begin[r+1]) range.
+    for (std::size_t i = 1; i < res.lanes.size(); ++i) {
+      const auto& prev = res.lanes[i - 1];
+      const auto& cur = res.lanes[i];
+      const bool ordered = prev.dst_node < cur.dst_node ||
+                           (prev.dst_node == cur.dst_node && prev.rx_port <= cur.rx_port);
+      require(ordered, "lanes are grouped by destination node then rx_port");
+    }
+
+    // Port identity must follow the WRITTEN order, not alphabetical order:
+    // gnb.tx_ports is [gnb_b, gnb_a], so t=0 is gnb_b.
+    std::size_t checked = 0;
+    for (const auto& lane : res.lanes) {
+      if (lane.src_node != "gnb" || lane.tx_port != 0) {
+        continue;
+      }
+      require(lane.src_device == "gnb_b", "tx_port 0 maps to the first WRITTEN port");
+      ++checked;
+    }
+    require(checked == 2, "expected two lanes out of gnb tx port 0");
+
+    // Every lane of a multi-port link needs its own state key.
+    std::set<std::string> keys;
+    for (const auto& lane : res.lanes) {
+      require(keys.insert(lane.key).second, "lane keys are unique");
+      require(lane.key.find("#r") != std::string::npos, "multi-port lanes carry a #r/t suffix");
+    }
+  }
+
+  {
+    // 1x1 must keep the pre-M1 key verbatim -- this is what makes legacy output
+    // bit-identical, so it is asserted rather than assumed.
+    write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+    rx_ports:
+      - gnb_b
+  - id: gnb2
+    tx_ports:
+      - gnb_a
+    rx_ports:
+      - gnb_a
+  - id: ue
+    tx_ports:
+      - ue_a
+    rx_ports:
+      - ue_a
+  - id: ue2
+    tx_ports:
+      - ue_b
+    rx_ports:
+      - ue_b
+)yaml", R"yaml(  - from: gnb
+    to: ue
+    model: clean
+  - from: ue
+    to: gnb
+    model: clean
+  - from: gnb2
+    to: ue2
+    model: clean
+  - from: ue2
+    to: gnb2
+    model: clean
+)yaml");
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "1x1 declared topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 4, "1x1 links stay one lane each");
+    for (const auto& lane : res.lanes) {
+      require(lane.key.find('#') == std::string::npos,
+              "a 1x1 lane key carries no suffix, so it equals the pre-M1 link key");
+      require(lane.rx_port == 0 && lane.tx_port == 0, "1x1 lane indices are both zero");
+    }
+    require(res.lanes[0].key == "gnb>ue:clean" || res.lanes[0].key.rfind("gnb>ue:", 0) == 0 ||
+                res.lanes[0].key.rfind("ue>gnb:", 0) == 0 ||
+                res.lanes[0].key.rfind("gnb2>ue2:", 0) == 0 ||
+                res.lanes[0].key.rfind("ue2>gnb2:", 0) == 0,
+            "1x1 lane key is the plain from>to:model form");
+  }
+
+  {
+    // Asymmetric node: 2 TX, 1 RX. Nt != Nr must expand to Nt x Nr, not to a
+    // square.
+    write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_b
+      - gnb_a
+    rx_ports:
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links);
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "asymmetric radio_nodes topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    std::size_t downlink = 0;
+    std::size_t uplink = 0;
+    for (const auto& lane : res.lanes) {
+      (lane.src_node == "gnb" ? downlink : uplink)++;
+    }
+    require(downlink == 4, "gnb(Nt=2) -> ue(Nr=2) expands to 4 lanes");
+    require(uplink == 1, "ue(Nt=1) -> gnb(Nr=1) expands to 1 lane");
+  }
+
+  // Without radio_nodes every device lowers to a singleton node, unchanged.
+  {
+    write_rn_config(two_port_devices, nullptr, R"yaml(  - from: gnb_b
+    to: ue_a
+    model: clean
+  - from: ue_a
+    to: gnb_b
+    model: clean
+  - from: gnb_a
+    to: ue_b
+    model: clean
+  - from: ue_b
+    to: gnb_a
+    model: clean
+)yaml");
+    const auto cfg = ocg::load_config_file(rn_path);
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.nodes.size() == 4, "implicit lowering yields one node per device");
+    require(res.nodes[0].implicit, "implicitly lowered nodes are marked implicit");
+    require(res.lanes.size() == 4, "implicit lowering keeps one lane per link");
+    for (const auto& lane : res.lanes) {
+      require(lane.key.find('#') == std::string::npos, "implicit lane keys carry no suffix");
+      require(lane.src_node == lane.src_device && lane.dst_node == lane.dst_device,
+              "an implicit node IS its port");
+    }
+  }
+
+  // ---- fixed_mimo (M1.5b) --------------------------------------------------
+  //
+  // Coefficients are folded into per-lane model clones, so the checks here are
+  // on the expansion: which lanes survive, and what weight each one carries.
+  const char* fm_path = "test_fixed_mimo_topology.yaml";
+  const auto write_fm_config = [&](const char* coefficients) {
+    std::ofstream f(fm_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+  - id: gnb_p0
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://127.0.0.1:2001
+  - id: gnb_p1
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://127.0.0.1:2003
+  - id: ue_p0
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://127.0.0.1:2100
+  - id: ue_p1
+    sample_rate_hz: 1000000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://127.0.0.1:2102
+radio_nodes:
+  - id: gnb
+    tx_ports:
+      - gnb_p0
+      - gnb_p1
+    rx_ports:
+      - gnb_p0
+      - gnb_p1
+  - id: ue
+    tx_ports:
+      - ue_p0
+      - ue_p1
+    rx_ports:
+      - ue_p0
+      - ue_p1
+links:
+  - from: gnb
+    to: ue
+    model: h
+  - from: ue
+    to: gnb
+    model: h
+models:
+  h:
+    fixed_mimo:
+      coefficients:
+)yaml";
+    f << coefficients;
+    f << R"yaml(    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+)yaml";
+  };
+
+  // Identity H: lanes (0,0) and (1,1) survive, the cross lanes vanish, and a
+  // unit coefficient must leave the tap BIT-IDENTICAL -- 20*log10(1) is exactly
+  // 0 dB and atan2(0,1) is exactly 0 rad. That exactness is what makes the
+  // identity gate meaningful.
+  write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 1
+          real: 1.0
+          imag: 0.0
+)yaml");
+  {
+    const auto cfg = ocg::load_config_file(fm_path);
+    require(ocg::validate_config(cfg).empty(), "identity fixed_mimo validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 4, "identity H keeps 2 lanes per link, not 4");
+    for (const auto& lane : res.lanes) {
+      require(lane.rx_port == lane.tx_port, "identity H keeps only the diagonal lanes");
+      const auto* model = ocg::find_model(cfg, lane.model_id);
+      require(model != nullptr, "each surviving lane has its expanded model");
+      require(model->chain.at(0).taps.size() == 1, "the weighted tap survives");
+      const auto& tap = model->chain.at(0).taps.at(0);
+      require(tap.gain_db == 0.0 && tap.phase_rad == 0.0,
+              "a unit coefficient leaves the tap bit-identical");
+    }
+  }
+
+  // Swap H: only the off-diagonal lanes survive, so row r is fed by tx port
+  // 1 - r. This is the check that a port-order mistake cannot pass.
+  write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 1
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml");
+  {
+    const auto cfg = ocg::load_config_file(fm_path);
+    require(ocg::validate_config(cfg).empty(), "swap fixed_mimo validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 4, "swap H keeps 2 lanes per link");
+    for (const auto& lane : res.lanes) {
+      require(lane.rx_port != lane.tx_port, "swap H keeps only the off-diagonal lanes");
+    }
+  }
+
+  // Known H: a complex coefficient folds to a known gain and phase. 2 + 0j is
+  // +6.0206 dB at 0 rad; 0 + 1j is 0 dB at +pi/2.
+  write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 2.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 1
+          real: 0.0
+          imag: 1.0
+)yaml");
+  {
+    const auto cfg = ocg::load_config_file(fm_path);
+    require(ocg::validate_config(cfg).empty(), "known-H fixed_mimo validates");
+    const auto res = ocg::resolve_topology(cfg);
+    for (const auto& lane : res.lanes) {
+      const auto* model = ocg::find_model(cfg, lane.model_id);
+      require(model != nullptr, "known-H lane has its expanded model");
+      const auto& tap = model->chain.at(0).taps.at(0);
+      if (lane.rx_port == 0) {
+        require(std::abs(tap.gain_db - 20.0 * std::log10(2.0)) < 1e-12,
+                "coefficient 2+0j folds to +6.02 dB");
+        require(std::abs(tap.phase_rad) < 1e-12, "coefficient 2+0j adds no phase");
+      } else {
+        require(std::abs(tap.gain_db) < 1e-12, "coefficient 0+1j folds to 0 dB");
+        require(std::abs(tap.phase_rad - std::atan2(1.0, 0.0)) < 1e-12,
+                "coefficient 0+1j adds +pi/2");
+      }
+    }
+  }
+
+  // Rejections. Each is a way the matrix could silently mean something other
+  // than what it says.
+  const auto fm_rejects = [&](const char* coefficients, const char* what) {
+    write_fm_config(coefficients);
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(fm_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, what);
+  };
+
+  fm_rejects(R"yaml(        - tap: 1
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml", "a tap index outside the chain's taps must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 2
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml", "an rx index outside the destination's Nr must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 0
+          tx: 2
+          real: 1.0
+          imag: 0.0
+)yaml", "a tx index outside the source's Nt must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 2.0
+          imag: 0.0
+)yaml", "a duplicate {tap, rx, tx} entry must be rejected");
+
+  fm_rejects(R"yaml(        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.0
+          imag: 0.0
+)yaml", "an entirely zero matrix must be rejected");
+
+  // ---- physical-link identity and seeds (M2.2) -----------------------------
+  //
+  // The stochastic channel belongs to the physical link, and a lane takes its
+  // realisation from that link's seed plus its own matrix position. What these
+  // check is that the derivation is anchored to identities and indices, never
+  // to how a key is spelled.
+  {
+    // The identity a lane reports is the link's own key, with no lane suffix:
+    // growing the radios' ports changes the lanes, not the link.
+    write_rn_config(two_port_devices, R"yaml(  - id: gnb
+    tx_ports:
+      - gnb_a
+      - gnb_b
+    rx_ports:
+      - gnb_a
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+)yaml", node_links);
+    const auto cfg = ocg::load_config_file(rn_path);
+    require(ocg::validate_config(cfg).empty(), "2x2 topology validates");
+    const auto res = ocg::resolve_topology(cfg);
+    require(res.lanes.size() == 8, "2x2 in both directions is 8 lanes");
+    std::set<std::string> identities;
+    std::set<std::uint64_t> lane_seeds;
+    for (const auto& lane : res.lanes) {
+      require(lane.physical_link_key.find('#') == std::string::npos,
+              "a lane's physical link key carries no lane suffix");
+      require(lane.key.rfind(lane.physical_link_key, 0) == 0,
+              "a lane key extends its physical link key");
+      identities.insert(lane.physical_link_key);
+      lane_seeds.insert(ocg::lane_fading_seed(
+          ocg::physical_link_seed(lane.physical_link_key), lane.rx_port,
+          lane.tx_port, /*step_index=*/0));
+    }
+    require(identities.size() == 2,
+            "8 lanes belong to the 2 physical links that carry them");
+    require(lane_seeds.size() == 8,
+            "every lane of a link draws its own realisation");
+  }
+
+  {
+    // The same lane of the same link is the same realisation on every run and
+    // in every process -- reproducibility is the point of deriving it at all.
+    const std::uint64_t link = ocg::physical_link_seed("gnb>ue:clean");
+    require(ocg::lane_fading_seed(link, 1, 0, 0) == ocg::lane_fading_seed(link, 1, 0, 0),
+            "a lane seed is a function of its inputs");
+    require(ocg::physical_link_seed("gnb>ue:clean") == link,
+            "a link seed is a function of the link identity");
+    // (r, t) is an ordered pair and the step index is a third axis: none of
+    // the three may alias onto another, or two distinct lanes would share a
+    // realisation while looking independent.
+    require(ocg::lane_fading_seed(link, 1, 0, 0) != ocg::lane_fading_seed(link, 0, 1, 0),
+            "lane (1,0) and lane (0,1) are different lanes");
+    require(ocg::lane_fading_seed(link, 0, 0, 0) != ocg::lane_fading_seed(link, 0, 0, 1),
+            "two fading steps of one chain draw independently");
+    require(ocg::physical_link_seed("gnb>ue:clean") != ocg::physical_link_seed("ue>gnb:clean"),
+            "the two directions of a radio pair are different physical links");
+  }
+
+  {
+    // A fixed_mimo lane runs a synthesized model clone, but the link it
+    // belongs to is the one the author wrote: editing the matrix must not
+    // re-roll the channel's randomness.
+    write_fm_config(R"yaml(        - tap: 0
+          rx: 0
+          tx: 1
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 1.0
+          imag: 0.0
+)yaml");
+    const auto cfg = ocg::load_config_file(fm_path);
+    const auto res = ocg::resolve_topology(cfg);
+    for (const auto& lane : res.lanes) {
+      require(lane.model_id != lane.physical_link_key,
+              "a fixed_mimo lane runs a clone model");
+      require(lane.physical_link_key.find("__ocg_mimo__") == std::string::npos,
+              "a lane's physical identity names the authored link, not its clone");
+    }
+  }
+
+  // ---- spatial correlation: the mixing math (M3.2) --------------------------
+  //
+  // g = L w must have covariance R, so every check here is on the relation
+  // L L^H = R -- not on L's entries, which are not unique.
+  const auto reconstruct = [](const std::vector<ocg::CplxD>& m, int dim) {
+    std::vector<ocg::CplxD> out(static_cast<std::size_t>(dim) * dim, ocg::CplxD{0.0, 0.0});
+    for (int i = 0; i != dim; ++i) {
+      for (int j = 0; j != dim; ++j) {
+        ocg::CplxD acc{0.0, 0.0};
+        for (int k = 0; k != dim; ++k) {
+          acc += m[static_cast<std::size_t>(i) * dim + k] *
+                 std::conj(m[static_cast<std::size_t>(j) * dim + k]);
+        }
+        out[static_cast<std::size_t>(i) * dim + j] = acc;
+      }
+    }
+    return out;
+  };
+  const auto matrices_match = [](const std::vector<ocg::CplxD>& a,
+                                 const std::vector<ocg::CplxD>& b) {
+    if (a.size() != b.size()) {
+      return false;
+    }
+    for (std::size_t k = 0; k != a.size(); ++k) {
+      if (std::abs(a[k] - b[k]) > 1e-12) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  {
+    // The sparse upper triangle materialises as a Hermitian unit-diagonal
+    // matrix: this is what makes "not Hermitian" unrepresentable.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = 0.3, .im = 0.4}};
+    const auto dense = ocg::dense_correlation(entries, 2);
+    require(dense[0] == ocg::CplxD(1.0, 0.0) && dense[3] == ocg::CplxD(1.0, 0.0),
+            "a correlation matrix has a unit diagonal by construction");
+    require(dense[1] == ocg::CplxD(0.3, 0.4), "the declared entry lands in the upper triangle");
+    require(dense[2] == ocg::CplxD(0.3, -0.4), "the lower triangle is the conjugate mirror");
+  }
+
+  {
+    // Complex, positive definite: the factor must reproduce R exactly.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = 0.3, .im = 0.4}};
+    const auto dense = ocg::dense_correlation(entries, 2);
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::correlation_mixing_matrix(dense, 2, mixing, error),
+            "a positive definite correlation factorises");
+    require(matrices_match(reconstruct(mixing, 2), dense), "L L^H must reproduce R");
+  }
+
+  {
+    // Perfect correlation: exactly 1.0, so R is singular. This is the case
+    // Cholesky cannot do and LDL^H can, and it is worth being able to run --
+    // it is the extreme a MIMO test wants to reach.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = 1.0, .im = 0.0}};
+    const auto dense = ocg::dense_correlation(entries, 2);
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::correlation_mixing_matrix(dense, 2, mixing, error),
+            "a singular but PSD correlation still factorises");
+    require(matrices_match(reconstruct(mixing, 2), dense),
+            "L L^H must reproduce a singular R too");
+  }
+
+  {
+    // Hermitian, unit diagonal, every |entry| <= 1 -- and still not a
+    // covariance. Nothing in the syntax can catch this, which is why the
+    // factorisation is also the test.
+    const std::vector<ocg::CorrelationEntry> entries = {{.i = 0, .j = 1, .re = -0.6, .im = 0.0},
+                                                        {.i = 0, .j = 2, .re = -0.6, .im = 0.0},
+                                                        {.i = 1, .j = 2, .re = -0.6, .im = 0.0}};
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(!ocg::correlation_mixing_matrix(ocg::dense_correlation(entries, 3), 3, mixing, error),
+            "a non-PSD matrix must be rejected, not factorised");
+    require(!error.empty(), "the rejection says why");
+  }
+
+  {
+    // The convention of docs/plans/m3 section 2.3, asserted rather than
+    // described: lane order l = r*Nt + t, and E[g g^H] = R_rx (x) R_tx.
+    //
+    // With only the RX side correlated, lanes sharing a TX port must be
+    // correlated and lanes sharing an RX port must not. An implementation that
+    // swapped the Kronecker operands produces exactly the opposite, and every
+    // magnitude in the matrix stays plausible.
+    ocg::SpatialCorrelationConfig correlation;
+    correlation.declared = true;
+    correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
+    correlation.rx = {{.i = 0, .j = 1, .re = 0.5, .im = 0.0}};
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::lane_mixing_matrix(correlation, /*nt=*/2, /*nr=*/2, mixing, error),
+            "a 2x2 kronecker correlation factorises");
+    const auto r = reconstruct(mixing, 4);
+    // lane 0 = (r0,t0), lane 1 = (r0,t1), lane 2 = (r1,t0), lane 3 = (r1,t1).
+    require(std::abs(r[0 * 4 + 2] - ocg::CplxD(0.5, 0.0)) < 1e-12,
+            "lanes on the same TX port and different RX ports carry the rx correlation");
+    require(std::abs(r[0 * 4 + 1]) < 1e-12,
+            "lanes on the same RX port and different TX ports are uncorrelated when tx is identity");
+    require(std::abs(r[0 * 4 + 0] - ocg::CplxD(1.0, 0.0)) < 1e-12, "the lane variance stays 1");
+  }
+
+  {
+    // Asymmetric dimensions, where a Kronecker product built the wrong way
+    // round does not even have the right size.
+    ocg::SpatialCorrelationConfig correlation;
+    correlation.declared = true;
+    correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
+    correlation.rx = {{.i = 0, .j = 1, .re = 0.4, .im = 0.2}};
+    correlation.tx = {{.i = 0, .j = 1, .re = 0.7, .im = 0.0}};
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::lane_mixing_matrix(correlation, /*nt=*/2, /*nr=*/3, mixing, error),
+            "an asymmetric kronecker correlation factorises");
+    require(mixing.size() == 36, "a 3x2 link has six lanes");
+    const auto r = reconstruct(mixing, 6);
+    // (r0,t0) vs (r0,t1): pure tx correlation. (r0,t0) vs (r1,t0): pure rx.
+    require(std::abs(r[0 * 6 + 1] - ocg::CplxD(0.7, 0.0)) < 1e-12,
+            "same RX port, adjacent TX ports -> the tx entry");
+    require(std::abs(r[0 * 6 + 2] - ocg::CplxD(0.4, 0.2)) < 1e-12,
+            "same TX port, adjacent RX ports -> the rx entry");
+    // A pair differing in both indices carries the product of the two.
+    require(std::abs(r[0 * 6 + 3] - ocg::CplxD(0.4, 0.2) * ocg::CplxD(0.7, 0.0)) < 1e-12,
+            "a pair differing in both indices carries the product");
+  }
+
+  {
+    // iid is the identity, and it is what every pre-M3 model resolves to.
+    ocg::SpatialCorrelationConfig correlation;
+    std::vector<ocg::CplxD> mixing;
+    std::string error;
+    require(ocg::lane_mixing_matrix(correlation, 2, 2, mixing, error), "iid always factorises");
+    std::vector<ocg::CplxD> identity(16, ocg::CplxD{0.0, 0.0});
+    for (int k = 0; k != 4; ++k) {
+      identity[static_cast<std::size_t>(k) * 4 + k] = ocg::CplxD{1.0, 0.0};
+    }
+    require(matrices_match(mixing, identity), "an iid model mixes with the identity");
+  }
+
+  {
+    // An undeclared LOS matrix is all-ones -- one specular path seen with the
+    // same phase everywhere, which is the minimum form of "not drawn per lane".
+    ocg::LosMatrixConfig los;
+    const auto coefficients = ocg::lane_los_coefficients(los, 2, 2);
+    require(coefficients.size() == 4, "one LOS coefficient per lane");
+    for (const auto& c : coefficients) {
+      require(c == ocg::CplxD(1.0, 0.0), "an undeclared LOS matrix is rank-1 all-ones");
+    }
+  }
+
+  {
+    // A declared one is read in lane order l = r*Nt + t.
+    ocg::LosMatrixConfig los;
+    los.declared = true;
+    los.coefficients = {{.rx = 0, .tx = 0, .re = 1.0, .im = 0.0},
+                        {.rx = 0, .tx = 1, .re = 0.0, .im = 1.0},
+                        {.rx = 1, .tx = 0, .re = -1.0, .im = 0.0},
+                        {.rx = 1, .tx = 1, .re = 0.0, .im = -1.0}};
+    const auto c = ocg::lane_los_coefficients(los, 2, 2);
+    require(c[1] == ocg::CplxD(0.0, 1.0), "lane 1 is (rx 0, tx 1)");
+    require(c[2] == ocg::CplxD(-1.0, 0.0), "lane 2 is (rx 1, tx 0)");
+  }
+
+  // ---- spatial correlation: schema and validation (M3.2) --------------------
+  const char* m3_path = "test_m3_topology.yaml";
+  const auto write_m3_config = [&](const char* model_blocks) {
+    std::ofstream f(m3_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+  - id: gnb_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3000
+    rx_endpoint: tcp://127.0.0.1:3001
+  - id: gnb_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3002
+    rx_endpoint: tcp://127.0.0.1:3003
+  - id: ue_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3004
+    rx_endpoint: tcp://127.0.0.1:3005
+  - id: ue_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3006
+    rx_endpoint: tcp://127.0.0.1:3007
+radio_nodes:
+  - id: gnb
+    tx_ports:
+      - gnb_a
+      - gnb_b
+    rx_ports:
+      - gnb_a
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+links:
+  - from: gnb
+    to: ue
+    model: h
+  - from: ue
+    to: gnb
+    model: h
+models:
+  h:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+        fading:
+          f_d_max_hz: 100.0
+          grid_us: 100.0
+)yaml";
+    f << model_blocks;
+  };
+
+  // Same topology, but the tap carries a LOS specular so los_matrix rules are
+  // reachable.
+  const auto write_m3_los_config = [&](const char* model_blocks) {
+    std::ofstream f(m3_path);
+    f << R"yaml(
+runtime:
+  backend: cpu
+  batch_samples: 1024
+  queue_samples: 8192
+devices:
+  - id: gnb_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3000
+    rx_endpoint: tcp://127.0.0.1:3001
+  - id: gnb_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3002
+    rx_endpoint: tcp://127.0.0.1:3003
+  - id: ue_a
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3004
+    rx_endpoint: tcp://127.0.0.1:3005
+  - id: ue_b
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:3006
+    rx_endpoint: tcp://127.0.0.1:3007
+radio_nodes:
+  - id: gnb
+    tx_ports:
+      - gnb_a
+      - gnb_b
+    rx_ports:
+      - gnb_a
+      - gnb_b
+  - id: ue
+    tx_ports:
+      - ue_a
+      - ue_b
+    rx_ports:
+      - ue_a
+      - ue_b
+links:
+  - from: gnb
+    to: ue
+    model: h
+  - from: ue
+    to: gnb
+    model: h
+models:
+  h:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+            is_los: true
+            los_k_db: 10.0
+        fading:
+          f_d_max_hz: 100.0
+          grid_us: 100.0
+)yaml";
+    f << model_blocks;
+  };
+
+  {
+    // Happy path: both blocks round-trip with their values intact.
+    write_m3_config(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.4
+      tx:
+        - i: 0
+          j: 1
+          re: 0.7
+          im: 0.0
+)yaml");
+    const auto cfg = ocg::load_config_file(m3_path);
+    const auto* model = ocg::find_model(cfg, "h");
+    require(model != nullptr, "the correlated model parses");
+    require(model->spatial_correlation.declared, "the block is marked declared");
+    require(model->spatial_correlation.kind == ocg::SpatialCorrelationKind::Kronecker,
+            "kind: kronecker round-trips");
+    require(model->spatial_correlation.rx.size() == 1 && model->spatial_correlation.tx.size() == 1,
+            "both sides round-trip");
+    require(model->spatial_correlation.rx.front().re == 0.3 &&
+                model->spatial_correlation.rx.front().im == 0.4,
+            "a complex rx entry round-trips");
+    require(ocg::validate_config(cfg).empty(), "a valid kronecker correlation validates");
+  }
+
+  const auto m3_rejects = [&](const char* model_blocks, const char* what) {
+    write_m3_config(model_blocks);
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(m3_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, what);
+  };
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: iid
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+)yaml", "entries under kind: iid must be rejected rather than ignored");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+)yaml", "kind: kronecker with no entries must be rejected");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: full
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+)yaml", "kind: full is deferred and must say so rather than be accepted");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 1
+          j: 0
+          re: 0.3
+          im: 0.0
+)yaml", "a lower-triangle entry must be rejected; the mirror is implied");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+        - i: 0
+          j: 1
+          re: 0.5
+          im: 0.0
+)yaml", "a duplicate correlation entry must be rejected");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 1.4
+          im: 0.0
+)yaml", "a correlation magnitude above 1 must be rejected");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 2
+          re: 0.3
+          im: 0.0
+)yaml", "a correlation entry outside the radio's port count must be rejected");
+
+  m3_rejects(R"yaml(    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 1.0
+          imag: 0.0
+        - tap: 0
+          rx: 1
+          tx: 1
+          real: 1.0
+          imag: 0.0
+    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+)yaml", "fixed_mimo and spatial_correlation together must be rejected: a model states H one way");
+
+  m3_rejects(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.3
+          im: 0.0
+    chain_placeholder: 0
+)yaml", "an unknown key inside a model block must be rejected");
+
+  m3_rejects(R"yaml(    los_matrix:
+      coefficients:
+        - rx: 0
+          tx: 0
+          re: 1.0
+          im: 0.0
+)yaml", "a los_matrix on a chain with no LOS tap must be rejected as inert");
+
+  {
+    // A los_matrix that names only some lanes must be rejected. Filling the
+    // rest with the default would make a half-written matrix mean something,
+    // and it would mean it silently.
+    // The tap must be an LOS one, or the "no is_los tap" rule fires first and
+    // this case never reaches the coverage check it is named after.
+    write_m3_los_config(R"yaml(    los_matrix:
+      coefficients:
+        - rx: 0
+          tx: 0
+          re: 1.0
+          im: 0.0
+        - rx: 0
+          tx: 1
+          re: 0.0
+          im: 1.0
+)yaml");
+    bool failed = false;
+    try {
+      const auto config = ocg::load_config_file(m3_path);
+      failed = !ocg::validate_config(config).empty();
+    } catch (const std::runtime_error&) {
+      failed = true;
+    }
+    require(failed, "a los_matrix that declares only some lanes must be rejected");
+  }
+
+  {
+    // The correlated-lane cap is shared with the device kernel, which holds a
+    // lane vector in registers. A topology above it must be rejected at load
+    // rather than reaching a kernel that cannot represent it. Built
+    // programmatically: 5 TX x 4 RX is 20 lanes, past the 16 cap.
+    ocg::TopologyConfig cfg;
+    cfg.runtime.backend = ocg::Backend::Cpu;
+    cfg.runtime.batch_samples_auto = false;
+    cfg.runtime.batch_samples = 64;
+    cfg.runtime.queue_samples = 512;
+    ocg::RadioNodeConfig gnb;
+    gnb.id = "gnb";
+    ocg::RadioNodeConfig ue;
+    ue.id = "ue";
+    int port = 9500;
+    const auto add_device = [&](const std::string& id) {
+      ocg::DeviceConfig d;
+      d.id = id;
+      d.sample_rate_hz = 23040000;
+      d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+      cfg.devices.push_back(d);
+    };
+    for (int t = 0; t != 5; ++t) {
+      const std::string id = "gnb_t" + std::to_string(t);
+      add_device(id);
+      gnb.tx_ports.push_back(id);
+      gnb.rx_ports.push_back(id);
+    }
+    for (int r = 0; r != 4; ++r) {
+      const std::string id = "ue_r" + std::to_string(r);
+      add_device(id);
+      ue.rx_ports.push_back(id);
+      ue.tx_ports.push_back(id);
+    }
+    cfg.radio_nodes = {gnb, ue};
+    cfg.links = {{.from = "gnb", .to = "ue", .model = "h"},
+                 {.from = "ue", .to = "gnb", .model = "h"}};
+    ocg::ModelConfig m;
+    m.id = "h";
+    ocg::ModelStep step;
+    step.type = ocg::ModelStepType::Tdl;
+    step.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+    step.taps_declared = true;
+    step.fading_enabled = true;
+    step.fading_f_d_max_hz = 100.0;
+    m.chain.push_back(step);
+    m.spatial_correlation.declared = true;
+    m.spatial_correlation.kind = ocg::SpatialCorrelationKind::Kronecker;
+    m.spatial_correlation.rx = {{.i = 0, .j = 1, .re = 0.3, .im = 0.0}};
+    cfg.models.emplace("h", m);
+    require(!ocg::validate_config(cfg).empty(),
+            "a correlated link above the lane cap must be rejected at load");
+  }
+
+  {
+    // A perfectly correlated pair is singular but legitimate, and the
+    // validator must accept it -- that is the reason for LDL^H.
+    write_m3_config(R"yaml(    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 1.0
+          im: 0.0
+)yaml");
+    const auto cfg = ocg::load_config_file(m3_path);
+    require(ocg::validate_config(cfg).empty(),
+            "perfect correlation is singular but valid, and must be accepted");
+  }
+
+  std::remove(m3_path);
+  std::remove(fm_path);
+  std::remove(rn_path);
+  std::remove(rx_ring_path);
   std::remove(los_k_zero_path);
   std::remove(path);
   std::remove(bad_path);

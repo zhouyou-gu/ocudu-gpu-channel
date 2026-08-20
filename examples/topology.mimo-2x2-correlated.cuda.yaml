@@ -1,0 +1,138 @@
+# 2x2 MIMO with declared spatial correlation -- TR 38.901 TDL-A on every lane.
+#
+# The tap profile is the shipped TDL-A one (see topology.tdl-a.cuda.yaml for its
+# provenance); what this file adds is the MIMO structure:
+#
+#   radio_nodes         -- two ports per radio, and WRITING ORDER is the matrix
+#                          index: tx_ports[0] is t = 0, rx_ports[1] is r = 1.
+#   spatial_correlation -- the covariance of the lane vector. Lane order is
+#                          l = r*Nt + t, and the convention is
+#                            E[h h^H] = R_rx (x) R_tx
+#                          with the `tx` block used AS WRITTEN -- not transposed,
+#                          not conjugated. Literature that column-stacks H
+#                          writes R_tx^T (x) R_rx; for a real symmetric R_tx the
+#                          two agree, so the difference only appears once an
+#                          entry has an imaginary part. Conjugate on the way in
+#                          if your source defines R_tx the other way.
+#
+# Only the UPPER TRIANGLE (i < j) is written: the diagonal is 1 by definition
+# and the lower triangle is the conjugate mirror, so a matrix that is not
+# Hermitian cannot be expressed here at all. Positive semidefiniteness is the
+# one property left to check, and the loader checks it.
+#
+# 0.7 on the RX side and 0.4 on the TX side are illustrative, not measured --
+# a real deployment takes them from its antenna spacing and scattering.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb_p0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17200
+    rx_endpoint: tcp://*:17201
+  - id: gnb_p1
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17202
+    rx_endpoint: tcp://*:17203
+  - id: ue_p0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17204
+    rx_endpoint: tcp://*:17205
+  - id: ue_p1
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:17206
+    rx_endpoint: tcp://*:17207
+radio_nodes:
+  - id: gnb
+    tx_ports:
+      - gnb_p0
+      - gnb_p1
+    rx_ports:
+      - gnb_p0
+      - gnb_p1
+  - id: ue
+    tx_ports:
+      - ue_p0
+      - ue_p1
+    rx_ports:
+      - ue_p0
+      - ue_p1
+links:
+  - from: gnb
+    to: ue
+    model: tdl_a_corr
+  - from: ue
+    to: gnb
+    model: tdl_a_corr
+models:
+  tdl_a_corr:
+    spatial_correlation:
+      kind: kronecker
+      rx:
+        - i: 0
+          j: 1
+          re: 0.7
+          im: 0.0
+      tx:
+        - i: 0
+          j: 1
+          re: 0.4
+          im: 0.0
+    chain:
+      - type: tdl
+        fading:
+          f_d_max_hz: 100.0
+          spectrum: jakes
+        taps:
+          - delay_samples: 0.000000
+            gain_db: -13.4
+          - delay_samples: 0.879898
+            gain_db: 0.0
+          - delay_samples: 0.927360
+            gain_db: -2.2
+          - delay_samples: 1.351987
+            gain_db: -4.0
+          - delay_samples: 1.062144
+            gain_db: -6.0
+          - delay_samples: 1.238400
+            gain_db: -8.2
+          - delay_samples: 1.545523
+            gain_db: -9.9
+          - delay_samples: 1.324800
+            gain_db: -10.5
+          - delay_samples: 1.755187
+            gain_db: -7.5
+          - delay_samples: 3.542400
+            gain_db: -15.9
+          - delay_samples: 4.372531
+            gain_db: -6.6
+          - delay_samples: 5.124557
+            gain_db: -16.7
+          - delay_samples: 5.003827
+            gain_db: -12.4
+          - delay_samples: 5.746637
+            gain_db: -15.2
+          - delay_samples: 5.787418
+            gain_db: -10.8
+          - delay_samples: 7.046093
+            gain_db: -11.3
+          - delay_samples: 9.402624
+            gain_db: -12.7
+          - delay_samples: 10.270802
+            gain_db: -16.2
+          - delay_samples: 10.528128
+            gain_db: -18.3
+          - delay_samples: 11.051366
+            gain_db: -18.9
+          - delay_samples: 11.535206
+            gain_db: -16.6
+          - delay_samples: 12.221107
+            gain_db: -19.9
+          - delay_samples: 22.251410
+            gain_db: -29.7

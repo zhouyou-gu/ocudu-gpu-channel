@@ -1,0 +1,290 @@
+# Docker rank-1 2x1 / 1x2 fixture with FOUR srsUEs on one 2T2R cell
+# (scripts/remote/ocudu-rank1-2x1-quad-ue-smoke.sh).
+#
+# Every UE keeps ONE antenna and the gNB keeps two ports, so per user the
+# downlink is a 1x2 row and the uplink a 2x1 column -- rank-1 MISO/SIMO
+# throughout, never 2x2.
+#
+# Four uplink columns land on the same two gNB receive ports, so each gNB RX row
+# is a four-term sum. The matrix checker reconstructs every row from all four
+# incoming links and then removes them one at a time, requiring the match to
+# break each time, so a relay that dropped or double-counted any user cannot
+# pass.
+#
+# Coefficient magnitudes are deliberately COMPARABLE across the four UEs.
+# Separation comes from delay, not from power. An earlier version carried a
+# 16 dB near/far spread on the theory that contention needed a capture effect;
+# with distinct delays that is unnecessary, and it was actively harmful -- the
+# far UE's preamble arrived 17 dB down (power_dB -3.61 against ue0's 13.56) and
+# barely cleared the detector, giving detection_metric 3.9 against 86.9.
+#
+# Every link is an identity carrier (delay_samples 0, 0 dB, 0 rad), so the
+# per-UE fixed_mimo coefficients ARE the channel and the capture checker can
+# reconstruct each gNB receive row as the sum over all four users.
+#
+# This previously used a distinct delay per UE (0 / 16 / 32 / 48 samples) on the
+# theory that the gNB could only separate the users by timing advance, because
+# srsUE always transmitted preamble index 0. That premise no longer holds: the
+# harness gives each UE its own preamble index, so the users are separated at
+# the preamble and every one attaches on its first attempt. The delays bought
+# nothing once that was fixed, and they broke the matrix gate -- a delayed
+# carrier is not an identity, so three of the four users could not be
+# reconstructed and their signal showed up as residual against the declared
+# product (max |y - Hx| = 4.4e+02 against a 1e-04 tolerance).
+#
+# Claim boundary: four single-layer users sharing a cell in time, NOT same-PRB
+# MU-MIMO. The emulator superposes whatever the scheduler actually transmits.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+
+devices:
+  - id: gnb0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://*:2001
+  - id: gnb0_p1
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://*:2003
+  - id: ue0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://*:2100
+  - id: ue1_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://*:2102
+  - id: ue2_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2105
+    rx_endpoint: tcp://*:2104
+  - id: ue3_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2107
+    rx_endpoint: tcp://*:2106
+
+radio_nodes:
+  - id: gnb0
+    tx_ports:
+      - gnb0_p0
+      - gnb0_p1
+    rx_ports:
+      - gnb0_p0
+      - gnb0_p1
+  - id: ue0
+    tx_ports:
+      - ue0_p0
+    rx_ports:
+      - ue0_p0
+  - id: ue1
+    tx_ports:
+      - ue1_p0
+    rx_ports:
+      - ue1_p0
+  - id: ue2
+    tx_ports:
+      - ue2_p0
+    rx_ports:
+      - ue2_p0
+  - id: ue3
+    tx_ports:
+      - ue3_p0
+    rx_ports:
+      - ue3_p0
+
+links:
+  - from: gnb0
+    to: ue0
+    model: dl_miso_2x1_ue0
+  - from: gnb0
+    to: ue1
+    model: dl_miso_2x1_ue1
+  - from: gnb0
+    to: ue2
+    model: dl_miso_2x1_ue2
+  - from: gnb0
+    to: ue3
+    model: dl_miso_2x1_ue3
+  - from: ue0
+    to: gnb0
+    model: ul_simo_1x2_ue0
+  - from: ue1
+    to: gnb0
+    model: ul_simo_1x2_ue1
+  - from: ue2
+    to: gnb0
+    model: ul_simo_1x2_ue2
+  - from: ue3
+    to: gnb0
+    model: ul_simo_1x2_ue3
+
+models:
+  # DL row to ue0 (near). srsRAN precodes rank-1 PDSCH onto port 0, so |h0| carries the budget.
+  dl_miso_2x1_ue0:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.80
+          imag: 0.10
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.25
+          imag: -0.15
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # DL row to ue1 (mid1). srsRAN precodes rank-1 PDSCH onto port 0, so |h0| carries the budget.
+  dl_miso_2x1_ue1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.78
+          imag: -0.18
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.22
+          imag: 0.20
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # DL row to ue2 (mid2). srsRAN precodes rank-1 PDSCH onto port 0, so |h0| carries the budget.
+  dl_miso_2x1_ue2:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.75
+          imag: 0.25
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.28
+          imag: -0.12
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # DL row to ue3 (far). srsRAN precodes rank-1 PDSCH onto port 0, so |h0| carries the budget.
+  dl_miso_2x1_ue3:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.79
+          imag: -0.12
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.24
+          imag: 0.18
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue0 (near): one independent branch per gNB receive port.
+  ul_simo_1x2_ue0:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.75
+          imag: -0.10
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.15
+          imag: 0.25
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue1 (mid1): one independent branch per gNB receive port.
+  ul_simo_1x2_ue1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.72
+          imag: 0.22
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.18
+          imag: -0.22
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue2 (mid2): one independent branch per gNB receive port.
+  ul_simo_1x2_ue2:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.74
+          imag: -0.20
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.20
+          imag: 0.18
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue3 (far): one independent branch per gNB receive port.
+  ul_simo_1x2_ue3:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.73
+          imag: 0.16
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.17
+          imag: -0.24
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0

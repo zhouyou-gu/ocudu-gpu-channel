@@ -18,6 +18,7 @@
 #include "ocudu_gpu_channel/runtime_control.h"
 
 #include <atomic>
+#include <set>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -215,11 +216,215 @@ ocg::TopologyConfig make_awgn_topology(ocg::Backend backend)
 
 }  // namespace
 
+namespace {
+
+// A 2x2 topology, used to check what the control plane addresses.
+ocg::TopologyConfig make_2x2_topology(ocg::Backend backend)
+{
+  ocg::TopologyConfig cfg;
+  cfg.runtime.backend = backend;
+  cfg.runtime.batch_samples_auto = false;
+  cfg.runtime.batch_samples = 8;
+  cfg.runtime.queue_samples = 64;
+  int port = 9800;
+  for (const char* id : {"gnb_p0", "gnb_p1", "ue_p0", "ue_p1"}) {
+    ocg::DeviceConfig d;
+    d.id = id;
+    d.sample_rate_hz = 23040000;
+    d.tx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+    d.rx_endpoint = "tcp://127.0.0.1:" + std::to_string(port++);
+    cfg.devices.push_back(d);
+  }
+  ocg::RadioNodeConfig gnb;
+  gnb.id = "gnb";
+  gnb.tx_ports = {"gnb_p0", "gnb_p1"};
+  gnb.rx_ports = {"gnb_p0", "gnb_p1"};
+  ocg::RadioNodeConfig ue;
+  ue.id = "ue";
+  ue.tx_ports = {"ue_p0", "ue_p1"};
+  ue.rx_ports = {"ue_p0", "ue_p1"};
+  cfg.radio_nodes = {gnb, ue};
+  cfg.links = {{.from = "gnb", .to = "ue", .model = "chain"},
+               {.from = "ue", .to = "gnb", .model = "chain"}};
+  ocg::ModelConfig m;
+  m.id = "chain";
+  ocg::ModelStep tdl;
+  tdl.type = ocg::ModelStepType::Tdl;
+  tdl.taps = {ocg::TapSpec{.delay_samples = 0.0, .gain_db = 0.0, .phase_rad = 0.0}};
+  tdl.taps_declared = true;
+  m.chain.push_back(tdl);
+  ocg::ModelStep loss;
+  loss.type = ocg::ModelStepType::PathLoss;
+  loss.params["path_loss_db"] = 0.0;
+  m.chain.push_back(loss);
+  cfg.models.emplace("chain", m);
+  return cfg;
+}
+
+std::set<std::string> control_keys(ocg::ChannelProcessor& proc)
+{
+  std::set<std::string> keys;
+  for (const auto& [key, ctl] : proc.collect_control_links()) {
+    require(ctl != nullptr, "a control entry must point at a control block");
+    keys.insert(key);
+  }
+  return keys;
+}
+
+} // namespace
+
 int main()
 {
   const std::vector<ocg::IqSample> input = {
       {1.0F, 0.0F}, {0.0F, 1.0F}, {1.0F, 1.0F}, {0.5F, -0.5F},
       {-1.0F, 0.0F}, {0.0F, -1.0F}, {1.0F, -1.0F}, {-0.5F, 0.5F}};
+
+  // ── M4.3: a swap lands on every lane in the SAME slot ──────────────────
+  //
+  // The two things M4 has to guarantee about a 2x2 swap, checked at once.
+  //
+  // The profile replaces a tap at delay 0 with one at delay 3, and the input is
+  // DC. So after the swap the first three samples of the slot are read from the
+  // cross-slot ring: zero if the ring was cleared, and the PREVIOUS profile's
+  // DC tail (1.0) if it was not. That makes the per-lane zero-fill directly
+  // observable instead of inferred.
+  //
+  // All four lanes are observed by driving TX port 0 in one processor and TX
+  // port 1 in another, so each output row is one lane. Both processors are
+  // handed the same take_effect_at_slot, which is the mechanism under test: if
+  // the snap were still per lane, a lane could take the swap in a different
+  // slot and its first three samples would be 1.0 while its sibling's were 0.
+  {
+    auto cfg = make_2x2_topology(ocg::Backend::Cpu);
+    const ocg::ModelConfig& model = cfg.models["chain"];
+    const auto resolved = ocg::resolve_topology(cfg);
+    constexpr std::size_t batch = 8;
+    const ocg::IqBuffer dc(batch, ocg::IqSample{1.0F, 0.0F});
+    const ocg::IqBuffer silent(batch, ocg::IqSample{0.0F, 0.0F});
+
+    const auto lanes_for = [&](int live_tx) {
+      std::vector<ocg::SuperpositionInput> lanes;
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != "ue") {
+          continue;
+        }
+        lanes.push_back({.link_key = lane.key,
+                         .model = ocg::find_model(cfg, lane.model_id),
+                         .samples = lane.tx_port == live_tx
+                                        ? std::span<const ocg::IqSample>(dc)
+                                        : std::span<const ocg::IqSample>(silent),
+                         .rx_port = lane.rx_port,
+                         .tx_port = lane.tx_port});
+      }
+      return lanes;
+    };
+
+    ocg::CpuChannelProcessor proc_tx0;
+    ocg::CpuChannelProcessor proc_tx1;
+    proc_tx0.prepare(cfg);
+    proc_tx1.prepare(cfg);
+    const auto lanes_tx0 = lanes_for(0);
+    const auto lanes_tx1 = lanes_for(1);
+
+    const auto run = [&](ocg::CpuChannelProcessor& proc,
+                         const std::vector<ocg::SuperpositionInput>& lanes) {
+      std::vector<ocg::IqBuffer> rows(2, ocg::IqBuffer(batch));
+      std::span<ocg::IqSample> spans[2] = {rows[0], rows[1]};
+      proc.process_superposition("ue", lanes, nullptr, 23040000,
+                                 std::span<std::span<ocg::IqSample>>(spans));
+      return rows;
+    };
+
+    // Slot 0: the YAML profile, a unit tap at delay 0.
+    for (const auto& rows : {run(proc_tx0, lanes_tx0), run(proc_tx1, lanes_tx1)}) {
+      for (const auto& row : rows) {
+        require(near_float(row[0].i, 1.0F), "M4.3: slot 0 passes DC through");
+      }
+    }
+
+    // Swap in a single tap at delay 3, scheduled for slot 1 on both processors.
+    // Addressed by the physical link's own key -- the point of M4.2.
+    const std::string link_id = ocg::link_key({.from = "gnb", .to = "ue", .model = model.id});
+    for (auto* proc : {&proc_tx0, &proc_tx1}) {
+      auto map = proc->collect_control_links();
+      auto it = map.find(link_id);
+      require(it != map.end() && it->second != nullptr, "M4.3: the link is addressable");
+      ocg::BrokerLinkControl* ctl = it->second;
+      ocg::ProfileShadow& sp = ctl->shadow_profile;
+      sp.n_taps = 1;
+      sp.taps[0].delay_samples = 3.0;
+      sp.taps[0].gain_db = 0.0;
+      sp.taps[0].phase_rad = 0.0;
+      sp.taps[0].is_los = false;
+      sp.fading_enabled = false;
+      sp.force = false;
+      ctl->profile_pending = true;
+      ctl->take_effect_at_slot = 1;
+      ctl->seqno.fetch_add(1, std::memory_order_release);
+    }
+
+    const auto rows_tx0 = run(proc_tx0, lanes_tx0);
+    const auto rows_tx1 = run(proc_tx1, lanes_tx1);
+    int lane = 0;
+    for (const auto* rows : {&rows_tx0, &rows_tx1}) {
+      for (const auto& row : *rows) {
+        // Samples 0..2 read the ring. Zero means this lane's ring was cleared
+        // in this slot; 1.0 means it kept the previous profile's tail.
+        for (std::size_t n = 0; n != 3; ++n) {
+          require(near_float(row[n].i, 0.0F),
+                  "M4.3: every lane's cross-slot ring is zeroed in the swap slot");
+        }
+        // From sample 3 the delayed tap reaches this slot's own DC.
+        require(near_float(row[3].i, 1.0F),
+                "M4.3: every lane runs the NEW tap layout in the swap slot");
+        ++lane;
+      }
+    }
+    require(lane == 4, "M4.3: all four lanes were observed");
+  }
+
+  // ── M4.2: what the control plane addresses ─────────────────────────────
+  //
+  // A 2x2 link used to appear as four control endpoints, each addressed by a
+  // lane key carrying a `#r1t0` suffix -- the string-format dependence M2
+  // removed from seeding, still sitting on the operator-facing surface. One
+  // link is one endpoint now, and the address is the link's own key.
+  {
+    auto cfg_2x2 = make_2x2_topology(ocg::Backend::Cpu);
+    ocg::CpuChannelProcessor cpu_2x2;
+    cpu_2x2.prepare(cfg_2x2);
+    const auto keys = control_keys(cpu_2x2);
+    require(keys.size() == 2, "a 2x2 link pair is TWO control endpoints, not eight");
+    for (const auto& key : keys) {
+      require(key.find('#') == std::string::npos,
+              "a control address carries no lane suffix");
+    }
+    require(keys.count("gnb>ue:chain") == 1 && keys.count("ue>gnb:chain") == 1,
+            "the address is the physical link's own key");
+
+    // Back-compat: at 1x1 the lane key and the link key are the same string, so
+    // an existing deployment's link_id does not change at all.
+    auto cfg_1x1 = make_topology(ocg::Backend::Cpu);
+    ocg::CpuChannelProcessor cpu_1x1;
+    cpu_1x1.prepare(cfg_1x1);
+    const auto keys_1x1 = control_keys(cpu_1x1);
+    const std::string legacy =
+        ocg::link_key({.from = "gnb0", .to = "ue0", .model = "chain"});
+    require(keys_1x1.count(legacy) == 1,
+            "a 1x1 link keeps the link_id it had before M4");
+
+#if OCUDU_GPU_CHANNEL_HAS_CUDA
+    if (ocg::cuda_compiled()) {
+      // The two backends used to expose DIFFERENT key sets -- the CPU included
+      // receiver-model rows, CUDA did not -- so the same REQ succeeded on one
+      // and was rejected as an unknown link_id on the other.
+      auto cuda_cfg = make_2x2_topology(ocg::Backend::Cuda);
+      auto cuda_2x2 = ocg::create_channel_processor(cuda_cfg);
+      require(control_keys(*cuda_2x2) == keys,
+              "both backends must expose the same control addresses");
+    }
+#endif
+  }
 
   // ── CPU backend: drive 3 slots with path_loss updates between them ─────
   auto cpu_cfg = make_topology(ocg::Backend::Cpu);

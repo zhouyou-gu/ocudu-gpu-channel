@@ -72,6 +72,13 @@ int main(int argc, char** argv)
     auto config = ocg::load_config_file(config_path);
     auto processor = ocg::create_channel_processor(config);
 
+    // M3.7: drive per resolved RADIO NODE, which is what the broker does and
+    // what the backends key their state by. Iterating config.devices predates
+    // M1's radio_nodes: on a multi-port topology every lookup missed, so the
+    // bench span millions of empty iterations and reported a kernel count of
+    // zero -- it measured nothing while looking healthy.
+    const ocg::ResolvedTopology resolved = ocg::resolve_topology(config);
+
     std::unordered_map<std::string, ocg::IqBuffer> latest_tx;
     for (const auto& device : config.devices) {
       const std::size_t n = ocg::resolve_batch_samples(config.runtime, device.sample_rate_hz);
@@ -87,66 +94,92 @@ int main(int argc, char** argv)
     ocg::LatencyRecorder kernel_recorder;
     ocg::LatencyRecorder d2h_recorder;
     ocg::LatencyRecorder gpu_process_recorder;
-    std::unordered_map<std::string, ocg::IqBuffer> mixed_by_destination;
     // Cumulative per-RX power statistics, used by cross-backend matching:
     // sum(|i|^2 + |q|^2) over every sample of every slot, divided by total
     // samples at the end. Cumulative stat converges with iteration count
     // (instead of last-slot snapshot which is noisy under fading).
     std::unordered_map<std::string, double> mixed_power_sum;
     std::unordered_map<std::string, std::uint64_t> mixed_sample_count;
-    for (const auto& device : config.devices) {
-      mixed_by_destination[device.id].resize(ocg::resolve_batch_samples(config.runtime, device.sample_rate_hz));
-      mixed_power_sum[device.id] = 0.0;
-      mixed_sample_count[device.id] = 0;
+    // One output ROW per RX port of the node, in canonical matrix order.
+    std::unordered_map<std::string, std::vector<ocg::IqBuffer>> rows_by_node;
+    for (const auto& node : resolved.nodes) {
+      const std::size_t n = ocg::resolve_batch_samples(config.runtime, node.sample_rate_hz);
+      auto& rows = rows_by_node[node.id];
+      rows.assign(std::max<std::size_t>(1, node.rx_ports.size()), ocg::IqBuffer(n));
+      for (const auto& port : node.rx_ports) {
+        mixed_power_sum[port] = 0.0;
+        mixed_sample_count[port] = 0;
+      }
     }
 
     // Precompute the SuperpositionInput template per RX device. Inside the hot
     // loop we only need to re-point `samples` at the current latest_tx batch.
+    // Lanes in resolved order, which is the order the backends' row ranges were
+    // built from -- the CUDA backend verifies it rather than assuming it.
     std::unordered_map<std::string, std::vector<ocg::SuperpositionInput>> sup_by_destination;
-    for (const auto& device : config.devices) {
-      std::vector<ocg::SuperpositionInput> edges;
-      for (const auto& link : config.links) {
-        if (link.to != device.id) {
+    std::unordered_map<std::string, std::vector<std::string>> src_device_by_destination;
+    for (const auto& node : resolved.nodes) {
+      std::vector<ocg::SuperpositionInput> lanes;
+      std::vector<std::string> sources;
+      for (const auto& lane : resolved.lanes) {
+        if (lane.dst_node != node.id) {
           continue;
         }
-        const auto* model = ocg::find_model(config, link.model);
+        const auto* model = ocg::find_model(config, lane.model_id);
         if (model == nullptr) {
           continue;
         }
-        edges.push_back({.link_key = ocg::link_key(link), .model = model, .samples = {}});
+        lanes.push_back({.link_key = lane.key,
+                         .model = model,
+                         .samples = {},
+                         .rx_port = lane.rx_port,
+                         .tx_port = lane.tx_port});
+        sources.push_back(lane.src_device);
       }
-      sup_by_destination[device.id] = std::move(edges);
+      sup_by_destination[node.id] = std::move(lanes);
+      src_device_by_destination[node.id] = std::move(sources);
     }
 
     const auto deadline = std::chrono::steady_clock::now() + duration;
     std::uint64_t iterations = 0;
     while (std::chrono::steady_clock::now() < deadline) {
-      for (const auto& device : config.devices) {
+      for (const auto& node : resolved.nodes) {
         const auto start = std::chrono::steady_clock::now();
-        auto& mixed = mixed_by_destination[device.id];
+        auto& rows = rows_by_node[node.id];
+        const std::size_t count = rows.front().size();
 
         // Fused path: one process_superposition call per RX node per slot,
         // matching the broker. The CUDA backend issues one H2D + one kernel
         // + one D2H regardless of edge count; the CPU backend loops per edge
         // internally and sums.
-        auto sup_it = sup_by_destination.find(device.id);
+        auto sup_it = sup_by_destination.find(node.id);
         if (sup_it != sup_by_destination.end() && !sup_it->second.empty()) {
-          for (auto& edge : sup_it->second) {
-            auto tx_it = latest_tx.find(edge.link_key.substr(0, edge.link_key.find('>')));
+          const auto& sources = src_device_by_destination[node.id];
+          for (std::size_t k = 0; k != sup_it->second.size(); ++k) {
+            auto tx_it = latest_tx.find(sources[k]);
             if (tx_it != latest_tx.end()) {
-              edge.samples = std::span<const ocg::IqSample>(tx_it->second.data(), mixed.size());
+              sup_it->second[k].samples =
+                  std::span<const ocg::IqSample>(tx_it->second.data(), count);
             }
           }
-          const auto* rx = device.rx_model.empty() ? nullptr : ocg::find_model(config, device.rx_model);
-          processor->process_superposition(device.id, sup_it->second, rx, device.sample_rate_hz,
-                                           std::span<ocg::IqSample>(mixed.data(), mixed.size()));
-          // Accumulate per-RX cumulative power (cross-backend matching).
-          double slot_sum = 0.0;
-          for (const auto& s : mixed) {
-            slot_sum += static_cast<double>(s.i) * s.i + static_cast<double>(s.q) * s.q;
+          std::vector<std::span<ocg::IqSample>> row_spans;
+          row_spans.reserve(rows.size());
+          for (auto& row : rows) {
+            row_spans.emplace_back(row.data(), count);
           }
-          mixed_power_sum[device.id] += slot_sum;
-          mixed_sample_count[device.id] += mixed.size();
+          const auto* rx = node.rx_model.empty() ? nullptr : ocg::find_model(config, node.rx_model);
+          processor->process_superposition(node.id, sup_it->second, rx, node.sample_rate_hz,
+                                           std::span<std::span<ocg::IqSample>>(row_spans));
+          // Accumulate per-RX-port cumulative power (cross-backend matching).
+          for (std::size_t r = 0; r != rows.size(); ++r) {
+            double slot_sum = 0.0;
+            for (const auto& s : rows[r]) {
+              slot_sum += static_cast<double>(s.i) * s.i + static_cast<double>(s.q) * s.q;
+            }
+            const std::string& port = r < node.rx_ports.size() ? node.rx_ports[r] : node.id;
+            mixed_power_sum[port] += slot_sum;
+            mixed_sample_count[port] += rows[r].size();
+          }
           const auto timings = processor->last_timings();
           if (config.runtime.backend == ocg::Backend::Cuda) {
             add_us(h2d_recorder, timings.h2d_us);
@@ -185,15 +218,22 @@ int main(int argc, char** argv)
     // per-slot fading variance. Last-slot s0/sN samples kept for spot-debug.
     // Used by scripts/remote/perf-backend-compare.sh to verify CPU and CUDA
     // produce statistically equivalent outputs.
+    // One line per RX PORT, so a multi-port radio reports each of its rows.
+    // The id stays the port's device id, which is what the comparison scripts
+    // already key on -- at 1x1 a node IS its port, so the output is unchanged.
     std::cout << "rx_output,device_id,avg_power_cum,sample0_i,sample0_q,sampleN_i,sampleN_q,total_samples\n";
-    for (const auto& [dst, buf] : mixed_by_destination) {
-      const std::uint64_t total = mixed_sample_count[dst];
-      const double avg_power = (total == 0) ? 0.0 : mixed_power_sum[dst] / static_cast<double>(total);
-      const auto& s0 = buf.empty() ? ocg::IqSample{0.0F, 0.0F} : buf.front();
-      const auto& sN = buf.empty() ? ocg::IqSample{0.0F, 0.0F} : buf.back();
-      std::cout << "rx_output," << dst << "," << avg_power << ","
-                << s0.i << "," << s0.q << "," << sN.i << "," << sN.q << ","
-                << total << "\n";
+    for (const auto& node : resolved.nodes) {
+      const auto& rows = rows_by_node[node.id];
+      for (std::size_t r = 0; r != rows.size(); ++r) {
+        const std::string& port = r < node.rx_ports.size() ? node.rx_ports[r] : node.id;
+        const std::uint64_t total = mixed_sample_count[port];
+        const double avg_power = (total == 0) ? 0.0 : mixed_power_sum[port] / static_cast<double>(total);
+        const auto& s0 = rows[r].empty() ? ocg::IqSample{0.0F, 0.0F} : rows[r].front();
+        const auto& sN = rows[r].empty() ? ocg::IqSample{0.0F, 0.0F} : rows[r].back();
+        std::cout << "rx_output," << port << "," << avg_power << ","
+                  << s0.i << "," << s0.q << "," << sN.i << "," << sN.q << ","
+                  << total << "\n";
+      }
     }
   } catch (const std::exception& e) {
     std::cerr << "event=fatal error=\"" << e.what() << "\"\n";

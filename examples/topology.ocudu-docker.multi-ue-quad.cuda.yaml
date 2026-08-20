@@ -1,18 +1,11 @@
-# Multi-UE OCUDU interop topology: one gNB, four UEs, through the CUDA broker.
+# Control experiment: the ORIGINAL single-antenna multi-UE topology extended to
+# four UEs. No MIMO anywhere -- gnb0 has one port, every UE has one port, and the
+# model chains are the near/far ones from topology.ocudu-docker.multi-ue.cuda.yaml.
 #
-# Nodes:  gnb0, ue0..ue3
-# Edges:  gnb0->ueN  downlink  (fan-out: one gNB TX, multi-reader ring)
-#         ueN->gnb0  uplink    (fan-in: the four UE uplinks SUM at the gNB RX)
-#
-# The four-UE counterpart of topology.ocudu-docker.multi-ue.cuda.yaml, with the
-# same near/far spread extended across four users so the gNB RX is the sum of a
-# strong, two medium and a weak uplink. AWGN uses `snr_db` relative to each
-# edge's post-path-loss signal, so the link budget stays scale-independent and
-# every UE remains attachable.
-#
-# Attaching four UEs also needs the srsUE preamble-index patch applied by
-# scripts/remote/ocudu-multi-ue-smoke.sh: stock srsUE hardcodes preamble index 0,
-# so without it every UE shares an RA-RNTI and only one completes attach.
+# Its only purpose is to answer whether the multi-UE attach limit is a property
+# of the MIMO work or of the broker's multi-source behaviour, which upstream's
+# own two-UE topology already relies on (gnb0 is a two-source destination there
+# too). See docs/live-gate-results.md.
 runtime:
   backend: cuda
   gpu_device: 0
@@ -70,7 +63,6 @@ links:
     to: gnb0
     model: far
 models:
-  # Near UE: light path loss, small phase offset, high SNR.
   near:
     chain:
       - type: path_loss
@@ -79,7 +71,6 @@ models:
         phase_rad: 0.15
       - type: awgn
         snr_db: 30
-  # Mid UE.
   mid1:
     chain:
       - type: path_loss
@@ -88,7 +79,6 @@ models:
         phase_rad: 0.28
       - type: awgn
         snr_db: 25
-  # Mid UE, weaker.
   mid2:
     chain:
       - type: path_loss
@@ -97,7 +87,6 @@ models:
         phase_rad: 0.41
       - type: awgn
         snr_db: 20
-  # Far UE: heaviest path loss, largest phase offset, degraded SNR -- still comfortably decodable.
   far:
     chain:
       - type: path_loss

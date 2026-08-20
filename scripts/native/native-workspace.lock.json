@@ -1,0 +1,268 @@
+{
+  "archives": [
+    {
+      "authentication": "sha256-lock-only; upstream detached signature not cached",
+      "bytes": 2817324,
+      "cache_path": "tools/bison-3.8.2.tar.xz",
+      "name": "bison",
+      "sha256": "9bba0214ccf7f1079c5d59210045227bcf619519840ebfa80cd3849cff5a5bf2",
+      "url": "https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz",
+      "version": "3.8.2"
+    },
+    {
+      "authentication": "sha256-lock-only; upstream detached signature not cached",
+      "bytes": 6119292,
+      "cache_path": "tools/gnutls-3.7.3.tar.xz",
+      "name": "gnutls",
+      "sha256": "fc59c43bc31ab20a6977ff083029277a31935b8355ce387b634fa433f8f6c49a",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7/gnutls-3.7.3.tar.xz",
+      "version": "3.7.3"
+    },
+    {
+      "authentication": "official sha256 sidecar cached and verified",
+      "bytes": 73131036,
+      "cache_path": "tools/mongodb-linux-x86_64-ubuntu2204-6.0.29.tgz",
+      "name": "mongodb-community",
+      "platform": "ubuntu2204-x86_64",
+      "sha256": "46de5a28be8066e0c44b60e9919e5edd00c28f55fc187f8e0c60ab38dedc9054",
+      "sha256_sidecar": {
+        "bytes": 109,
+        "cache_path": "tools/mongodb-linux-x86_64-ubuntu2204-6.0.29.tgz.sha256",
+        "sha256": "fe90974f939724e771d1912b22654537e4f2996b2f63142a889ecead65e93d90"
+      },
+      "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-6.0.29.tgz",
+      "version": "6.0.29"
+    }
+  ],
+  "build_profiles": {
+    "bison": {
+      "configure": [
+        "M4=<root>/install/sysroot/usr/bin/m4"
+      ],
+      "prefix": "install/bison-3.8.2"
+    },
+    "gnutls": {
+      "configure": [
+        "--disable-doc",
+        "--disable-guile",
+        "--disable-tests",
+        "--without-p11-kit",
+        "--without-tpm",
+        "--without-idn",
+        "--without-libintl-prefix",
+        "--disable-tools",
+        "--with-included-unistring"
+      ],
+      "prefix": "install/gnutls-3.7.3"
+    },
+    "mongodb-community": {
+      "install_dir": "install/mongodb-6.0.29",
+      "operation": "verified archive extraction"
+    },
+    "oai": {
+      "build_dir": "builds/oai-zmq-release",
+      "cmake": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DOAI_ZMQ=ON",
+        "-DENABLE_WERROR=OFF",
+        "-DAUTO_DOWNLOAD_ASN1C=ON",
+        "-DAVX512=OFF",
+        "-DCMAKE_PREFIX_PATH=<root>/install/sysroot/usr"
+      ],
+      "notes": [
+        "CMAKE_PREFIX_PATH is required: find_library/find_path do not read CPATH or LIBRARY_PATH, so without it libsctp is reported missing even though the sysroot has it.",
+        "libcap is optional -- CMakeLists.txt:688 guards its use with if(cap_FOUND), so the pkg-config warning is expected and harmless.",
+        "AUTO_DOWNLOAD_ASN1C builds asn1c from source via autoreconf, which is why the autotools overlay and the relocation patches below exist.",
+        "AVX512=OFF is required on this host, not a performance choice made lightly. Zen 4 defines __AVX512F__, so radio/zmq/zmq_simd.h takes its AVX-512 branch, and the only SIMDe in the Ubuntu noble archive is 0.7.2 which lacks simde_mm512_cvtepi16_epi32 / cvtepi32_ps / cvtps_epi32. OAI's own -DAVX512=OFF switches the build to -mno-avx512f -march=native and the branch compiles out. The alternative is vendoring a newer header-only SIMDe; revisit only if UE PHY throughput ever becomes the limit, which it is not at 23.04 MS/s over ZMQ."
+      ],
+      "source": "src/oai",
+      "targets": [
+        "nr-uesoftmodem",
+        "oai_zmqdevif"
+      ],
+      "transitive_pins": [
+        {
+          "commit": "940dd5fa9f3917913fd487b13dfddfacd0ded06e",
+          "materialises_at": "builds/oai-zmq-release/asn1c_gen-prefix/src/asn1c_gen",
+          "name": "asn1c",
+          "note": "Recorded so the transitive source is not invisible, but deliberately NOT a git_sources entry: it only exists after the OAI build runs, so requiring it would make the workspace check fail on a clean tree.",
+          "pinned_by": "OAI CMakeLists.txt ExternalProject_Add(asn1c_gen)",
+          "url": "https://github.com/mouse07410/asn1c"
+        }
+      ]
+    },
+    "ocudu": {
+      "build_dir": "builds/ocudu-zmq-release",
+      "cmake": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_TESTING=OFF",
+        "-DENABLE_UHD=OFF",
+        "-DENABLE_SIDEKIQ=OFF",
+        "-DENABLE_MKL=OFF",
+        "-DENABLE_FFTZ=OFF",
+        "-DENABLE_ARMPL=OFF",
+        "-DENABLE_DPDK=OFF",
+        "-DENABLE_LIBNUMA=OFF",
+        "-DENABLE_PLUGINS=OFF",
+        "-DENABLE_BACKWARD=OFF",
+        "-DENABLE_ZEROMQ=ON",
+        "-DENABLE_FFTW=ON",
+        "-DENABLE_EXPORT=ON"
+      ],
+      "install_prefix": "install/ocudu"
+    },
+    "open5gs": {
+      "build_dir": "builds/open5gs-v2.7.6",
+      "install_prefix": "install/open5gs-v2.7.6",
+      "meson": [
+        "--buildtype=release",
+        "--wrap-mode=nodownload"
+      ],
+      "required_target": "tests/app/5gc"
+    },
+    "srsran4g": {
+      "build_dir": "builds/srsran4g-zmq-release",
+      "cmake": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DENABLE_SRSUE=ON",
+        "-DENABLE_SRSENB=OFF",
+        "-DENABLE_SRSEPC=OFF",
+        "-DENABLE_UHD=OFF",
+        "-DENABLE_ZEROMQ=ON",
+        "-DENABLE_WERROR=OFF",
+        "-DENABLE_EXPORT=ON"
+      ],
+      "install_prefix": "install/srsran4g"
+    }
+  },
+  "claim_boundary": {
+    "not_claimed": "hermetic or arbitrary-clean-host offline build",
+    "reason": "48 Debian dependency clauses and compiler/base-runtime libraries are supplied by the current host",
+    "verified_now": "locked cached inputs and current Ubuntu-24.04 user-space overlay"
+  },
+  "debian_overlay": {
+    "bytes": 21925,
+    "cache_root": "tools/debs",
+    "closure": "user-space-overlay-only",
+    "download_template": "apt-get download <package>:<architecture>=<version>",
+    "extract_root": "install/sysroot",
+    "manifest": "scripts/native/locks/ubuntu-noble-amd64.debs.lock.tsv",
+    "relocation_patches": {
+      "env": "the rest is settable and lives in scripts/native/env.sh",
+      "files": [
+        "usr/bin/aclocal-1.16 (automake_includes, system_includes, @INC unshift)",
+        "usr/share/autoconf/autom4te.cfg (--prepend-include)",
+        "usr/bin/libtoolize (prefix, datadir, pkgauxdir, pkgltdldir, aclocaldir)"
+      ],
+      "symlinks": [
+        "usr/bin/automake -> automake-1.16",
+        "usr/bin/aclocal -> aclocal-1.16"
+      ],
+      "why": "Debian autoconf/automake/libtool bake absolute /usr/share paths that have no environment override. Extracting them into the user-space sysroot is not sufficient; these files are edited in place after extraction."
+    },
+    "rows": 94,
+    "sha256": "9e534b6bca86afd344767c0e9de265445a8b5aaea5ba1f0a9f80abd3ad173839"
+  },
+  "git_sources": [
+    {
+      "commit": "a1916edcdbcd70ba6e0af47ee87be061dad5a4e4",
+      "name": "ocudu",
+      "path": "src/ocudu",
+      "url": "https://gitlab.com/ocudu/ocudu.git"
+    },
+    {
+      "commit": "eea87b1d893ae58e0b08bc381730c502024ae71f",
+      "label": "release_23_11",
+      "name": "srsRAN_4G",
+      "path": "src/srsRAN_4G",
+      "url": "https://github.com/srsran/srsRAN_4G.git"
+    },
+    {
+      "commit": "d9d3abdd480be96fac3bc8a997e83446648763ca",
+      "label": "v2.7.6",
+      "name": "open5gs",
+      "path": "src/open5gs",
+      "url": "https://github.com/open5gs/open5gs.git"
+    },
+    {
+      "commit": "a58ba25bf87a9b1b7c6be4e6f4c62047d620f402",
+      "label": "open5gs",
+      "name": "prometheus-client-c",
+      "path": "src/open5gs/subprojects/prometheus-client-c",
+      "url": "https://github.com/open5gs/prometheus-client-c.git"
+    },
+    {
+      "commit": "14725af3ba0edbf9ff61c4e3239ed42464423b2e",
+      "label": "r1.5.0",
+      "name": "freeDiameter",
+      "path": "src/open5gs/subprojects/freeDiameter",
+      "url": "https://github.com/open5gs/freeDiameter.git"
+    },
+    {
+      "commit": "bf22438172d269e6db70e27246dffd8e1f0b96e3",
+      "label": "r4.5",
+      "name": "libtins",
+      "path": "src/open5gs/subprojects/libtins",
+      "url": "https://github.com/open5gs/libtins.git"
+    },
+    {
+      "commit": "07f871bda23943c43c9e74cc54f25130459de830",
+      "label": "0.9.5.0",
+      "name": "usrsctp",
+      "path": "src/open5gs/subprojects/usrsctp",
+      "url": "https://github.com/sctplab/usrsctp.git"
+    },
+    {
+      "commit": "2b69bde6aeafe892cda1531a0f0cbba2e37792cd",
+      "label": "2026.w33",
+      "name": "oai",
+      "path": "src/oai",
+      "url": "https://github.com/OPENAIRINTERFACE/openairinterface5g.git"
+    }
+  ],
+  "host_contract": {
+    "binutils": {
+      "linker": "/usr/bin/ld",
+      "version": "2.42"
+    },
+    "cmake": {
+      "path": "/usr/bin/cmake",
+      "version": "3.28.3"
+    },
+    "cuda": {
+      "nvcc": "/opt/conda/envs/cuda128/bin/nvcc",
+      "required_for": "ocudu-gpu-channel CUDA build only",
+      "version": "12.8.93"
+    },
+    "gcc": {
+      "path": "/usr/bin/gcc",
+      "version": "13.3.0"
+    },
+    "glibc_package_version": "2.39-0ubuntu8.8",
+    "gxx": {
+      "path": "/usr/bin/g++",
+      "version": "13.3.0"
+    },
+    "make": {
+      "path": "/usr/bin/make",
+      "version": "4.3"
+    },
+    "pkg_config": {
+      "path": "/usr/bin/pkg-config",
+      "version": "1.8.1"
+    },
+    "python": {
+      "path": "/usr/bin/python3",
+      "version": "3.12.3"
+    }
+  },
+  "name": "ocudu-native-workspace",
+  "platform": {
+    "architecture": "amd64",
+    "codename": "noble",
+    "machine": "x86_64",
+    "os_id": "ubuntu",
+    "version_id": "24.04"
+  },
+  "schema": 1
+}

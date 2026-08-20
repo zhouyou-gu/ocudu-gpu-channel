@@ -1,0 +1,372 @@
+# Docker rank-1 4x1 / 1x4 fixture with FOUR srsUEs on one 4T4R cell
+# (scripts/remote/ocudu-rank1-4x1-quad-ue-smoke.sh).
+#
+# Each UE keeps ONE antenna. The gNB keeps four ports. So per UE the downlink is
+# a 1x4 row and the uplink a 4x1 column -- still rank-1 MISO/SIMO, never 2x2.
+#
+# This is the widest superposition case in the tree: four single-layer users on
+# a four-port receiver, so every one of the gNB's four RX rows is the sum of all
+# four users' columns. The matrix checker reconstructs each row from all
+# incoming links and additionally requires that removing any one user breaks the
+# match, so a relay serving only a subset could not pass.
+#
+# Each UE's uplink column is weighted toward a different receive port -- ue0
+# toward port 0, ue1 toward port 1, and so on -- so the users are separable at
+# the array and no row is dominated by a single user.
+#
+# Every link is an identity carrier (delay_samples 0, 0 dB, 0 rad), so the
+# per-UE fixed_mimo coefficients ARE the channel and each row reconstructs
+# exactly. The users are separated at the PRACH preamble (the harness gives each
+# srsUE its own preamble index), not by propagation delay.
+#
+# Claim boundary: four single-layer users sharing a cell in time, not same-PRB
+# MU-MIMO. The emulator superposes whatever the scheduler actually transmits;
+# it does not make the gNB serve several users on the same resources.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+
+devices:
+  - id: gnb0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://*:2001
+  - id: gnb0_p1
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://*:2003
+  - id: gnb0_p2
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2004
+    rx_endpoint: tcp://*:2005
+  - id: gnb0_p3
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2006
+    rx_endpoint: tcp://*:2007
+  - id: ue0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://*:2100
+  - id: ue1_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://*:2102
+  - id: ue2_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2105
+    rx_endpoint: tcp://*:2104
+  - id: ue3_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2107
+    rx_endpoint: tcp://*:2106
+
+radio_nodes:
+  - id: gnb0
+    tx_ports:
+      - gnb0_p0
+      - gnb0_p1
+      - gnb0_p2
+      - gnb0_p3
+    rx_ports:
+      - gnb0_p0
+      - gnb0_p1
+      - gnb0_p2
+      - gnb0_p3
+  - id: ue0
+    tx_ports:
+      - ue0_p0
+    rx_ports:
+      - ue0_p0
+  - id: ue1
+    tx_ports:
+      - ue1_p0
+    rx_ports:
+      - ue1_p0
+  - id: ue2
+    tx_ports:
+      - ue2_p0
+    rx_ports:
+      - ue2_p0
+  - id: ue3
+    tx_ports:
+      - ue3_p0
+    rx_ports:
+      - ue3_p0
+
+links:
+  - from: gnb0
+    to: ue0
+    model: dl_miso_4x1_ue0
+  - from: gnb0
+    to: ue1
+    model: dl_miso_4x1_ue1
+  - from: gnb0
+    to: ue2
+    model: dl_miso_4x1_ue2
+  - from: gnb0
+    to: ue3
+    model: dl_miso_4x1_ue3
+  - from: ue0
+    to: gnb0
+    model: ul_simo_1x4_ue0
+  - from: ue1
+    to: gnb0
+    model: ul_simo_1x4_ue1
+  - from: ue2
+    to: gnb0
+    model: ul_simo_1x4_ue2
+  - from: ue3
+    to: gnb0
+    model: ul_simo_1x4_ue3
+
+models:
+  # DL row to ue0. |h0| carries the budget: srsRAN precodes rank-1 PDSCH onto port 0.
+  dl_miso_4x1_ue0:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.80
+          imag: 0.10
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.25
+          imag: -0.15
+        - tap: 0
+          rx: 0
+          tx: 2
+          real: 0.18
+          imag: 0.22
+        - tap: 0
+          rx: 0
+          tx: 3
+          real: 0.31
+          imag: -0.09
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # DL row to ue1. |h0| carries the budget: srsRAN precodes rank-1 PDSCH onto port 0.
+  dl_miso_4x1_ue1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.65
+          imag: -0.20
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.30
+          imag: 0.20
+        - tap: 0
+          rx: 0
+          tx: 2
+          real: 0.22
+          imag: -0.28
+        - tap: 0
+          rx: 0
+          tx: 3
+          real: 0.14
+          imag: 0.33
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # DL row to ue2. |h0| carries the budget: srsRAN precodes rank-1 PDSCH onto port 0.
+  dl_miso_4x1_ue2:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.72
+          imag: 0.15
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.19
+          imag: -0.26
+        - tap: 0
+          rx: 0
+          tx: 2
+          real: 0.27
+          imag: 0.14
+        - tap: 0
+          rx: 0
+          tx: 3
+          real: 0.23
+          imag: -0.20
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # DL row to ue3. |h0| carries the budget: srsRAN precodes rank-1 PDSCH onto port 0.
+  dl_miso_4x1_ue3:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.69
+          imag: -0.13
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.24
+          imag: 0.29
+        - tap: 0
+          rx: 0
+          tx: 2
+          real: 0.16
+          imag: -0.22
+        - tap: 0
+          rx: 0
+          tx: 3
+          real: 0.28
+          imag: 0.18
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue0: one independent branch per gNB receive port, weighted toward port 0.
+  ul_simo_1x4_ue0:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.75
+          imag: -0.10
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.15
+          imag: 0.25
+        - tap: 0
+          rx: 2
+          tx: 0
+          real: 0.28
+          imag: 0.12
+        - tap: 0
+          rx: 3
+          tx: 0
+          real: 0.41
+          imag: -0.19
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue1: one independent branch per gNB receive port, weighted toward port 1.
+  ul_simo_1x4_ue1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.35
+          imag: 0.45
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.60
+          imag: -0.25
+        - tap: 0
+          rx: 2
+          tx: 0
+          real: 0.24
+          imag: 0.36
+        - tap: 0
+          rx: 3
+          tx: 0
+          real: 0.19
+          imag: -0.31
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue2: one independent branch per gNB receive port, weighted toward port 2.
+  ul_simo_1x4_ue2:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.22
+          imag: -0.30
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.26
+          imag: 0.18
+        - tap: 0
+          rx: 2
+          tx: 0
+          real: 0.68
+          imag: 0.21
+        - tap: 0
+          rx: 3
+          tx: 0
+          real: 0.31
+          imag: -0.14
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue3: one independent branch per gNB receive port, weighted toward port 3.
+  ul_simo_1x4_ue3:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.17
+          imag: 0.28
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.33
+          imag: -0.22
+        - tap: 0
+          rx: 2
+          tx: 0
+          real: 0.20
+          imag: 0.30
+        - tap: 0
+          rx: 3
+          tx: 0
+          real: 0.64
+          imag: -0.27
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0

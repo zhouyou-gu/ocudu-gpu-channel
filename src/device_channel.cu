@@ -36,9 +36,159 @@ namespace {
 //
 // Shared memory: ~8.4 KB per block (g_grid_i + g_grid_q +
 // los_phase_start + los_step_angle). Fits well within modern SM budgets.
+// Grid sizing, computed identically by the generator and the consumer so the
+// two never disagree about the layout of what they pass between them.
+__device__ inline void fading_grid_shape(const DeviceLinkState* s, int count,
+                                         float sample_rate_hz, int* stride, int* points)
+{
+  int st = (int)roundf(s->grid_us * 1.0e-6f * sample_rate_hz);
+  if (st < 1) st = 1;
+  int gc = (count + st - 1) / st + 1;
+  if (gc > kDeviceMaxGridPoints) gc = kDeviceMaxGridPoints;
+  *stride = st;
+  *points = gc;
+}
+
+// The generator (M3.3). One block per edge, one thread per tap, writing that
+// edge's Jakes coarse grid to global memory.
+//
+// It used to run inside apply_channel_kernel, where each of the ~90 sample
+// blocks of an edge rebuilt the same grid and no block could see any lane but
+// its own. Correlation (M3.4) is a map across the lanes of a link at one tap
+// and one grid point, so the grid has to exist as data before the convolution
+// reads it -- that is what this kernel is for.
+//
+// Layout: edge k, tap kt, point gp lives at
+//   grid[(k * kDeviceMaxTaps + kt) * kDeviceMaxGridPoints + gp].
+__global__ void generate_fading_grid_kernel(
+    const DeviceLinkState* __restrict__ states,
+    float2* __restrict__ grid,
+    int n_links,
+    int count,
+    float sample_rate_hz)
+{
+  const int k = blockIdx.x;
+  if (k >= n_links) {
+    return;
+  }
+  const DeviceLinkState* s = &states[k];
+  if (s->has_tdl == 0 || s->fading_enabled == 0) {
+    return;
+  }
+  const int kt = threadIdx.x;
+  if (kt >= s->n_taps) {
+    return;
+  }
+  int grid_stride = 1;
+  int grid_count = 0;
+  fading_grid_shape(s, count, sample_rate_hz, &grid_stride, &grid_count);
+
+  const float inv_sqrt_M = rsqrtf((float)kDeviceMaxFadingSubrays);
+  // slot_start_t stays in double for the angle0 product; the float version is
+  // only used for step_angle (small, no drift across grid points).
+  const double slot_start_t_d = (double)s->slot_start_samples / (double)sample_rate_hz;
+  const float grid_dt = (float)grid_stride / sample_rate_hz;
+  constexpr double kTwoPiD = 6.28318530717958647692;
+
+  float2* row = grid + ((size_t)k * kDeviceMaxTaps + kt) * kDeviceMaxGridPoints;
+  for (int gp = 0; gp < grid_count; ++gp) {
+    row[gp] = make_float2(0.0f, 0.0f);
+  }
+  for (int m = 0; m < kDeviceMaxFadingSubrays; ++m) {
+    const float alpha_km = s->tap_alpha[kt][m];
+    const float phi_km = s->tap_phi[kt][m];
+    // omega_m in double mirrors the host computation in delay.h. Without this
+    // the long-run angle0 = omega_m * slot_start_t would lose float precision
+    // after minutes of runtime and diverge from the host path.
+    const double omega_m_d = kTwoPiD * (double)s->f_d_max_hz * cos((double)alpha_km);
+    const double angle0_d = omega_m_d * slot_start_t_d + (double)phi_km;
+    // Reduce mod 2*pi in double before casting -- matches the host fmod path.
+    const float angle0 = (float)fmod(angle0_d, kTwoPiD);
+    const float omega_m = (float)omega_m_d;
+    const float step_angle = omega_m * grid_dt;
+    float c_cur, s_cur;
+    __sincosf(angle0, &s_cur, &c_cur);
+    float c_step, s_step;
+    __sincosf(step_angle, &s_step, &c_step);
+    for (int gp = 0; gp < grid_count; ++gp) {
+      row[gp].x += c_cur;
+      row[gp].y += s_cur;
+      const float c_new = c_cur * c_step - s_cur * s_step;
+      const float s_new = c_cur * s_step + s_cur * c_step;
+      c_cur = c_new;
+      s_cur = s_new;
+    }
+  }
+  for (int gp = 0; gp < grid_count; ++gp) {
+    row[gp].x *= inv_sqrt_M;
+    row[gp].y *= inv_sqrt_M;
+  }
+}
+
+// The cross-lane step (M3.4). One block per correlated link; threads split the
+// (tap, grid point) pairs. Each thread reads that point's lane vector w across
+// the link's edges, forms g = L w, and writes it back.
+//
+// This is the whole reason the generator was lifted out of the convolution: it
+// needs every lane of a link at one tap and one grid point, which no per-edge
+// block could ever see.
+__global__ void mix_fading_grid_kernel(
+    float2* __restrict__ grid,
+    const DeviceCorrelationGroup* __restrict__ groups,
+    const DeviceLinkState* __restrict__ states,
+    int n_groups,
+    int count,
+    float sample_rate_hz)
+{
+  const int gi = blockIdx.x;
+  if (gi >= n_groups) {
+    return;
+  }
+  const DeviceCorrelationGroup* group = &groups[gi];
+  const int n_lanes = group->n_lanes;
+  if (n_lanes <= 0) {
+    return;
+  }
+  const DeviceLinkState* first = &states[group->edge_index[0]];
+  if (first->has_tdl == 0 || first->fading_enabled == 0) {
+    return;
+  }
+  int grid_stride = 1;
+  int grid_points = 0;
+  fading_grid_shape(first, count, sample_rate_hz, &grid_stride, &grid_points);
+  const int n_taps = first->n_taps;
+  const int total = n_taps * grid_points;
+
+  for (int cell = threadIdx.x; cell < total; cell += blockDim.x) {
+    const int kt = cell / grid_points;
+    const int gp = cell - kt * grid_points;
+    float w_re[kMaxCorrelatedLanes];
+    float w_im[kMaxCorrelatedLanes];
+    for (int l = 0; l < n_lanes; ++l) {
+      const float2 value =
+          grid[((size_t)group->edge_index[l] * kDeviceMaxTaps + kt) * kDeviceMaxGridPoints + gp];
+      w_re[l] = value.x;
+      w_im[l] = value.y;
+    }
+    for (int l = 0; l < n_lanes; ++l) {
+      float acc_re = 0.0f;
+      float acc_im = 0.0f;
+      for (int c = 0; c < n_lanes; ++c) {
+        const float mr = group->mixing_re[l][c];
+        const float mi = group->mixing_im[l][c];
+        acc_re += mr * w_re[c] - mi * w_im[c];
+        acc_im += mr * w_im[c] + mi * w_re[c];
+      }
+      grid[((size_t)group->edge_index[l] * kDeviceMaxTaps + kt) * kDeviceMaxGridPoints + gp] =
+          make_float2(acc_re, acc_im);
+    }
+  }
+}
+
 __global__ void apply_channel_kernel(
     const DeviceLinkState* __restrict__ states,
     const IqSample* __restrict__ source_iq,
+    const float2* __restrict__ fading_grid,
     IqSample* __restrict__ out_buffer,
     int n_links,
     int count,
@@ -83,81 +233,47 @@ __global__ void apply_channel_kernel(
   if (fading_on) {
     // Compute grid sizing once per block.
     if (threadIdx.x == 0) {
-      int stride = (int)roundf(s->grid_us * 1.0e-6f * sample_rate_hz);
-      if (stride < 1) stride = 1;
-      int gcount = (count + stride - 1) / stride + 1;
-      if (gcount > kDeviceMaxGridPoints) gcount = kDeviceMaxGridPoints;
+      int stride = 1;
+      int gcount = 0;
+      fading_grid_shape(s, count, sample_rate_hz, &stride, &gcount);
       shared_grid_stride = stride;
       shared_grid_count = gcount;
     }
     __syncthreads();
-    const int grid_stride = shared_grid_stride;
     const int grid_count = shared_grid_count;
 
-    // Zero the active part of the grid cooperatively.
+    // M3.3: the grid is LOADED, not built. generate_fading_grid_kernel wrote
+    // it to global memory before this launch; each block copies its own edge's
+    // rows into shared so the per-sample interpolation below reads them at the
+    // same cost it always did. (It also stops ~90 blocks per edge from
+    // recomputing one identical grid.)
+    const float2* src_grid = fading_grid + (size_t)k * kDeviceMaxTaps * kDeviceMaxGridPoints;
     const int grid_total = n_taps * grid_count;
     for (int gi = threadIdx.x; gi < grid_total; gi += blockDim.x) {
       const int kt = gi / grid_count;
       const int gp = gi - kt * grid_count;
-      g_grid_i[kt][gp] = 0.0f;
-      g_grid_q[kt][gp] = 0.0f;
+      const float2 value = src_grid[(size_t)kt * kDeviceMaxGridPoints + gp];
+      g_grid_i[kt][gp] = value.x;
+      g_grid_q[kt][gp] = value.y;
     }
-    __syncthreads();
 
-    const float inv_sqrt_M = rsqrtf((float)kDeviceMaxFadingSubrays);
     // slot_start_t stays in double for the angle0 product; the float version
     // is only used for step_angle (small, no drift across grid points).
     const double slot_start_t_d =
         (double)s->slot_start_samples / (double)sample_rate_hz;
-    const float grid_dt = (float)grid_stride / sample_rate_hz;
     constexpr double kTwoPiD = 6.28318530717958647692;
 
-    // One thread per tap accumulates that tap's M sub-rays across the grid
-    // via phase accumulation (so each grid point costs one complex multiply
-    // per sub-ray, not a sincos). n_taps <= kDeviceMaxTaps = 32 < blockDim.x.
+    // The LOS specular stays here: it is a per-sample phase accumulation, not
+    // a grid, and M3.5 gives it a per-lane coefficient rather than a process.
     if (threadIdx.x < n_taps) {
       const int kt = threadIdx.x;
-      for (int m = 0; m < kDeviceMaxFadingSubrays; ++m) {
-        const float alpha_km = s->tap_alpha[kt][m];
-        const float phi_km = s->tap_phi[kt][m];
-        // omega_m in double mirrors the host computation in delay.h. Without
-        // this the long-run angle0 = omega_m * slot_start_t would lose float
-        // precision after minutes of runtime and diverge from the host path.
-        const double omega_m_d =
-            kTwoPiD * (double)s->f_d_max_hz * cos((double)alpha_km);
-        const double angle0_d = omega_m_d * slot_start_t_d + (double)phi_km;
-        // Reduce mod 2*pi in double before casting -- matches host fmod path.
-        const float angle0 = (float)fmod(angle0_d, kTwoPiD);
-        const float omega_m = (float)omega_m_d;
-        const float step_angle = omega_m * grid_dt;
-        float c_cur, s_cur;
-        __sincosf(angle0, &s_cur, &c_cur);
-        float c_step, s_step;
-        __sincosf(step_angle, &s_step, &c_step);
-        for (int gp = 0; gp < grid_count; ++gp) {
-          g_grid_i[kt][gp] += c_cur;
-          g_grid_q[kt][gp] += s_cur;
-          // Multiply (c_cur, s_cur) by (c_step, s_step) for next grid point.
-          const float c_new = c_cur * c_step - s_cur * s_step;
-          const float s_new = c_cur * s_step + s_cur * c_step;
-          c_cur = c_new;
-          s_cur = s_new;
-        }
-      }
-      // Scale by 1/sqrt(M).
-      for (int gp = 0; gp < grid_count; ++gp) {
-        g_grid_i[kt][gp] *= inv_sqrt_M;
-        g_grid_q[kt][gp] *= inv_sqrt_M;
-      }
-      // LOS phase constants for this tap. omega_los recomputed in double so
-      // the angle0 product against slot_start_t doesn't drift in float, then
-      // reduced mod 2*pi -- same treatment as the subray loop above.
       if (s->tap_is_los[kt]) {
         const double omega_los_d =
             kTwoPiD * (double)s->f_d_max_hz *
             cos((double)s->tap_los_angle_rad[kt]);
-        const double angle0_d =
-            omega_los_d * slot_start_t_d + (double)s->tap_phi_los[kt];
+        // M3.5: no per-lane random start -- the lane's phase comes from the
+        // LOS matrix, applied where the specular is composed below.
+        const double angle0_d = omega_los_d * slot_start_t_d;
         los_phase_start[kt] = (float)fmod(angle0_d, kTwoPiD);
         los_step_angle[kt] = (float)(omega_los_d / (double)sample_rate_hz);
       }
@@ -203,8 +319,13 @@ __global__ void apply_channel_kernel(
         __sincosf(los_angle, &los_s, &los_c);
         const float lf = s->tap_los_factor[kt];
         const float rf = s->tap_rayleigh_factor[kt];
-        g_i = lf * los_c + rf * g_ri;
-        g_q = lf * los_s + rf * g_rq;
+        // (coeff * phasor), matching the host's composition order.
+        const float cr = s->los_coeff_re;
+        const float ci = s->los_coeff_im;
+        const float spec_i = cr * los_c - ci * los_s;
+        const float spec_q = cr * los_s + ci * los_c;
+        g_i = lf * spec_i + rf * g_ri;
+        g_q = lf * spec_q + rf * g_rq;
       } else {
         g_i = g_ri;
         g_q = g_rq;
@@ -259,13 +380,14 @@ __global__ void apply_channel_kernel(
   out_buffer[k * count + idx] = out;
 }
 
-// Roll the per-link delay_line ring forward and advance slot_start_samples.
-// Mirrors the post-loop ring update at the bottom of apply_tdl_step() in
-// delay.h. One block per link; one thread per block (work per link is at
-// most kDeviceMaxDelayLine memory ops, trivially serial).
+// Roll the per-link delay_line ring forward and take the next slot's time
+// origin from the host. Mirrors the post-loop ring update at the bottom of
+// apply_tdl_step() in delay.h. One block per link; one thread per block (work
+// per link is at most kDeviceMaxDelayLine memory ops, trivially serial).
 __global__ void update_delay_line_kernel(
     DeviceLinkState* __restrict__ states,
     const IqSample* __restrict__ source_iq,
+    const unsigned long long* __restrict__ next_slot_start,
     int n_links,
     int count)
 {
@@ -274,6 +396,9 @@ __global__ void update_delay_line_kernel(
     return;
   }
   DeviceLinkState* s = &states[k];
+  // Written before any early return, so the device copy tracks the physical
+  // link's clock for every edge, including ones that own no delay line.
+  s->slot_start_samples = next_slot_start[k];
   if (s->has_tdl == 0) {
     return;
   }
@@ -301,7 +426,6 @@ __global__ void update_delay_line_kernel(
       s->delay_line[keep_old + i] = source_iq[src_base + i];
     }
   }
-  s->slot_start_samples += static_cast<unsigned long long>(count);
 }
 
 } // namespace
@@ -316,6 +440,10 @@ bool build_device_link_state(
 {
   std::memset(&out, 0, sizeof(out));
   out.src_index = src_index;
+  // Default LOS coefficient: 1 + 0j. The caller overwrites it from the model's
+  // los_matrix when one is declared.
+  out.los_coeff_re = 1.0F;
+  out.los_coeff_im = 0.0F;
 
   // Non-tdl links: caller falls back to the host path. We still zero-init the
   // state so a cudaMemcpy of the array doesn't carry uninitialised bytes.
@@ -482,9 +610,43 @@ void refresh_all_taps_from_live(DeviceLinkState& s, int n_taps, const TapSpec* t
   }
 }
 
+void launch_generate_fading_grid_kernel(
+    const DeviceLinkState* states,
+    float* grid,
+    int n_links,
+    int count,
+    float sample_rate_hz,
+    void* stream)
+{
+  if (n_links <= 0 || count <= 0) {
+    return;
+  }
+  cudaStream_t s = static_cast<cudaStream_t>(stream);
+  generate_fading_grid_kernel<<<n_links, kDeviceMaxTaps, 0, s>>>(
+      states, reinterpret_cast<float2*>(grid), n_links, count, sample_rate_hz);
+}
+
+void launch_mix_fading_grid_kernel(
+    float* grid,
+    const DeviceCorrelationGroup* groups,
+    const DeviceLinkState* states,
+    int n_groups,
+    int count,
+    float sample_rate_hz,
+    void* stream)
+{
+  if (n_groups <= 0 || count <= 0) {
+    return;
+  }
+  cudaStream_t s = static_cast<cudaStream_t>(stream);
+  mix_fading_grid_kernel<<<n_groups, 256, 0, s>>>(
+      reinterpret_cast<float2*>(grid), groups, states, n_groups, count, sample_rate_hz);
+}
+
 void launch_apply_channel_kernel_static(
     const DeviceLinkState* states,
     const IqSample* source_iq,
+    const float* fading_grid,
     IqSample* out_buffer,
     int n_links,
     int count,
@@ -499,12 +661,15 @@ void launch_apply_channel_kernel_static(
   const dim3 grid(blocks_x, n_links, 1);
   const dim3 block(kBlockThreads, 1, 1);
   cudaStream_t s = static_cast<cudaStream_t>(stream);
-  apply_channel_kernel<<<grid, block, 0, s>>>(states, source_iq, out_buffer, n_links, count, sample_rate_hz);
+  apply_channel_kernel<<<grid, block, 0, s>>>(
+      states, source_iq, reinterpret_cast<const float2*>(fading_grid), out_buffer, n_links, count,
+      sample_rate_hz);
 }
 
 void launch_update_delay_line_kernel(
     DeviceLinkState* states,
     const IqSample* source_iq,
+    const unsigned long long* next_slot_start,
     int n_links,
     int count,
     void* stream)
@@ -513,7 +678,8 @@ void launch_update_delay_line_kernel(
     return;
   }
   cudaStream_t s = static_cast<cudaStream_t>(stream);
-  update_delay_line_kernel<<<n_links, 1, 0, s>>>(states, source_iq, n_links, count);
+  update_delay_line_kernel<<<n_links, 1, 0, s>>>(states, source_iq, next_slot_start,
+                                                 n_links, count);
 }
 
 } // namespace ocg

@@ -1,0 +1,158 @@
+# Docker rank-1 2x1 / 1x2 fixture with TWO srsUEs on one 2T2R cell
+# (scripts/remote/ocudu-rank1-2x1-multi-ue-smoke.sh).
+#
+# Each UE keeps ONE antenna. The gNB keeps two ports. So per UE the downlink is
+# a 1x2 row and the uplink a 2x1 column -- still rank-1 MISO/SIMO, never 2x2.
+#
+# What this fixture adds over the single-UE rank-1 topology is superposition at
+# a MULTI-PORT receiver: both uplinks land on the same two gNB receive ports, so
+# every gNB RX row is the sum of both UEs' columns. The matrix checker
+# reconstructs each row from all incoming links and additionally requires that
+# removing either UE breaks the match, so a relay that dropped one user could
+# not pass.
+#
+# Claim boundary: two single-layer users sharing a cell in time, not same-PRB
+# MU-MIMO. The emulator superposes whatever the scheduler actually transmits;
+# it does not make the gNB serve both users on the same resources.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+
+devices:
+  - id: gnb0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://*:2001
+  - id: gnb0_p1
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2002
+    rx_endpoint: tcp://*:2003
+  - id: ue0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://*:2100
+  - id: ue1_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://*:2102
+
+radio_nodes:
+  - id: gnb0
+    tx_ports:
+      - gnb0_p0
+      - gnb0_p1
+    rx_ports:
+      - gnb0_p0
+      - gnb0_p1
+  - id: ue0
+    tx_ports:
+      - ue0_p0
+    rx_ports:
+      - ue0_p0
+  - id: ue1
+    tx_ports:
+      - ue1_p0
+    rx_ports:
+      - ue1_p0
+
+links:
+  - from: gnb0
+    to: ue0
+    model: dl_miso_2x1_ue0
+  - from: gnb0
+    to: ue1
+    model: dl_miso_2x1_ue1
+  - from: ue0
+    to: gnb0
+    model: ul_simo_1x2_ue0
+  - from: ue1
+    to: gnb0
+    model: ul_simo_1x2_ue1
+
+models:
+  # DL row to ue0. |h0| near the 1x1 budget because srsRAN precodes rank-1 PDSCH onto port 0.
+  dl_miso_2x1_ue0:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.80
+          imag: 0.10
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.25
+          imag: -0.15
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # DL row to ue1: a distinct row, so the two users do not share a channel.
+  dl_miso_2x1_ue1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.65
+          imag: -0.20
+        - tap: 0
+          rx: 0
+          tx: 1
+          real: 0.30
+          imag: 0.20
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue0: one independent branch per gNB receive port.
+  ul_simo_1x2_ue0:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.75
+          imag: -0.10
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.15
+          imag: 0.25
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
+  # UL column from ue1. Deliberately weighted toward rx port 1 while ue0 favours port 0, so the two users are separable at the array and neither row is dominated by one user.
+  ul_simo_1x2_ue1:
+    fixed_mimo:
+      coefficients:
+        - tap: 0
+          rx: 0
+          tx: 0
+          real: 0.35
+          imag: 0.45
+        - tap: 0
+          rx: 1
+          tx: 0
+          real: 0.60
+          imag: -0.25
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.0
+            gain_db: 0.0
+            phase_rad: 0.0
