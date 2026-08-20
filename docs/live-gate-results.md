@@ -187,6 +187,69 @@ rather than guessed at again.
 `rx_mutex`, so any headroom check made while already holding that lock must be
 computed inline or it self-deadlocks. That cost a hung `test_broker` run.)
 
+### Why the cell waits at all, and what would remove the wait
+
+Two waits chain together, and neither is fundamental.
+
+**The emulator waits** because a node sizes its slot as
+`common = min(avail)` over every incoming lane: to compute `y = SUM H*x` it
+needs a sample from every source at the same instant. That is correct for
+coherence, but `avail == 0` cannot distinguish a peer that is momentarily caught
+up from one that has never existed.
+
+**The gNB waits** because the broker holds a receive request until the node has
+produced. So the emulator's internal coherence rule propagates outward and stops
+the radio's transmit path, since a lock-step radio blocks in receive until
+answered.
+
+Everything else in this section follows from those two. The evidence that they
+are not fundamental is that the topology already names every peer: the broker
+could be told which endpoints to expect and treat "declared but not yet
+connected" as a first-class state, distinct from "connected and briefly idle".
+That is the change that would remove the wait. It is a lifecycle and schema
+change, not a patch to the window calculation.
+
+### What was measured while trying to remove it
+
+Four broker variants were built and reverted. Each is recorded with the
+measurement that killed it, because each looked correct in isolation:
+
+| Variant | Result |
+|---|---|
+| Cold source contributes silence | cell runs from the first UE, ue0 attaches with a PDU session; later UEs jam |
+| + late-joiner cursor snapped to frontier | ring jam cleared (2396160 -> 46096, room stalls 1.3M -> 0), `tx_queue_overflows` 0; still one PRACH |
+| + cold sink discards when nothing listens | `test_broker` fails outright: "broker served no RX requests" |
+| + cold sink trims to one batch of air | ctest passes, `tx_queue_overflows` returns (395); still one PRACH |
+
+The last two exist because of a distinct defect worth recording on its own: a
+port whose radio has not connected accumulates downlink history, and when that
+radio finally starts it is served minutes-old air. A late UE decoded an EARLIER
+UE's random access response out of that backlog and logged
+
+```
+Random Access Complete.  c-rnti=0x4601, ta=0
+```
+
+with the same C-RNTI as the first UE and `ta=0`, despite its own link carrying a
+16-sample delay that would have produced `ta≈32`. It never transmitted a
+detectable preamble, and it stopped retrying because it believed it had
+attached. Any fix for multi-UE has to bound that staleness as well as the
+stall.
+
+### What is confirmed to work
+
+- **Distinct propagation delay separates UEs.** With identical delays the gNB
+  detects one preamble for a whole run; with distinct delays it detects
+  hundreds, at the right timing advances (`ta` 0.00 / 1.56 / 3.91 us for
+  0 / 16 / 48-sample links, matching the symmetric round trip).
+- **Equal transmit power matters once delays separate them.** An earlier near/far
+  spread of 16 dB pushed the far UEs to `power_dB -3.61` and
+  `detection_metric 3.9`, against 15.14 and 86.8 for the near UE.
+- **Simultaneous launch with distinct delays attaches a UE that is not the
+  first**: ue3 reached `c-rnti=0x4603`, a PDU session and IP 10.45.1.5, which no
+  earlier configuration achieved. It does not attach all four, because all four
+  then RACH continuously and depress each other's detection metric.
+
 ### Corrections to earlier explanations
 
 Three explanations were published in this branch before this one and are all

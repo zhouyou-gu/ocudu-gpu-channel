@@ -11,13 +11,12 @@
 # break each time, so a relay that dropped or double-counted any user cannot
 # pass.
 #
-# Column magnitudes carry a deliberate near/far spread -- roughly 0.50, 0.355,
-# 0.25 and 0.158, the amplitude equivalent of the 6/9/12/16 dB path losses in
-# the single-antenna multi-UE fixture. This is load-bearing, not decoration.
-# Contention-based RACH puts several UEs on one PRACH occasion, and with equal
-# receive power their Msg3 transmissions collide with no capture effect and none
-# decodes -- measured: an earlier equal-power version of this file left three of
-# four UEs unable to attach at all. A power spread lets contention resolve.
+# Coefficient magnitudes are deliberately COMPARABLE across the four UEs.
+# Separation comes from delay, not from power. An earlier version carried a
+# 16 dB near/far spread on the theory that contention needed a capture effect;
+# with distinct delays that is unnecessary, and it was actively harmful -- the
+# far UE's preamble arrived 17 dB down (power_dB -3.61 against ue0's 13.56) and
+# barely cleared the detector, giving detection_metric 3.9 against 86.9.
 #
 # Propagation delay is DISTINCT per UE (0 / 16 / 32 / 48 samples at 23.04 MS/s,
 # roughly 0 / 208 / 417 / 625 ns, i.e. about 0 / 104 / 208 / 313 m of extra
@@ -132,13 +131,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.45
-          imag: 0.06
+          real: 0.80
+          imag: 0.10
         - tap: 0
           rx: 0
           tx: 1
-          real: 0.16
-          imag: -0.09
+          real: 0.25
+          imag: -0.15
     chain:
       - type: tdl
         taps:
@@ -152,13 +151,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.30
-          imag: -0.10
+          real: 0.78
+          imag: -0.18
         - tap: 0
           rx: 0
           tx: 1
-          real: 0.15
-          imag: 0.10
+          real: 0.22
+          imag: 0.20
     chain:
       - type: tdl
         taps:
@@ -172,13 +171,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.21
-          imag: 0.09
+          real: 0.75
+          imag: 0.25
         - tap: 0
           rx: 0
           tx: 1
-          real: 0.11
-          imag: -0.06
+          real: 0.28
+          imag: -0.12
     chain:
       - type: tdl
         taps:
@@ -192,13 +191,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.13
-          imag: -0.06
+          real: 0.79
+          imag: -0.12
         - tap: 0
           rx: 0
           tx: 1
-          real: 0.08
-          imag: 0.04
+          real: 0.24
+          imag: 0.18
     chain:
       - type: tdl
         taps:
@@ -212,13 +211,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.45
-          imag: -0.06
+          real: 0.75
+          imag: -0.10
         - tap: 0
           rx: 1
           tx: 0
-          real: 0.20
-          imag: 0.12
+          real: 0.15
+          imag: 0.25
     chain:
       - type: tdl
         taps:
@@ -232,13 +231,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.20
-          imag: 0.24
+          real: 0.72
+          imag: 0.22
         - tap: 0
           rx: 1
           tx: 0
-          real: 0.21
-          imag: -0.09
+          real: 0.18
+          imag: -0.22
     chain:
       - type: tdl
         taps:
@@ -252,13 +251,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.11
-          imag: -0.19
+          real: 0.74
+          imag: -0.20
         - tap: 0
           rx: 1
           tx: 0
-          real: 0.14
-          imag: 0.08
+          real: 0.20
+          imag: 0.18
     chain:
       - type: tdl
         taps:
@@ -272,13 +271,13 @@ models:
         - tap: 0
           rx: 0
           tx: 0
-          real: 0.14
-          imag: 0.05
+          real: 0.73
+          imag: 0.16
         - tap: 0
           rx: 1
           tx: 0
-          real: 0.06
-          imag: -0.05
+          real: 0.17
+          imag: -0.24
     chain:
       - type: tdl
         taps:
