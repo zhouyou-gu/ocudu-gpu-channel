@@ -26,7 +26,11 @@ broker_image="${OCUDU_MUE_BROKER_IMAGE:-}"
 # after ue0 is RRC-connected makes ue1 RACH on a later occasion -> distinct
 # C-RNTIs. 0 disables the stagger (the both-at-once collision repro).
 ue_stagger_seconds="${OCUDU_MUE_UE_STAGGER_SECONDS:-10}"
-srsran_ref="${SRSRAN_4G_REF:-release_23_11}"
+# srsUE base: latest zhouyou-gu/srsRAN_4G master. release_23_11 cannot run more
+# than one UE on a cell -- a UE that loses RACH contention reports a successful
+# attach and stops retrying, so only one of four ever gets a session. master
+# fixes that, and adds the SRSUE_PRACH_PREAMBLE_INDEX override used below.
+srsran_ref="${SRSRAN_4G_REF:-master}"
 ping_count="${OCUDU_MUE_PING_COUNT:-3}"
 # How many srsUEs to attach. Two is the historical value and keeps this gate's
 # original behaviour; the harness itself is not limited to two.
@@ -291,14 +295,15 @@ YAML
 
 cat >"${srsue_dockerfile}" <<'DOCKER'
 FROM ubuntu:22.04
-ARG SRSRAN_4G_REF=release_23_11
+ARG SRSRAN_4G_REPO=https://github.com/zhouyou-gu/srsRAN_4G.git
+ARG SRSRAN_4G_REF=master
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates cmake g++ gcc git iproute2 iputils-ping \
     libboost-program-options-dev libconfig++-dev libfftw3-dev \
     libmbedtls-dev libsctp-dev libzmq3-dev make net-tools pkg-config \
   && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --branch "${SRSRAN_4G_REF}" https://github.com/srsran/srsRAN_4G.git /src/srsran_4g \
+RUN git clone --depth 1 --branch "${SRSRAN_4G_REF}" "${SRSRAN_4G_REPO}" /src/srsran_4g \
   && cmake -S /src/srsran_4g -B /src/srsran_4g/build -DCMAKE_BUILD_TYPE=Release \
        -DENABLE_EXPORT=ON -DENABLE_ZEROMQ=ON -DENABLE_UHD=OFF \
   && cmake --build /src/srsran_4g/build -j"$(nproc)" --target srsue \
@@ -410,7 +415,8 @@ docker rm -f open5gs_5gc ocudu_gnb $(for ((i = 0; i < ue_count; i++)); do printf
 if [[ "${build_docker}" == "1" ]]; then
   "${compose[@]}" build 5gc gnb >"${log_dir}/docker-build.log" 2>&1
 fi
-if ! docker build --build-arg "SRSRAN_4G_REF=${srsran_ref}" -f "${srsue_dockerfile}" \
+if ! docker build --build-arg "SRSRAN_4G_REPO=${SRSRAN_4G_REPO:-https://github.com/zhouyou-gu/srsRAN_4G.git}" \
+     --build-arg "SRSRAN_4G_REF=${srsran_ref}" -f "${srsue_dockerfile}" \
      -t "${srsue_image}" "${config_dir}" >"${log_dir}/srsue-docker-build.log" 2>&1; then
   echo "SRSUE BUILD FAILED"; tail -25 "${log_dir}/srsue-docker-build.log"
   write_summary "srsue_build_failed" 2
@@ -447,17 +453,28 @@ fi
 sleep 3
 
 run_srsue() {
-  # $1 container name  $2 tx port  $3 config  $4 log
+  # $1 container name  $2 tx port  $3 config  $4 log  $5 preamble index
   docker run --rm --name "$1" --privileged --cap-add NET_ADMIN --device /dev/net/tun \
     --add-host host.docker.internal:host-gateway -p "$2:$2" \
+    -e "SRSUE_PRACH_PREAMBLE_INDEX=${5:-0}" \
     -v "$3:/config/ue.conf:ro" --entrypoint /bin/sh \
     "${srsue_image}" -lc 'mkdir -p /var/run/netns && ip netns add ue1 && exec srsue /config/ue.conf' \
     >"$4" 2>&1 &
 }
-# Launch the UEs one at a time. srsRAN ZMQ radios share the broker's lock-step
-# virtual time, so UEs started together transmit the identical RACH preamble on
-# the identical PRACH occasion. Each UE waits for its predecessor to attach
-# before starting, capped so one failing UE cannot hang the gate.
+# Launch the UEs one at a time, each waiting for its predecessor to attach,
+# capped so one failing UE cannot hang the gate. The distinct preamble index
+# below is what lets several UEs share the cell; the stagger is what makes it
+# reliable. srsRAN ZMQ radios share the broker's lock-step virtual time, so UEs
+# started together land their preambles in the same PRACH occasion and contend
+# for the same msg3 grants.
+#
+# Do NOT wait here for a UE to establish its PDU session before starting the
+# next one. A destination cannot advance until every incoming edge has data, so
+# the cell produces nothing until the LAST UE's radio is running: the earlier
+# UEs cannot attach yet by construction, so each wait burns its full timeout.
+# Measured at ue_count=4 with a 40 s wait, the last UE launched at ~156 s, past
+# the gate's own 150 s duration -- the broker stopped with tx_pulls=9, having
+# relayed nothing, and no UE ever transmitted a preamble.
 for ((i = 0; i < ue_count; i++)); do
   if [[ "${i}" -gt 0 && "${ue_stagger_seconds}" -gt 0 ]]; then
     for _ in $(seq 1 "${ue_stagger_seconds}"); do
@@ -466,12 +483,10 @@ for ((i = 0; i < ue_count; i++)); do
     done
     sleep 2
   fi
-  run_srsue "ocudu_srsue_${i}" "$((2101 + 2 * i))" "${srsue_configs[i]}" "${log_dir}/srsue${i}.log"
+  # Distinct contention-based preamble per UE, so they do not share an
+  # RA-RNTI and steal each other's random-access response.
+  run_srsue "ocudu_srsue_${i}" "$((2101 + 2 * i))" "${srsue_configs[i]}" "${log_dir}/srsue${i}.log" "${i}"
   ue_pids[i]="$!"
-  for _ in $(seq 1 "${OCUDU_MUE_ATTACH_WAIT_SECONDS:-40}"); do
-    grep -q 'PDU Session Establishment successful' "${log_dir}/srsue${i}.log" 2>/dev/null && break
-    sleep 1
-  done
 done
 
 deadline=$((SECONDS + duration_seconds))
