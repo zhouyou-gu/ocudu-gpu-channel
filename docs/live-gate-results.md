@@ -146,6 +146,47 @@ participant joins, rather than patching one lane's cursor, which is a design
 decision about what a running cell does when a new radio appears and is left
 open deliberately.
 
+### Defect 3, and the symmetric wall behind it
+
+Combining the delay fix with cold-source admission and a late-joiner cursor snap
+does clear the ring jam -- the late UEs' rings drop from 2396160/2457600 with
+over a million room stalls to 46096/2457600 with **zero**. But the pressure only
+moves to the other side of the same loop:
+
+```
+gnb0_p0 ring=2442540/2457600  room_stall=2120691  state=wait_room
+```
+
+A UE node whose radio has not launched still processes downlink into a receive
+ring nobody drains. It fills, that node stalls on `output_room`, stops consuming
+the gNB's transmit ring, and back-pressures the gNB itself.
+
+The symmetric fix -- a sink with no listener discards instead of blocking -- was
+implemented and **fails on a contract the existing tests defend**. `test_broker`
+rejects it immediately:
+
+```
+multi-ue lockstep: tx_pulls=6 rx_requests=0 gnb_received=0
+FAIL: broker served no RX requests (multi-device relay dead-locked)
+```
+
+The reason is that the sink side has no equivalent of the source side's
+`next_sequence() == 0`. "Has not requested yet" and "will never request" look
+identical, and a radio that starts slowly would silently lose its first samples
+-- which is exactly what the test is there to prevent. On the source side the
+distinction is decidable; on the sink side it is not, without something outside
+the ring telling the broker whether a peer is expected at all.
+
+That is the shape of the remaining work: the topology already declares which
+peers exist, so the broker could be told which endpoints to expect and treat an
+unconnected-but-declared sink differently from a slow one. That is a schema and
+lifecycle change, not a patch to the room calculation, and it is left open
+rather than guessed at again.
+
+(Implementation note for whoever picks this up: `rx_headroom()` takes
+`rx_mutex`, so any headroom check made while already holding that lock must be
+computed inline or it self-deadlocks. That cost a hung `test_broker` run.)
+
 ### Corrections to earlier explanations
 
 Three explanations were published in this branch before this one and are all
