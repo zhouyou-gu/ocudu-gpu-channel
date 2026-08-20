@@ -1,12 +1,17 @@
 name: Deploy docs to GitHub Pages
 
-# Manual-only until GitHub Pages is enabled on the repo
-# (Settings → Pages → Source: GitHub Actions). Once enabled, switch this
-# to also fire on push:
-#   push:
-#     branches: [main]
-#     paths: ['docs/**', '.github/workflows/pages.yml']
+# Pages is enabled on the repo with Source: GitHub Actions, so this fires on
+# every push that touches the published docs. Before that it was manual-only,
+# which meant docs/ changes shipped to main without the site ever rebuilding --
+# the published page sat months behind the repo.
+#
+# workflow_dispatch is kept for forcing a redeploy without a docs change.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
