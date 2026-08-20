@@ -1,0 +1,108 @@
+# Multi-UE OCUDU interop topology: one gNB, four UEs, through the CUDA broker.
+#
+# Nodes:  gnb0, ue0..ue3
+# Edges:  gnb0->ueN  downlink  (fan-out: one gNB TX, multi-reader ring)
+#         ueN->gnb0  uplink    (fan-in: the four UE uplinks SUM at the gNB RX)
+#
+# The four-UE counterpart of topology.ocudu-docker.multi-ue.cuda.yaml, with the
+# same near/far spread extended across four users so the gNB RX is the sum of a
+# strong, two medium and a weak uplink. AWGN uses `snr_db` relative to each
+# edge's post-path-loss signal, so the link budget stays scale-independent and
+# every UE remains attachable.
+#
+# Attaching four UEs also needs the srsUE preamble-index patch applied by
+# scripts/remote/ocudu-multi-ue-smoke.sh: stock srsUE hardcodes preamble index 0,
+# so without it every UE shares an RA-RNTI and only one completes attach.
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 2457600
+devices:
+  - id: gnb0
+    role: gnb
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2000
+    rx_endpoint: tcp://*:2001
+  - id: ue0
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2101
+    rx_endpoint: tcp://*:2100
+  - id: ue1
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2103
+    rx_endpoint: tcp://*:2102
+  - id: ue2
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2105
+    rx_endpoint: tcp://*:2104
+  - id: ue3
+    role: ue
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:2107
+    rx_endpoint: tcp://*:2106
+links:
+  - from: gnb0
+    to: ue0
+    model: near
+  - from: gnb0
+    to: ue1
+    model: mid1
+  - from: gnb0
+    to: ue2
+    model: mid2
+  - from: gnb0
+    to: ue3
+    model: far
+  - from: ue0
+    to: gnb0
+    model: near
+  - from: ue1
+    to: gnb0
+    model: mid1
+  - from: ue2
+    to: gnb0
+    model: mid2
+  - from: ue3
+    to: gnb0
+    model: far
+models:
+  # Near UE: light path loss, small phase offset, high SNR.
+  near:
+    chain:
+      - type: path_loss
+        path_loss_db: 6
+      - type: phase
+        phase_rad: 0.15
+      - type: awgn
+        snr_db: 30
+  # Mid UE.
+  mid1:
+    chain:
+      - type: path_loss
+        path_loss_db: 9
+      - type: phase
+        phase_rad: 0.28
+      - type: awgn
+        snr_db: 25
+  # Mid UE, weaker.
+  mid2:
+    chain:
+      - type: path_loss
+        path_loss_db: 12
+      - type: phase
+        phase_rad: 0.41
+      - type: awgn
+        snr_db: 20
+  # Far UE: heaviest path loss, largest phase offset, degraded SNR -- still comfortably decodable.
+  far:
+    chain:
+      - type: path_loss
+        path_loss_db: 16
+      - type: phase
+        phase_rad: 0.55
+      - type: awgn
+        snr_db: 15

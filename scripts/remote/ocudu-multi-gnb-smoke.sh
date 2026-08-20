@@ -27,7 +27,9 @@ broker_image="${OCUDU_MGNB_BROKER_IMAGE:-}"
 # collide on RACH, but staggering ue1 until ue0 is RRC-connected still removes
 # any startup race. 0 disables it.
 ue_stagger_seconds="${OCUDU_MGNB_UE_STAGGER_SECONDS:-8}"
-srsran_ref="${SRSRAN_4G_REF:-release_23_11}"
+# srsUE base: latest zhouyou-gu/srsRAN_4G master, which carries the
+# SRSUE_PRACH_PREAMBLE_INDEX override used to give each UE its own preamble.
+srsran_ref="${SRSRAN_4G_REF:-master}"
 
 case "${REMOTE_PROJECT_ROOT}" in
   "~/"*) remote_dest="${REMOTE_PROJECT_ROOT#\~/}" ;;
@@ -178,18 +180,63 @@ awk '
 # Compose override: point Open5GS at a two-UE subscriber CSV, publish the cell-0
 # gNB TX port, and add a second gNB (cell 1) on its own 5GC-network IP, ZMQ
 # port and layered config.
-cat >"${compose_override}" <<'YAML'
+# OCUDU's compose hard-codes the `ran` and `metrics` subnets. On a workstation
+# that already hosts another 5G stack -- or a second gate running concurrently --
+# those pools are taken and compose fails the whole run at network creation,
+# before a container starts:
+#   "invalid pool request: Pool overlaps with other one on this address space"
+# Pick pools nothing else claims, and render an Open5GS env file carrying the
+# matching address -- the core binds the literal address from that file and
+# aborts with "Cannot assign requested address" if it is left behind.
+pick_free_subnet() {
+  local -a taken
+  mapfile -t taken < <(docker network ls --format '{{.Name}}' | while read -r net; do
+    docker network inspect "${net}" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null
+  done | tr ' ' '\n' | sed '/^$/d')
+  local candidate existing clash
+  for candidate in "$@"; do
+    clash=0
+    for existing in "${taken[@]}"; do
+      [[ "${existing}" == "${candidate}" ]] && clash=1 && break
+    done
+    [[ "${clash}" -eq 0 ]] && printf '%s\n' "${candidate}" && return 0
+  done
+  return 1
+}
+ran_subnet="${OCUDU_MGNB_RAN_SUBNET:-$(pick_free_subnet 10.53.1.0/24 10.63.1.0/24 10.64.1.0/24 10.65.1.0/24)}"
+metrics_subnet="${OCUDU_MGNB_METRICS_SUBNET:-$(pick_free_subnet 172.19.1.0/24 172.29.1.0/24 172.30.1.0/24)}"
+[[ -n "${ran_subnet}" && -n "${metrics_subnet}" ]] || { echo "no free /24 for the gate networks" >&2; exit 1; }
+ran_prefix="${ran_subnet%.0/24}"
+metrics_prefix="${metrics_subnet%.0/24}"
+export OPEN5GS_IP="${ran_prefix}.2"
+export GNB_IP="${ran_prefix}.3"
+open5gs_env="${config_dir}/open5gs.env"
+sed -e "s|^OPEN5GS_IP=.*|OPEN5GS_IP=${OPEN5GS_IP}|" \
+    -e "s|^UPF_ADVERTISE_IP=.*|UPF_ADVERTISE_IP=${OPEN5GS_IP}|" \
+    "${ocudu_root}/docker/open5gs/open5gs.env" >"${open5gs_env}"
+export OPEN_5GS_ENV_FILE="${open5gs_env}"
+printf 'ran_subnet=%s\nmetrics_subnet=%s\n' "${ran_subnet}" "${metrics_subnet}" >"${log_dir}/network-selection.txt"
+
+cat >"${compose_override}" <<YAML
 services:
   5gc:
     environment:
       SUBSCRIBER_DB: /open5gs/subscriber_db.csv
+    networks:
+      ran:
+        ipv4_address: ${OPEN5GS_IP}
   gnb:
     ports:
       - "3000:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      ran:
+        ipv4_address: ${GNB_IP}
+      metrics:
+        ipv4_address: ${metrics_prefix}.3
     build:
-      dockerfile: ${OCUDU_ZMQ_DOCKERFILE}
+      dockerfile: \${OCUDU_ZMQ_DOCKERFILE}
       args:
         EXTRA_CMAKE_ARGS: "-DENABLE_ZEROMQ=ON -DENABLE_EXPORT=ON -DZEROMQ_INCLUDE_DIRS=/usr/include -DZEROMQ_LIBRARIES=/usr/lib/x86_64-linux-gnu/libzmq.so"
         OS: "ubuntu"
@@ -208,9 +255,9 @@ services:
       - gnb1_compose_config.yml
     networks:
       ran:
-        ipv4_address: 10.53.1.4
+        ipv4_address: ${ran_prefix}.4
       metrics:
-        ipv4_address: 172.19.1.4
+        ipv4_address: ${metrics_prefix}.4
     ports:
       - "3002:3002"
     extra_hosts:
@@ -221,33 +268,45 @@ services:
     command: gnb -c /gnb1_config.yml -c /gnb1_compose_config.yml
 configs:
   gnb1_config.yml:
-    file: ${GNB1_CONFIG_PATH}
+    file: \${GNB1_CONFIG_PATH}
   gnb1_compose_config.yml:
     content: |
       cu_cp:
         amf:
-          addrs: 10.53.1.2
-          bind_addrs: 10.53.1.4
+          addrs: ${OPEN5GS_IP}
+          bind_addrs: ${ran_prefix}.4
       metrics:
         autostart_stdout_metrics: true
         enable_json: true
       remote_control:
         bind_addr: 0.0.0.0
         enabled: true
+networks:
+  ran:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${ran_subnet}
+  metrics:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${metrics_subnet}
 volumes:
   gnb1-storage:
 YAML
 
 cat >"${srsue_dockerfile}" <<'DOCKER'
 FROM ubuntu:22.04
-ARG SRSRAN_4G_REF=release_23_11
+ARG SRSRAN_4G_REPO=https://github.com/zhouyou-gu/srsRAN_4G.git
+ARG SRSRAN_4G_REF=master
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates cmake g++ gcc git iproute2 iputils-ping \
     libboost-program-options-dev libconfig++-dev libfftw3-dev \
     libmbedtls-dev libsctp-dev libzmq3-dev make net-tools pkg-config \
   && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --branch "${SRSRAN_4G_REF}" https://github.com/srsran/srsRAN_4G.git /src/srsran_4g \
+RUN git clone --depth 1 --branch "${SRSRAN_4G_REF}" "${SRSRAN_4G_REPO}" /src/srsran_4g \
   && cmake -S /src/srsran_4g -B /src/srsran_4g/build -DCMAKE_BUILD_TYPE=Release \
        -DENABLE_EXPORT=ON -DENABLE_ZEROMQ=ON -DENABLE_UHD=OFF \
   && cmake --build /src/srsran_4g/build -j"$(nproc)" --target srsue \
@@ -350,7 +409,8 @@ docker rm -f open5gs_5gc ocudu_gnb ocudu_gnb1 ocudu_srsue_0 ocudu_srsue_1 >"${lo
 if [[ "${build_docker}" == "1" ]]; then
   "${compose[@]}" build 5gc gnb >"${log_dir}/docker-build.log" 2>&1
 fi
-if ! docker build --build-arg "SRSRAN_4G_REF=${srsran_ref}" -f "${srsue_dockerfile}" \
+if ! docker build --build-arg "SRSRAN_4G_REPO=${SRSRAN_4G_REPO:-https://github.com/zhouyou-gu/srsRAN_4G.git}" \
+     --build-arg "SRSRAN_4G_REF=${srsran_ref}" -f "${srsue_dockerfile}" \
      -t "${srsue_image}" "${config_dir}" >"${log_dir}/srsue-docker-build.log" 2>&1; then
   echo "SRSUE BUILD FAILED"; tail -25 "${log_dir}/srsue-docker-build.log"
   write_summary "srsue_build_failed" 2

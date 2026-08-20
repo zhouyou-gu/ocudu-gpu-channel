@@ -8,7 +8,9 @@ source "${script_dir}/common.sh"
 branch="${OCUDU_ATTACH_BRANCH:-$(git -C "${repo_root}" branch --show-current)}"
 duration_seconds="${OCUDU_ATTACH_DURATION_SECONDS:-15}"
 build_docker="${OCUDU_ATTACH_BUILD_DOCKER:-1}"
-srsran_ref="${SRSRAN_4G_REF:-release_23_11}"
+# srsUE base: latest zhouyou-gu/srsRAN_4G master, which carries the
+# SRSUE_PRACH_PREAMBLE_INDEX override used to give each UE its own preamble.
+srsran_ref="${SRSRAN_4G_REF:-master}"
 skip_remote_pull="${OCUDU_ATTACH_SKIP_REMOTE_PULL:-0}"
 sync_worktree="${OCUDU_ATTACH_SYNC_WORKTREE:-1}"
 # Override the broker topology with OCUDU_ATTACH_TOPOLOGY (path is relative
@@ -213,24 +215,81 @@ awk '
   }
 ' "${ocudu_root}/docker/Dockerfile" >"${ocudu_dockerfile}"
 
-cat >"${compose_override}" <<'YAML'
+# OCUDU's compose hard-codes the `ran` and `metrics` subnets. On a workstation
+# already hosting another 5G stack those pools are taken and compose fails the
+# whole run at network creation, before any container starts:
+#   "invalid pool request: Pool overlaps with other one on this address space"
+# Pick pools nothing else claims, and render an Open5GS env file carrying the
+# matching address -- the core binds the literal address from that file and
+# aborts with "Cannot assign requested address" if it is left behind.
+pick_free_subnet() {
+  local -a taken
+  mapfile -t taken < <(docker network ls --format '{{.Name}}' | while read -r net; do
+    docker network inspect "${net}" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null
+  done | tr ' ' '\n' | sed '/^$/d')
+  local candidate existing clash
+  for candidate in "$@"; do
+    clash=0
+    for existing in "${taken[@]}"; do
+      [[ "${existing}" == "${candidate}" ]] && clash=1 && break
+    done
+    [[ "${clash}" -eq 0 ]] && printf '%s\n' "${candidate}" && return 0
+  done
+  return 1
+}
+ran_subnet="${OCUDU_ATTACH_RAN_SUBNET:-$(pick_free_subnet 10.53.1.0/24 10.63.1.0/24 10.64.1.0/24 10.65.1.0/24)}"
+metrics_subnet="${OCUDU_ATTACH_METRICS_SUBNET:-$(pick_free_subnet 172.19.1.0/24 172.29.1.0/24 172.30.1.0/24)}"
+[[ -n "${ran_subnet}" && -n "${metrics_subnet}" ]] || { echo "no free /24 for the gate networks" >&2; exit 1; }
+ran_prefix="${ran_subnet%.0/24}"
+metrics_prefix="${metrics_subnet%.0/24}"
+export OPEN5GS_IP="${ran_prefix}.2"
+export GNB_IP="${ran_prefix}.3"
+open5gs_env="${config_dir}/open5gs.env"
+sed -e "s|^OPEN5GS_IP=.*|OPEN5GS_IP=${OPEN5GS_IP}|" \
+    -e "s|^UPF_ADVERTISE_IP=.*|UPF_ADVERTISE_IP=${OPEN5GS_IP}|" \
+    "${ocudu_root}/docker/open5gs/open5gs.env" >"${open5gs_env}"
+export OPEN_5GS_ENV_FILE="${open5gs_env}"
+printf 'ran_subnet=%s\nmetrics_subnet=%s\n' "${ran_subnet}" "${metrics_subnet}" >"${log_dir}/network-selection.txt"
+
+cat >"${compose_override}" <<YAML
 services:
+  5gc:
+    networks:
+      ran:
+        ipv4_address: ${OPEN5GS_IP}
   gnb:
     ports:
       - "2000:2000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      ran:
+        ipv4_address: ${GNB_IP}
+      metrics:
+        ipv4_address: ${metrics_prefix}.3
     build:
-      dockerfile: ${OCUDU_ZMQ_DOCKERFILE}
+      dockerfile: \${OCUDU_ZMQ_DOCKERFILE}
       args:
         EXTRA_CMAKE_ARGS: "-DENABLE_ZEROMQ=ON -DENABLE_EXPORT=ON -DZEROMQ_INCLUDE_DIRS=/usr/include -DZEROMQ_LIBRARIES=/usr/lib/x86_64-linux-gnu/libzmq.so"
         OS: "ubuntu"
         OS_VERSION: "24.04"
+networks:
+  ran:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${ran_subnet}
+  metrics:
+    ipam:
+      driver: default
+      config:
+        - subnet: ${metrics_subnet}
 YAML
 
 cat >"${srsue_dockerfile}" <<'DOCKER'
 FROM ubuntu:22.04
-ARG SRSRAN_4G_REF=release_23_11
+ARG SRSRAN_4G_REPO=https://github.com/zhouyou-gu/srsRAN_4G.git
+ARG SRSRAN_4G_REF=master
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -250,7 +309,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     net-tools \
     pkg-config \
   && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --branch "${SRSRAN_4G_REF}" https://github.com/srsran/srsRAN_4G.git /src/srsran_4g \
+RUN git clone --depth 1 --branch "${SRSRAN_4G_REF}" "${SRSRAN_4G_REPO}" /src/srsran_4g \
   && cmake -S /src/srsran_4g -B /src/srsran_4g/build \
       -DCMAKE_BUILD_TYPE=Release \
       -DENABLE_EXPORT=ON \
@@ -346,6 +405,7 @@ if [[ "${build_docker}" == "1" ]]; then
 fi
 
 if ! docker build \
+  --build-arg "SRSRAN_4G_REPO=${SRSRAN_4G_REPO:-https://github.com/zhouyou-gu/srsRAN_4G.git}" \
   --build-arg "SRSRAN_4G_REF=${srsran_ref}" \
   -f "${srsue_dockerfile}" \
   -t "${srsue_image}" \

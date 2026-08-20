@@ -29,9 +29,13 @@ the **unit tests** (`ctest`) and the **synthetic GPU validation**
 - **Milestone A — single UE attach.** OCUDU gNB ↔ CUDA broker ↔ srsUE:
   `rrc_connected=1`, `pdu_session_established=1`, IP ping OK; broker
   data-integrity counters all zero; 0 gNB `Real-time failure in RF: overflow`.
-- **Milestone B — multi-UE on one cell.** Two srsUEs through one gNB over a
-  realistic per-UE channel (per-edge path-loss + phase + AWGN); both attached
-  with distinct C-RNTIs and PDU sessions.
+- **Milestone B — multi-UE on one cell.** Four srsUEs through one gNB over a
+  realistic per-UE channel (per-edge path-loss + phase + AWGN); all four
+  attached with distinct C-RNTIs, PDU sessions and IPs, each on its first
+  random-access attempt. The smokes build srsUE from the latest
+  [`zhouyou-gu/srsRAN_4G`](https://github.com/zhouyou-gu/srsRAN_4G) `master`,
+  which adds a `SRSUE_PRACH_PREAMBLE_INDEX` override so each UE is pinned to its
+  own preamble and a run is reproducible.
 - **Milestone C — multi-gNB with interference.** Two OCUDU gNBs + two srsUEs
   (one per cell) on a 4-node / 8-edge inter-cell-interference topology; each
   gNB's RX is the GPU superposition of its serving UE plus the other cell's
