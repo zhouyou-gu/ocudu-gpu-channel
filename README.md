@@ -1,6 +1,6 @@
 # ocudu-gpu-channel
 
-Author: **Zhouyou Gu**, SUTD
+Lead: **Zhouyou Gu**, SUTD · rank-1 MISO/SIMO: **MinwooEun** — see [Contributors](#contributors)
 
 **GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks.**
 Drops between two ZMQ radios, routes `cf32` IQ across multi-gNB / multi-UE
@@ -21,7 +21,7 @@ kernel design, profiling, and performance numbers, see the
 What's proven end-to-end on an RTX 5090 against the OCUDU + srsUE stack.
 
 **Two naming axes, kept distinct so they don't read as competing.**
-*Milestone A/B/C* are the live-radio proof points — what works end-to-end,
+*Milestone A/B/C/D* are the live-radio proof points — what works end-to-end,
 validated by the **live-radio integration** smokes (`ocudu-*-smoke.sh`).
 *Phase 1/2/3* are the internal build roadmap — how it was built, validated by
 the **unit tests** (`ctest`) and the **synthetic GPU validation**
@@ -46,6 +46,19 @@ the **unit tests** (`ctest`) and the **synthetic GPU validation**
   (one per cell) on a 4-node / 8-edge inter-cell-interference topology; each
   gNB's RX is the GPU superposition of its serving UE plus the other cell's
   interferer; both UEs attach to their own cell.
+- **Milestone D — rank-1 MISO/SIMO on a multi-port cell** (MinwooEun). A real
+  OCUDU gNB keeping 2 or 4 antenna ports, against srsUEs that each keep one
+  (`nof_antennas = 1`), through the CUDA broker: per user the downlink is a
+  `1×Nt` row and the uplink an `Nt×1` column, so every claim stays rank-1
+  MISO/SIMO — this is not 2×2, and not same-PRB MU-MIMO. Eight live gates pass,
+  1–4 UEs on 2T2R and 1/2/4 UEs on 4T4R. Each run scores `y = Hx` against the
+  declared topology from the captured wire, not just attach: with four UEs on
+  4T4R all four receive rows reconstruct at ≤ 7.9e-05 against a 1e-04 tolerance,
+  and removing any one user breaks every row by ~1e+02, so a relay serving a
+  subset cannot pass. Live downlink rows are single-branch by declaration —
+  srsRAN radiates SSB and common channels on port 0 only and precodes rank-1
+  PDSCH as `[1, 0, …]` — which is recorded and measured per run rather than
+  assumed.
 - **Phase 2 device channel pipeline — TR 38.901 profiles realtime-fit.** The
   per-edge channel (multi-tap convolution + Jakes Doppler + Rician LOS) runs
   on the GPU by default via `apply_channel_kernel`; host `stage_link()` stays
@@ -235,7 +248,7 @@ continuity error):
 The project is validated in **three test layers**: **unit tests** (`ctest`,
 hardware-free — parity, control plane, broker), **synthetic GPU validation**
 (`gpu-test-sequence.sh`, 7 steps on the RTX 5090 — no live radio), and
-**live-radio integration** (`ocudu-*-smoke.sh` — the Milestone A/B/C attaches
+**live-radio integration** (`ocudu-*-smoke.sh` — the Milestone A/B/C/D attaches
 through a real srsRAN gNB + srsUE). The remote GPU path is user-space only — no
 root needed:
 
