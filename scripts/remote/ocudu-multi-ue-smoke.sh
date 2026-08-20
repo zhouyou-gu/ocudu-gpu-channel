@@ -358,13 +358,19 @@ enable = none
 CONF
 }
 # One srsUE config and one subscriber per UE. Port pairs step by two from
-# 2101/2100, IMSIs and IPs step by one, matching the topology fixtures.
+# 2101/2100, IMSIs and IPs step by one.
+#
+# The IMEI increments its last TWO digits (...19, ...20, ...21, ...) and is
+# zero-padded to keep it 15 digits. Incrementing a single trailing digit
+# produces a 16-digit IMEI from the second UE onward, which is malformed: the
+# UE reaches RRC and then never completes registration, so it looks exactly
+# like a contention failure while being nothing of the kind.
 declare -a srsue_configs
 for ((i = 0; i < ue_count; i++)); do
   srsue_configs[i]="${config_dir}/srsue${i}_zmq.conf"
   write_srsue_config "${srsue_configs[i]}" \
     "$((2101 + 2 * i))" "$((2100 + 2 * i))" \
-    "$(printf '00101012345678%d' "$i")" "$(printf '35349006987331%d' "$((9 + i))")"
+    "$(printf '00101012345678%d' "$i")" "$(printf '3534900698733%02d' "$((19 + i))")"
 done
 
 # Open5GS subscriber CSV (name,imsi,key,op_type,opc,amf,qci,ip). Replaces the
