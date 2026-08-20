@@ -101,6 +101,51 @@ lag=16   max|y - h*x[n-lag]| = 1.31e-07   <- declared value
 lag=17   max|y - h*x[n-lag]| = 1.16e-03
 ```
 
+### The three defects, separated
+
+Running the delay fix together with a cold-source broker change (a node advances
+while a peer has never connected, treating it as silence) isolates the remaining
+work cleanly:
+
+```
+ue0  c-rnti=0x4601  RA=1    rrc=1  pdu=1  ip=10.45.1.2   <- clean attach
+ue1  c-rnti=0x4601  RA=1    rrc=1  pdu=0                 <- decoded ue0's RAR
+ue2  c-rnti=0x4601  RA=1    rrc=1  pdu=0                 <- same
+ue3  RA=200, no c-rnti                                   <- never detected
+PRACH: 1   detected_preambles=[{idx=0 ta=0.00us detection_metric=86.9}]
+```
+
+Detection is strong again (86.9, not the 3.6 seen without the broker change) and
+the first UE attaches properly. So three independent defects, not one:
+
+| # | Defect | Status |
+|---|---|---|
+| 1 | Identical propagation delay collapses all preambles into one peak | **fixed**, this commit |
+| 2 | A cell cannot run until every UE's link is live | fix works but trips `tx_queue_overflows` |
+| 3 | A late-joining lane replays its peer's backlog and jams | **unsolved** |
+
+Defect 3 is why defect 2's benefit stops at the first UE. A lane that goes live
+after the node has started keeps its cursor at 0, so the node replays that
+peer's stream from its first sample. Under the real-time throttle the backlog
+never shrinks: the ring pins at capacity (measured 2396160/2457600 with over a
+million puller room stalls), the puller stalls, and that UE's srsUE blocks in
+`tx()` before its preamble reaches a slot the gNB reads.
+
+Three cursor policies were tried for it and none is right:
+
+| Policy | Result |
+|---|---|
+| Replay from sequence 0 | ring jams at 97%, UE freezes |
+| Snap to the live frontier | discards the startup head start; relay stalls at `tx_pulls=6` |
+| Snap only once the node has produced | `tx_queue_overflows` 317, still one PRACH |
+
+The head start matters because it is the lock-step radios' only timing slack --
+the epoch co-init comment in `broker.cpp` warns of exactly this. The likely
+correct answer is re-establishing a *common* epoch across all lanes when a
+participant joins, rather than patching one lane's cursor, which is a design
+decision about what a running cell does when a new radio appears and is left
+open deliberately.
+
 ### Corrections to earlier explanations
 
 Three explanations were published in this branch before this one and are all
