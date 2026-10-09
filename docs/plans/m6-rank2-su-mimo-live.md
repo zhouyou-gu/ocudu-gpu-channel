@@ -251,7 +251,7 @@ docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HO
 
 ### 8.5 실시간 복원 — OAI ZMQ 드라이버 패치 재측정 (2026-09-28, 워크스테이션 RTX 5090)
 
-M6.4가 벽시계의 0.275배로 흐른 원인은 Spark S9에서 찾은 것과 같다. OAI `radio/zmq/zmq_radio.cpp`의 `tx_poll_thread`는 REP 응답을 보내야 하는데 TX 샘플이 아직 큐에 없으면 `zmq_poll(..., 10)`으로 들어가 응답을 최대 10 ms 늦춘다. 패치 `scripts/native/patches/oai-zmq-tx-reply-poll.patch`(S9, 이 브랜치 `90acaf6`)는 응답을 기다리는 동안 20 µs마다 큐를 다시 본다.
+M6.4가 벽시계의 0.275배로 흐른 원인은 Spark S9에서 찾은 것과 같다. OAI `radio/zmq/zmq_radio.cpp`의 `tx_poll_thread`는 REP 응답을 보내야 하는데 TX 샘플이 아직 큐에 없으면 `zmq_poll(..., 10)`으로 들어가 응답을 최대 10 ms 늦춘다. 패치 `integrations/oai/patches/oai-zmq-tx-reply-poll.patch`(S9, 이 브랜치 `90acaf6`)는 응답을 기다리는 동안 20 µs마다 큐를 다시 본다.
 
 - **빌드:** 핀 트리는 그대로 두고 `zmq_radio.cpp`만 복사해 `builds/oai-zmq-s9`(패치)와 `builds/oai-zmq-s9-stock`(원본, 같은 절차)로 따로 빌드했다. 컴파일 플래그는 원래 빌드의 `flags.make`, 링크는 `link.txt`와 같다. nrUE 바이너리는 두 경우 모두 `builds/oai-zmq-release`의 것이고 ZMQ 모듈만 `OCUDU_NATIVE_OAI_SHLIBPATH`로 바꾼다(2×2 러너에도 같은 노브를 추가, `72a65ec`).
 - **조건:** M6.4와 같다(유니터리 H, back-off 24 dB, rank 2, wire capture). DL UDP 제시율만 200M으로 올렸다(실시간에서 60M은 셀 용량보다 작다). 원본과 패치를 번갈아 2쌍 측정했다. GPU에 다른 프로세스는 없었다.
@@ -339,7 +339,7 @@ docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HO
 
 **어디서 깨지는지 — 코드 위치.** `nr_dlsch_mmse`(`openair1/PHY/NR_UE_TRANSPORT/nr_dlsch_demodulation.c`)는 A = HᴴH를 만든 뒤 `det(A)`와 `adj(A)·(Hᴴy)`(= `det(A)·x`)를 `mult_complex_vectors`로 계산한다. 이 함수(`openair1/PHY/TOOLS/tools_defs.h:337`)는 32비트 곱을 `shift`만큼 민 뒤 **하위 16비트만 남긴다**. 포화(saturation)가 없어서 범위를 넘으면 값이 감긴다(wrap). shift는 슬롯마다 정해지는 `log2_maxh − 1`이다. 수신 전력이 `log2_maxh` 한 단계 안에서 높은 쪽에 있으면 `det`와 출력이 int16을 넘는다. 그러면 등화된 심볼과 LLR 기준값(`det × QAM 진폭`)의 부호가 뒤집힌다. §8.1에서 본 "float ZF × 48.8k"는 `det` 자체가 int16을 넘은 값이었다.
 
-**수정 (`scripts/native/patches/oai-nr-dlsch-mmse-scale.patch`, sha256 `1856ac0f…`).** shift를 데이터로 정한다. 모든 중간 곱은 대략 `2·max|A|²·|x|` 이하이므로, `max|A|² >> s ≤ 2¹³`이 되는 s를 쓰고, stock shift가 충분하면 stock shift를 그대로 쓴다. 출력과 LLR 기준값이 같은 비율로 줄어서 LLR의 기하는 바뀌지 않는다. 추가 shift가 필요 없는 조건에서는 stock과 비트 단위로 같다. 이 함수는 다중 레이어일 때만 불린다(`nl > 2 || (nl == 2 && !do_ml)`, 같은 파일 1021행). 그래서 rank 1과 1×1 경로는 코드상 영향이 없다.
+**수정 (`integrations/oai/patches/oai-nr-dlsch-mmse-scale.patch`, sha256 `1856ac0f…`).** shift를 데이터로 정한다. 모든 중간 곱은 대략 `2·max|A|²·|x|` 이하이므로, `max|A|² >> s ≤ 2¹³`이 되는 s를 쓰고, stock shift가 충분하면 stock shift를 그대로 쓴다. 출력과 LLR 기준값이 같은 비율로 줄어서 LLR의 기하는 바뀌지 않는다. 추가 shift가 필요 없는 조건에서는 stock과 비트 단위로 같다. 이 함수는 다중 레이어일 때만 불린다(`nl > 2 || (nl == 2 && !do_ml)`, 같은 파일 1021행). 그래서 rank 1과 1×1 경로는 코드상 영향이 없다.
 
 **빌드.** `scripts/native/build-oai-ue-local.sh`는 핀 트리를 `git clone --shared`로 `src/oai-local`에 복제하고, 기록된 UE 패치를 적용해 `builds/oai-zmq-local`에 빌드한다(`build-oai-ue.sh`와 같은 플래그·타깃, 일반 사용자 uid 1001). `BUILD-MANIFEST.txt`에 핀, 패치 sha256, `nr-uesoftmodem` sha256을 적는다. 핀 트리와 `builds/oai-zmq-release`는 그대로다. 모든 로컬 OAI 패치와 해시는 `scripts/native/oai-local-patches.sh` 한곳에 있다(ZMQ 패치 포함).
 
@@ -388,7 +388,7 @@ docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HO
 
 | 역할 | 남긴 것 | 없앤 것 |
 |---|---|---|
-| 패치 목록·sha256 (단일 출처) | `scripts/native/oai-local-patches.lock.json` — `zmq_module`(tx-reply-poll; rx-poll은 `optional`), `ue`(nr-dlsch-mmse-scale) | `oai-zmq-module.lock.json`(이름 변경·확장), `oai-local-patches.sh` 안의 하드코딩 배열 |
+| 패치 목록·sha256 (단일 출처) | `integrations/oai/oai-local-patches.lock.json` — `zmq_module`(tx-reply-poll; rx-poll은 `optional`), `ue`(nr-dlsch-mmse-scale) | `oai-zmq-module.lock.json`(이름 변경·확장), `oai-local-patches.sh` 안의 하드코딩 배열 |
 | ZMQ 모듈 빌드 | `build-oai-zmq-patched.py` → `builds/oai-zmq-patched` (manifest.json, lock 항목 digest·패치 파일·모듈 해시 대조, `-ffile-prefix-map`으로 재빌드 바이트 동일, release의 다른 모듈 symlink) | `build-oai-zmq-module.sh` → `builds/oai-zmq-s9` |
 | 패치 UE 빌드 | `build-oai-ue-local.sh` → `builds/oai-zmq-local` (변경 없음, 목록만 lock에서 읽음) | — |
 | 선택기 | `oai-local-patches.sh`의 `resolve_oai_zmq_module`(`OCUDU_NATIVE_OAI_ZMQ_MODULE=patched\|stock`)과 `resolve_oai_ue_build`(`OCUDU_NATIVE_OAI_UE=local\|stock`) | `oai-zmq-module.sh`, 1×1 게이트 안의 인라인 선택 코드 |

@@ -8,7 +8,7 @@
     "url": "https://gitlab.com/ocudu/work_groups/wg1_hw_accel/cuda_accelerated_ocudu.git",
     "branch": "nvcuda_accel_02 @ 5830c9cb + C1 (local commit)",
     "patch": {
-      "path": "scripts/cuda/patches/j2c-ocudu-cuda-orin-d8-d9.patch",
+      "path": "integrations/ocudu/patches/j2c-ocudu-cuda-orin-d8-d9.patch",
       "sha256": "f731d89d55ca982d0c24bad35b1eb2639c9ce37433e634d4551a4df1ab98c16f"
     }
   },

@@ -1,19 +1,19 @@
 {
   "schema": 1,
-  "comment": "DGX Spark (GB10) lock for the C1+D8+D9 CUDA build (SPARK_MILESTONES.md D8/D9): pin + C1 + slope-compensated FD smoothing (D8) + LDPC NMS scale 0.8 (D9) as one combined patch; separate checkout src/ocudu-cuda-d8 and build. cpu_baseline as in cuda-workspace.spark.lock.json.",
+  "comment": "DGX Spark (GB10) lock for the S track (SPARK_MILESTONES.md). Same schema as cuda-workspace.lock.json (the RTX 5090 lock, not edited); selected with OCUDU_CUDA_WORKSPACE_LOCK. Paths are relative to the Spark work root /workspace/ocudu-spark. The patched source is a separate checkout so the unpatched vendor tree used by S1 stays clean.",
   "source": {
     "name": "ocudu-cuda",
-    "path": "src/ocudu-cuda-d8",
+    "path": "src/ocudu-cuda-c1",
     "commit": "5830c9cb7813393b5d518dd5ee2b6641071be4ad",
     "url": "https://gitlab.com/ocudu/work_groups/wg1_hw_accel/cuda_accelerated_ocudu.git",
     "branch": "nvcuda_accel_02",
     "patch": {
-      "path": "scripts/cuda/patches/s-c1-d8-d9.patch",
-      "sha256": "e2be091e3a609179996f6d7851ebf2a65d5f004ad239373fa9cc567f5f4be964"
+      "path": "integrations/ocudu/patches/c1-ocudu-cuda-discrete-and-config.patch",
+      "sha256": "d2579af289c79377e50b55811d563b0cba2587b42f9409bd1001a1e6d934da0a"
     }
   },
   "build": {
-    "build_dir": "builds/d8-cuda-patched-sm121",
+    "build_dir": "builds/s2-cuda-patched-sm121",
     "cuda_architectures": "121",
     "mcpu": "neoverse-v2"
   },

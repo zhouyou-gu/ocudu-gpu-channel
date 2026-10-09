@@ -1,8 +1,8 @@
 #!/bin/bash
 # CMX500 -> USRP -> usrp_zmq_bridge -> GPU channel broker -> ZMQ srsUE (and back), inside the ocudu-quanlong container.
 #
-#   ./run_cmx_loop.sh                 # full loop, the USRP transmits the UE uplink to the CMX
-#   DRY=1 ./run_cmx_loop.sh           # bridge does not transmit (UL timing is still measured)
+#   "${script_dir}/run_cmx_loop.sh"                 # full loop, the USRP transmits the UE uplink to the CMX
+#   DRY=1 "${script_dir}/run_cmx_loop.sh"           # bridge does not transmit (UL timing is still measured)
 #   TOPO=/path/to/topology.yaml DUR=60 ./run_cmx_loop.sh
 #
 # Env: DRY (0), DUR seconds (40), TOPO (topology.cmx-bridge.live.yaml), UL_OFFSET samples (0), TX_GAIN (10),
@@ -13,10 +13,11 @@
 #      PHY_LOG (info): srsUE PHY/MAC log level; warning keeps the UE fast, KPIs then come from metrics.csv,
 #      UE_BUILD (/workspace/builds/srsran4g-cmx): srsUE build directory, e.g. /workspace/builds/srsran4g-minwoo-cmx,
 #      TIMING (0): 1 = bridge writes per-event timing CSVs into the run directory
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 L=/workspace/cmx-loop
 B=/workspace/ocudu-gpu-channel/build-sm121
 DUR=${DUR:-40}
-EX=${EX:-$(cd "$(dirname "$0")/../../use_cases/configs/topologies/cmx" && pwd)} # topologies live in use_cases/configs/topologies/cmx/
+EX=${EX:-$(cd "${script_dir}/../configs/topologies/cmx" && pwd)} # topologies live in use_cases/configs/topologies/cmx/
 TOPO=${TOPO:-$EX/topology.cmx-bridge.live.yaml}
 R=$L/runs/$(date +%Y%m%d-%H%M%S)$([ "${DRY:-0}" = 1 ] && echo -dry)
 mkdir -p $R

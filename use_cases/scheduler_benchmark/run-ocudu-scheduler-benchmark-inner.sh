@@ -263,7 +263,7 @@ while read -r srsue_patch_path srsue_patch_sha; do
   grep -qx "patch=${srsue_patch_path##*/} sha256=${srsue_patch_sha}" "${srsue_manifest}" || \
     usage_error "local srsUE was built from other patches than srsue-local-patches.lock.json; rebuild it"
 done < <(/usr/bin/python3 -c 'import json,sys
-for p in json.load(open(sys.argv[1]))["patches"]: print(p["path"], p["sha256"])' "${repo_root}/scripts/native/srsue-local-patches.lock.json")
+for p in json.load(open(sys.argv[1]))["patches"]: print(p["path"], p["sha256"])' "${repo_root}/integrations/srsran/srsue-local-patches.lock.json")
 fivegc="${native_root}/builds/open5gs-v2.7.6/tests/app/5gc"
 mongod="${native_root}/install/mongodb-6.0.29/bin/mongod"
 broker="${channel_build}/ocudu-gpu-channel"

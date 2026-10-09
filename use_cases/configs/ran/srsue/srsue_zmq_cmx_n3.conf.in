@@ -1,4 +1,4 @@
-# srsUE for a CMX500 5G SA cell (n3 FDD, 10 MHz, 15 kHz) over ZMQ and the USRP bridge (tools/usrp-zmq-bridge).
+# srsUE for a CMX500 5G SA cell (n3 FDD, 10 MHz, 15 kHz) over ZMQ and the USRP bridge (integrations/usrp).
 # Fill @UE_IMSI@ and @UE_K@ with the subscriber of the CMX500 and save as ue-cmx-n3.zmq.conf next to run_cmx_loop.sh.
 [rf]
 time_adv_nsamples = 0

@@ -576,7 +576,7 @@ bash scripts/cuda/c5-paired-measurement.sh
 
 # restore the patched source state if the tree was reset
 cd "$OCUDU_NATIVE_ROOT/src/ocudu-cuda"
-git checkout -- . &amp;&amp; git apply "$OCUDU_REPO/scripts/cuda/patches/c1-ocudu-cuda-discrete-and-config.patch"
+git checkout -- . &amp;&amp; git apply "$OCUDU_REPO/integrations/ocudu/patches/c1-ocudu-cuda-discrete-and-config.patch"
 git diff --binary HEAD | sha256sum          # must read d2579af2…</pre>
   </div>
 </section>

@@ -8,7 +8,7 @@
     "url": "https://gitlab.com/ocudu/work_groups/wg1_hw_accel/cuda_accelerated_ocudu.git",
     "branch": "nvcuda_accel_02",
     "patch": {
-      "path": "scripts/cuda/patches/c1-ocudu-cuda-discrete-and-config.patch",
+      "path": "integrations/ocudu/patches/c1-ocudu-cuda-discrete-and-config.patch",
       "sha256": "d2579af289c79377e50b55811d563b0cba2587b42f9409bd1001a1e6d934da0a"
     }
   },

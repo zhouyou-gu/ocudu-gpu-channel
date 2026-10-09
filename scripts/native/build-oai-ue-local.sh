@@ -42,7 +42,7 @@ patch_lines=()
 for entry in "${OAI_LOCAL_UE_PATCHES[@]}"; do
   name="${entry%%:*}"
   want="${entry##*:}"
-  file="${script_dir}/patches/${name}"
+  file="${script_dir}/../../integrations/oai/patches/${name}"
   got="$(sha256sum "${file}" | cut -d' ' -f1)"
   [[ "${got}" == "${want}" ]] || die "${name} sha256 ${got} is not the recorded ${want}"
   patch -d "${src_dir}" -p1 -s --no-backup-if-mismatch <"${file}"

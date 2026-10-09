@@ -76,9 +76,9 @@ explains what the C1 patch changes and why.
 
 | lock | pinned tree | output | patches |
 |---|---|---|---|
-| `scripts/native/oai-local-patches.lock.json` | OAI `2b69bde6` | `builds/oai-zmq-patched` (ZMQ radio module), `builds/oai-zmq-local` (nr-uesoftmodem) | module: REP reply poll, RX saturation without AVX2, RX gain; UE: 2-layer MMSE int16 wrap, CSI RI accumulator init. Optional (measured, not built): RX poll, NEON conversion (aarch64) |
-| `scripts/native/srsue-local-patches.lock.json` | srsRAN_4G `eea87b1d` | `builds/srsran4g-zmq-local` | RA contention: fixed preamble 0 and ConRes accepted on mismatch merged simultaneous UEs onto one C-RNTI |
-| `scripts/native/ocudu-gnb-local-patches.lock.json` | OCUDU `a1916edc` | `builds/ocudu-zmq-local` | threaded lower PHY over ZMQ, real-time radio worker, no busy polls, single copy (S17; every knob unset = stock) |
+| `integrations/oai/oai-local-patches.lock.json` | OAI `2b69bde6` | `builds/oai-zmq-patched` (ZMQ radio module), `builds/oai-zmq-local` (nr-uesoftmodem) | module: REP reply poll, RX saturation without AVX2, RX gain; UE: 2-layer MMSE int16 wrap, CSI RI accumulator init. Optional (measured, not built): RX poll, NEON conversion (aarch64) |
+| `integrations/srsran/srsue-local-patches.lock.json` | srsRAN_4G `eea87b1d` | `builds/srsran4g-zmq-local` | RA contention: fixed preamble 0 and ConRes accepted on mismatch merged simultaneous UEs onto one C-RNTI |
+| `integrations/ocudu/ocudu-gnb-local-patches.lock.json` | OCUDU `a1916edc` | `builds/ocudu-zmq-local` | threaded lower PHY over ZMQ, real-time radio worker, no busy polls, single copy (S17; every knob unset = stock) |
 
 `scripts/native/check-oai-local-patches.sh` re-verifies the OAI patches and
 artifacts (sha256, dry-run apply, build manifests); `--probe` runs one short

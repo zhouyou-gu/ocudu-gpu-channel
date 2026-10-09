@@ -12,7 +12,7 @@ docs still name them correctly.
 | `ocudu_docker/` | OCUDU gNB + srsUE interop: SISO base (also the base of several native gates), tx-offset, multi-UE, multi-gNB, rank-1 2x1/4x1 with 1–4 UEs | `scripts/remote/ocudu-*-smoke.sh`, `scripts/native/run-ocudu-{legacy-1x1,oai-1x1,multi-ue,multi-gnb}.sh` |
 | `ocudu_native/` | Namespace-native fixtures: rank-1 2x1/4x1/4x1dl, oracle MRT, OAI 2x2 (+ unitary, near-singular), 2-port transport | `scripts/native/run-ocudu-{rank1-*,oai-2x2,mimo-2port-no-core}.sh` |
 | `sionna/` | Sionna RT-driven: 1 gNB/1 UE, 2 gNB/2 UE, 4-port multi-gNB | `scripts/remote/ocudu-multi-gnb-smoke.sh`, `scripts/local/run_synthetic_web_ui.sh` |
-| `cmx/` | CMX500/X310 hardware bridge: passthrough and downlink SNR sweeps | `tools/cmx-loop/` |
+| `cmx/` | CMX500/X310 hardware bridge: passthrough and downlink SNR sweeps | `use_cases/cmx500/` |
 
 Not referenced by any script (kept as documented experiment fixtures):
 `sionna/topology.sionna-1gnb-1ue`, `ocudu_native/topology.ocudu.oai-2x2-near-singular`,

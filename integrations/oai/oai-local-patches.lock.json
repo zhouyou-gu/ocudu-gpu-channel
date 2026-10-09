@@ -11,30 +11,30 @@
       "target": "oai_zmqdevif",
       "patches": [
         {
-          "path": "scripts/native/patches/oai-zmq-tx-reply-poll.patch",
+          "path": "integrations/oai/patches/oai-zmq-tx-reply-poll.patch",
           "sha256": "b2f1e51bfe38385fefcabbd7e9675278f45c5ab165af33429cb19772b5dbb9e3",
           "files": ["radio/zmq/zmq_radio.cpp"]
         },
         {
-          "path": "scripts/native/patches/oai-zmq-rx-saturate.patch",
+          "path": "integrations/oai/patches/oai-zmq-rx-saturate.patch",
           "sha256": "1b741a84fefcc322d74d96a1682e0336d8ffda163ac9bb3066d2f9c3421d4ef0",
           "files": ["radio/zmq/zmq_simd.h"]
         },
         {
-          "path": "scripts/native/patches/oai-zmq-rx-gain.patch",
+          "path": "integrations/oai/patches/oai-zmq-rx-gain.patch",
           "sha256": "f5d2dccea5add26f6badb55c13dac43e8c47e48ef40a305458654b3294691e63",
           "files": ["radio/zmq/zmq_radio.cpp"]
         }
       ],
       "optional": [
         {
-          "path": "scripts/native/patches/oai-zmq-rx-poll.patch",
+          "path": "integrations/oai/patches/oai-zmq-rx-poll.patch",
           "sha256": "149551c7740d8a237479ddf02c717cd73bb43ceeb94ed58555a4e92195629220",
           "files": ["radio/zmq/zmq_imported.cpp"],
           "reason": "S10: +3% slots/s at 100 MHz unpinned, no gain once the platform CPU split is applied (2,060 vs 2,077 slots/s); a measurement knob only, never built into the default module."
         },
         {
-          "path": "scripts/native/patches/oai-zmq-neon-convert.patch",
+          "path": "integrations/oai/patches/oai-zmq-neon-convert.patch",
           "sha256": "85559c9b5a5b8b7b2295e239106ecc048bf666c8bbcf36a7a5c60352216374a4",
           "files": ["radio/zmq/zmq_simd.h"],
           "reason": "Not built into the default module yet (S17, 2026-10-02). NEON paths for the cf32<->int16 conversion on aarch64 (without AVX2 the scalar cleanup loop converts every sample in the UE rx_poll_thread). Measured on GB10, 100 MHz 2x2, as a custom module: UE per-message ingest round trip 469 -> 236 us p50; the pipelined loop real-time factor unchanged (0.72-0.80), the stock sequential loop +5 % (0.65-0.67 -> 0.707). Applies after oai-zmq-rx-saturate.patch. Promote once a --probe pair exists; gates skip ue_rx_gain_db for a custom shlibpath."
@@ -48,12 +48,12 @@
       "output_dir": "builds/oai-zmq-local",
       "patches": [
         {
-          "path": "scripts/native/patches/oai-nr-dlsch-mmse-scale.patch",
+          "path": "integrations/oai/patches/oai-nr-dlsch-mmse-scale.patch",
           "sha256": "1856ac0f0aa11c13bfd5e718a656b616492b39dfdbc194bfc5ecedf44881d691",
           "files": ["openair1/PHY/NR_UE_TRANSPORT/nr_dlsch_demodulation.c"]
         },
         {
-          "path": "scripts/native/patches/oai-csi-ri-amf-init.patch",
+          "path": "integrations/oai/patches/oai-csi-ri-amf-init.patch",
           "sha256": "ade6931e390ea0e5e0ddcb432d9d1c2dc67cfcb13619602737e6a314dde9bf34",
           "files": ["openair1/PHY/NR_UE_TRANSPORT/csi_rx.c"]
         }

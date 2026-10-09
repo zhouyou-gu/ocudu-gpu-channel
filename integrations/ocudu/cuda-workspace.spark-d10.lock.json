@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "comment": "DGX Spark (GB10) lock for the C1+D8+D9+D10 CUDA build (SPARK_MILESTONES.md S13): the D8/D9 combined patch plus D10 (GPU TB encoder kept its own LDPC filler count when the CPU segmenter supplied F=0, so zero-filler multi-CB TBs, e.g. 9474 bytes = 9 BG1 CBs at Z=384, were encoded with the wrong K). D10 alone is scripts/cuda/patches/s-d10-tb-encoder-zero-filler.patch on top of s-c1-d8-d9.patch; this lock carries the combined patch. Separate checkout src/ocudu-cuda-d10 and build. cpu_baseline as in cuda-workspace.spark.lock.json.",
+  "comment": "DGX Spark (GB10) lock for the C1+D8+D9+D10 CUDA build (SPARK_MILESTONES.md S13): the D8/D9 combined patch plus D10 (GPU TB encoder kept its own LDPC filler count when the CPU segmenter supplied F=0, so zero-filler multi-CB TBs, e.g. 9474 bytes = 9 BG1 CBs at Z=384, were encoded with the wrong K). D10 alone is integrations/ocudu/patches/s-d10-tb-encoder-zero-filler.patch on top of s-c1-d8-d9.patch; this lock carries the combined patch. Separate checkout src/ocudu-cuda-d10 and build. cpu_baseline as in cuda-workspace.spark.lock.json.",
   "source": {
     "name": "ocudu-cuda",
     "path": "src/ocudu-cuda-d10",
@@ -8,7 +8,7 @@
     "url": "https://gitlab.com/ocudu/work_groups/wg1_hw_accel/cuda_accelerated_ocudu.git",
     "branch": "nvcuda_accel_02",
     "patch": {
-      "path": "scripts/cuda/patches/s-c1-d8-d9-d10.patch",
+      "path": "integrations/ocudu/patches/s-c1-d8-d9-d10.patch",
       "sha256": "6379fc5d420f7c7fab54880ee75c803df383dcc4e2197d4ff2c7e790371767da"
     }
   },

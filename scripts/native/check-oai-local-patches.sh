@@ -52,7 +52,7 @@ check_patch()
   local entry="$1" kind="${2:-}" name want got file
   name="${entry%%:*}"
   want="${entry##*:}"
-  file="${script_dir}/patches/${name}"
+  file="${script_dir}/../../integrations/oai/patches/${name}"
   got="$(sha256sum "${file}" 2>/dev/null | cut -d' ' -f1)"
   if [[ "${got}" == "${want}" ]]; then
     report PASS "${name} sha256${kind}" "${got:0:12}"
@@ -99,7 +99,7 @@ else
 fi
 
 # srsUE local patches (srsue-local-patches.lock.json, S16): same checks, own pin.
-srsue_lock="${script_dir}/srsue-local-patches.lock.json"
+srsue_lock="${script_dir}/../../integrations/srsran/srsue-local-patches.lock.json"
 srsue_pinned="${native_root}/src/srsRAN_4G"
 srsue_pin="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["srsran_commit"])' "${srsue_lock}")"
 if [[ "$(git -C "${srsue_pinned}" rev-parse HEAD 2>/dev/null)" == "${srsue_pin}" ]] && git -C "${srsue_pinned}" diff --quiet; then

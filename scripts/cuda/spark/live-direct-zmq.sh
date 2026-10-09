@@ -27,7 +27,7 @@ mapfile -t knobs < <(env | grep -E '^OCUDU_(LDPC_[A-Z_]+|PUSCH_[A-Z_]+|DIRECT_[A
 printf 'diagnostic_env=%s\n' "${knobs[*]:-none}" > "$console"
 sudo env HOME=/root PATH="$PATH" "${knobs[@]}" \
   OCUDU_NATIVE_ROOT="${root}" \
-  OCUDU_CUDA_WORKSPACE_LOCK="${SPARK_LOCK:-${repo}/scripts/cuda/cuda-workspace.spark.lock.json}" \
+  OCUDU_CUDA_WORKSPACE_LOCK="${SPARK_LOCK:-${repo}/integrations/ocudu/cuda-workspace.spark.lock.json}" \
   OCUDU_NATIVE_GNB_ACCELERATION="$stage" OCUDU_CUDA_DIRECT_TRAFFIC_SECONDS="$traffic" \
   OCUDU_CUDA_DIRECT_ATTACH_SECONDS="${ATTACH_SECONDS:-60}" \
   bash "${repo}/scripts/cuda/run-ocudu-cuda-direct-zmq.sh" >> "$console" 2>&1

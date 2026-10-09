@@ -6,7 +6,7 @@
   "output_dir": "builds/srsran4g-zmq-local",
   "patches": [
     {
-      "path": "scripts/native/patches/srsue-ra-contention.patch",
+      "path": "integrations/srsran/patches/srsue-ra-contention.patch",
       "sha256": "0f4b9316af3f415b38b4459df1a1035a56f89442a73647895123f6a0869bbfd0",
       "files": [
         "srsue/src/stack/mac_nr/proc_ra_nr.cc",

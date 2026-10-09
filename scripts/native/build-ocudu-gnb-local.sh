@@ -27,7 +27,7 @@ die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 
 native_root="${OCUDU_NATIVE_ROOT:?set OCUDU_NATIVE_ROOT}"
 jobs="${OCUDU_GNB_BUILD_JOBS:-$(nproc)}"
-lock="${script_dir}/ocudu-gnb-local-patches.lock.json"
+lock="${script_dir}/../../integrations/ocudu/ocudu-gnb-local-patches.lock.json"
 pinned="${native_root}/src/ocudu"
 pinned_build="${native_root}/builds/ocudu-zmq-release"
 src_dir="${native_root}/src/ocudu-local"

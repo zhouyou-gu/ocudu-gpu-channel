@@ -13,7 +13,7 @@
 #   OAI_LOCAL_OPTIONAL_PATCHES   "name:sha256" kept for measurement, never built
 
 OAI_LOCAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OAI_LOCAL_LOCK="${OAI_LOCAL_SCRIPT_DIR}/oai-local-patches.lock.json"
+OAI_LOCAL_LOCK="${OAI_LOCAL_SCRIPT_DIR}/../../integrations/oai/oai-local-patches.lock.json"
 OAI_LOCAL_PIN="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["oai_commit"])' "${OAI_LOCAL_LOCK}")"
 oai_local_list()
 {

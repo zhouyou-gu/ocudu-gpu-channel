@@ -12,7 +12,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 # Another platform's lock (e.g. cuda-workspace.spark.lock.json) can be selected
 # with OCUDU_CUDA_WORKSPACE_LOCK; unset, this is the RTX 5090 lock as before.
-LOCK = Path(os.environ.get('OCUDU_CUDA_WORKSPACE_LOCK', str(REPO / 'scripts/cuda/cuda-workspace.lock.json')))
+LOCK = Path(os.environ.get('OCUDU_CUDA_WORKSPACE_LOCK', str(REPO / 'integrations/ocudu/cuda-workspace.lock.json')))
 
 
 def git(root: Path, *args: str) -> bytes:

@@ -262,7 +262,7 @@ case "${srsue_variant}" in
       grep -qx "patch=${srsue_patch_path##*/} sha256=${srsue_patch_sha}" "${srsue_manifest}" || \
         usage_error "local srsUE was built from other patches than srsue-local-patches.lock.json; rebuild it"
     done < <(/usr/bin/python3 -c 'import json,sys
-for p in json.load(open(sys.argv[1]))["patches"]: print(p["path"], p["sha256"])' "${repo_root}/scripts/native/srsue-local-patches.lock.json")
+for p in json.load(open(sys.argv[1]))["patches"]: print(p["path"], p["sha256"])' "${repo_root}/integrations/srsran/srsue-local-patches.lock.json")
     ;;
   *) usage_error "OCUDU_NATIVE_SRSUE must be local or stock" ;;
 esac

@@ -32,7 +32,7 @@ import tempfile
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
-LOCK = SCRIPT_DIR / 'oai-local-patches.lock.json'
+LOCK = REPO_ROOT / 'integrations/oai/oai-local-patches.lock.json'
 MODULE = 'liboai_zmqdevif.so'
 
 

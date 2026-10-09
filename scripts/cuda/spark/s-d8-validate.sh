@@ -16,7 +16,7 @@ root="${PLATFORM_ROOT:-/workspace/ocudu-spark}"
 src="$root/src/ocudu-cuda-d8"
 build="$root/builds/d8-cuda-patched-sm${CUDA_ARCH}"
 control="$root/builds/s2-cuda-patched-sm${CUDA_ARCH}"
-patch="${D8_PATCH:-$repo/scripts/cuda/patches/s-c1-d8-d9.patch}"
+patch="${D8_PATCH:-$repo/integrations/ocudu/patches/s-c1-d8-d9.patch}"
 out="$root/results/d8-$(date -u +%Y%m%dT%H%M%SZ)"
 export PATH="/usr/local/cuda/bin:$PATH"
 mkdir -p "$out"; exec > >(tee -a "$out/d8.log") 2>&1

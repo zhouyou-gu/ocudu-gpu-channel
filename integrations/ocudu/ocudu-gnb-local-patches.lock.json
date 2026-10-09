@@ -6,7 +6,7 @@
   "output_dir": "builds/ocudu-zmq-local",
   "patches": [
     {
-      "path": "scripts/native/patches/ocudu-zmq-lower-phy-profile.patch",
+      "path": "integrations/ocudu/patches/ocudu-zmq-lower-phy-profile.patch",
       "sha256": "b05111e6595b4248ce3e662c3616979a04dfb01f8565acfa4aa0b07cab17f2d2",
       "files": [
         "apps/services/worker_manager/worker_manager.cpp",

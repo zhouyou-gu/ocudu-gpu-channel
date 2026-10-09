@@ -551,7 +551,7 @@ bash scripts/cuda/c5-paired-measurement.sh
 
 # 트리를 리셋했다면 패치 상태 복원
 cd "$OCUDU_NATIVE_ROOT/src/ocudu-cuda"
-git checkout -- . &amp;&amp; git apply "$OCUDU_REPO/scripts/cuda/patches/c1-ocudu-cuda-discrete-and-config.patch"
+git checkout -- . &amp;&amp; git apply "$OCUDU_REPO/integrations/ocudu/patches/c1-ocudu-cuda-discrete-and-config.patch"
 git diff --binary HEAD | sha256sum          # d2579af2… 여야 한다</pre>
   </div>
 </section>

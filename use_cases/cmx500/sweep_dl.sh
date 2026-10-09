@@ -7,6 +7,7 @@
 #
 # Env: STEPS (path loss values in dB), STEP_S seconds per step (8), TOPO, LINK (gnb0>ue0:dl), PARAM (path_loss_db),
 #      PHY_LOG (warning; info adds per-slot PDSCH statistics but slows the UE), ATTEMPTS (3) to attach
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 L=/workspace/cmx-loop
 CTL=/workspace/ocudu-gpu-channel/build-sm121/ocudu-control-req
 STEPS=${STEPS:-"0 15 20 25 30 35 40 43 0"}
@@ -20,8 +21,8 @@ echo "[$(date +%T)] load average $(cut -d' ' -f1-3 /proc/loadavg) (timing suffer
 LOG=$L/runs/.sweep-console.txt
 # srsUE gives up after one failed random access, so a failed attach is retried with a fresh run
 for attempt in $(seq ${ATTEMPTS:-3}); do
-  PHY_LOG=${PHY_LOG:-warning} TOPO=${TOPO:-${EX:-$(cd "$(dirname "$0")/../../use_cases/configs/topologies/cmx" && pwd)}/topology.cmx-bridge.sweep-dl.yaml} DUR=$((NSTEPS * STEP_S + 30)) \
-    BROKER_ARGS="--control-endpoint tcp://127.0.0.1:5559" ./run_cmx_loop.sh > $LOG 2>&1 &
+  PHY_LOG=${PHY_LOG:-warning} TOPO=${TOPO:-${EX:-$(cd "${script_dir}/../configs/topologies/cmx" && pwd)}/topology.cmx-bridge.sweep-dl.yaml} DUR=$((NSTEPS * STEP_S + 30)) \
+    BROKER_ARGS="--control-endpoint tcp://127.0.0.1:5559" "${script_dir}/run_cmx_loop.sh" > $LOG 2>&1 &
   RUN=$!
   sleep 2
   R=$(ls -td $L/runs/*/ | head -1)
@@ -51,4 +52,4 @@ done
 echo "$(date -u +%Y-%m-%dT%H:%M:%S.%6N),end" >> $R/steps.csv
 wait $RUN
 cat $LOG
-python3 $L/sweep_report.py $R "$PARAM"
+python3 "${script_dir}/sweep_report.py" $R "$PARAM"

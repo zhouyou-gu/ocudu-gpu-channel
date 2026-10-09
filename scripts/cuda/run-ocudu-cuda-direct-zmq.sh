@@ -275,7 +275,7 @@ fi
 
 # The reviewed patch named by the lock in use (the 5090 lock unless overridden).
 lock_patch="$(/usr/bin/python3 -c 'import json,os,sys; print(json.load(open(os.environ.get("OCUDU_CUDA_WORKSPACE_LOCK", sys.argv[1])))["source"]["patch"]["path"])' \
-  "${repo_root}/scripts/cuda/cuda-workspace.lock.json")"
+  "${repo_root}/integrations/ocudu/cuda-workspace.lock.json")"
 /usr/bin/python3 - "${out}" "${stage}" "${inner_status}" "${backends_status}" "${gnb_binary}" \
   "${gnb_commit}" "${repo_root}/${lock_patch}" \
   "${parent_netns}" "${traffic}" <<'PY'
