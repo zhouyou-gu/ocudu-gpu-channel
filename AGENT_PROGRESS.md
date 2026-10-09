@@ -4,20 +4,28 @@
 
 ## Current Objective
 
-None; the approved project and documentation migrations are complete locally.
+Commit the validation records and push the validated changes to `origin/main`. Strict real-time qualification remains failed.
 
 ## Repository State
+
+- Comprehensive RTX validation is complete; launcher fixes are committed as `fb07a67` and dashboard corrections as `2b31656`. Five live configurations passed connectivity; timing misses remain; see the [report](docs/reports/validation/full-validation-20261009.md).
+
+- Current files and the generated site are sanitized; measurements and runtime behavior are preserved. Cleanup is committed as `b02687a`; existing commits retain their original content (`validation/text-redaction-20261009/`).
+
+- Whole-project cleanup is validated and committed: obsolete source stubs and generated clutter removed, current guidance repaired, upload exclusions shared, and unused diagram styles trimmed. Evidence: `validation/cleanup-20261009/`.
+
+- Root milestone cleanup is validated and committed: six forwarding files removed, current links updated, and full historical records retained.
 
 - Documentation migration is complete in five local stages: Markdown site, current guidance, reports/history, compatibility routing and RTX validation. The structure and documentation commits remain unpublished.
 
 - Approved structure migration is committed locally: `use_cases/`, runtime apps, grouped integrations/tests, Python packaging and documentation navigation. Validation evidence is in `validation/structure-20261009/`; these commits have not been pushed.
 
-- Checkout: `main` in `/Users/charles_gu/Documents/GitHub/ocudu-gpu-channel`. PRs #2–#6 are integrated through normal merges; Git records the current commit and publication state.
+- Checkout: `main` in `${HOME}/Documents/GitHub/ocudu-gpu-channel`. PRs #2–#6 are integrated through normal merges; Git records the current commit and publication state.
 - Integration and cleanup were published on 2026-09-14. Normal merges `22a51ba` and `e59e095` retain contributor tips `066a702` and `e31fe51`; no history rewrite or release tag.
 - Only this channel worktree and local `main` remain. Origin branch cleanup was verified on 2026-09-14; contributor remotes `ehs0` and `fork` remain.
 - Agent-file updates: concise harness/progress, full historical archive, short-entry rules and the user-requested mission reset. Pre-existing runtime/publication notes are preserved in the archive and summarized below.
 - Integration checks used isolated RTX 5090 workspace `validation/pr-merge-20261008`; existing radio services were not changed. September PIDs and inspection windows are historical.
-- Separate UE checkout: `/Users/charles_gu/Documents/GitHub/srsran-sa-recovery`, last recorded branch `fix/sa-ra-recovery-5090`, tested source `daa167ae3443b046ce560df646c7dc5f17e5c1dd`, report `cb58e6085`. Its publication status has not been rechecked.
+- Separate UE checkout: `${HOME}/Documents/GitHub/srsran-sa-recovery`, last recorded branch `fix/sa-ra-recovery-5090`, tested source `daa167ae3443b046ce560df646c7dc5f17e5c1dd`, report `cb58e6085`. Its publication status has not been rechecked.
 
 ## Current Capabilities and Limits
 
@@ -26,7 +34,7 @@ None; the approved project and documentation migrations are complete locally.
 - Sionna RT integration and one multi-gNB dashboard are merged. Delivery freshness uses two seconds; scheduler freshness remains five seconds. Connected, stale, empty and disconnected feeds are distinct.
 - **Continuous moving two-UE traffic and strict zero-miss real-time qualification remain failed.** Stationary connectivity and bounded fresh-attachment recovery pass only in the documented configurations.
 - Geometry changes are not seamless; full NR RLM, seamless handover and same-PRB MU-MIMO remain unqualified. OAI rank-2 gates and contributor evidence are now merged; srsUE remains rank-1, and live OAI trials were not repeated during integration.
-- CMX500/X310 bridge tools and contributor attachment evidence are merged, but uplink timing remains late and IP traffic untested. Optional `RU-lite` remains unimplemented; historical static multi-gNB qualification limits are not cleared by this merge.
+- CMX500/X310 bridge tools and contributor attachment evidence are merged, but uplink timing remains late and IP traffic untested. Optional `RU-lite` remains unimplemented; corrected static two-cell connectivity passes while strict real-time qualification remains failed.
 - Attached fractional-TDL hardware claims still require a common guard or a validated streaming filter: the centered eight-tap filter can zero-fill up to three future samples at block boundaries. Burst operation and X310-absolute updates need finite-tail, off-air advance and update interfaces.
 
 ## Validation Record
@@ -35,6 +43,9 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 
 | Scope / revision | Recorded result | Limit |
 |---|---|---|
+| Full validation, 2026-10-09 | CPU/CUDA 12/12 each; GPU 9/9; 222 Python tests; frontend, Docker, packaging, documentation and five live connectivity configurations passed | Live runs recorded 2–11 starvations; OAI/CMX/GB10/Orin untested; [report](docs/reports/validation/full-validation-20261009.md) |
+| Text cleanup, 2026-10-09 | Strict build; 114 fragment routes, 71 evidence files, 22 diagrams, 18 browser views; 23 tests and 19 subtests passed | Exactly 26 evidence path fields normalized; measurements preserved; existing commits unchanged |
+| Whole-project cleanup, 2026-10-09 | Strict documentation and browser checks; 71 evidence hashes, 8 pixel-identical diagram views, 98 shell scripts, transfer/Docker checks, 4 tests and 19 subtests passed | Organization and upload filtering only; runtime and live-radio tests unnecessary and not repeated |
 | Documentation migration, 2026-10-09 | Strict build, 114 fragment routes, 71 evidence hashes, desktop/mobile review; CPU/CUDA CTest 12/12 each, Python 211 passed/3 skipped, frontend and synthetic walkthroughs passed | Documentation and exercised synthetic commands only; live qualification unchanged |
 | Structure migration, 2026-10-09 | CPU/CUDA CTest 12/12 each; GPU 9/9; Python 209 + 2 focused passed, 3 skipped; frontend, package, Docker and path checks; live rank-1 250/250 pings and matrix capture passed | Two live receive starvations; prebuilt radio images; native OAI/CMX/platform trials not repeated |
 | PRs #2–#6 integration, 2026-10-08 | CPU/CUDA CTest 12/12 each; GPU sequence 9/9; Python 208 passed + one new focused test, 3 skipped; both frontend checks; 98 shell scripts | No new live-radio, CMX, GB10 or Orin qualification |
@@ -48,6 +59,44 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Publication — 2026-10-09
+
+- Committed cleanup, launcher corrections and mobile dashboard fixes separately, preserving all twelve migration commits. Validation records and the authorized push are pending.
+
+### Full validation and launcher corrections — 2026-10-09
+
+- Corrected static two-cell gNB dimensions and endpoint publication to match its scalar topology; preserved Sionna configuration bytes. The failing regression now passes, and both live UEs established sessions and passed traffic with zero ZMQ errors.
+
+- Corrected the synthetic two-cell launcher's topology and complete peer list. All five Sionna scene modes applied updates without rejection; four multi-node browser checks passed, with one SUTD timing miss retained.
+
+- Completed RTX CPU/CUDA, nine-stage GPU, 222 Python, frontend, Docker, package, publication and five live connectivity checks. All thirteen existing containers survived; live timing misses remain documented in the [validation report](docs/reports/validation/full-validation-20261009.md).
+
+- Clarified the dashboard's illustrative architecture, software-UE labels and qualification limits. Readiness no longer implies live-radio, matrix or strict timing verification.
+
+- Fixed mobile panel overflow and clipped tap columns with responsive grids and scrollable tables. Five viewport checks, installed assets, fifty dashboard tests and both frontend checks passed on RTX.
+
+### Text cleanup — 2026-10-09
+
+- Removed personal paths and shared-host details; replaced interaction narration with technical descriptions. Dated notes identify historical prose edits; existing commits and private originals remain intact.
+
+- Published three evidence derivatives with 26 normalized path fields and original/public hash provenance; all other values are unchanged. Added publication checks and regression coverage; RTX build, browser, integrity and focused tests passed (`validation/text-redaction-20261009/`).
+
+### Text disclosure review — 2026-10-09
+
+- Reviewed 638 source texts, 382 publication texts and 2,632 historical blobs on RTX. No confirmed credential leak; personal-path and agent-narration findings remain unresolved (`validation/text-review-20261009/`); source and evidence were not redacted.
+
+### Whole-project cleanup — 2026-10-09
+
+- Removed twelve remaining source stubs and repaired current documentation paths; generated website routes remain available. RTX strict build, 114 fragment routes, browser review and 71 evidence hashes passed.
+
+- Shared upload exclusions across eight scripts and corrected recursive Docker cache exclusions; updated the attachment driver checksum after verifying its single argument change. Transfer boundaries, Docker inputs and native fixture checks passed on RTX.
+
+- Removed generated local clutter, empty migration directories and 51 unused CSS selectors. Eight diagram views remain pixel-identical; research, writing, settings and historical evidence are preserved (`validation/cleanup-20261009/`).
+
+### Root milestone cleanup — 2026-10-09
+
+- Removed six root milestone stubs and updated current links and compatibility requirements. RTX strict build and publication checks passed; history and evidence are unchanged (`validation/docs-20261009/root-stub-cleanup/`).
 
 ### Documentation migration — 2026-10-09
 
@@ -153,6 +202,14 @@ Reports: [integration guide](docs/history/milestones/sionna-integration-20260914
 
 Remote evidence roots below are under `~/ocudu-gpu-channel-workspace/`:
 
+- `validation/full-20261009/`: source snapshots, full test matrix, before/after launcher regressions, live radio reports, scene/dashboard checks, packaging and publication artifacts, namespace/fixture provenance and container-preservation checks.
+
+- `validation/text-redaction-20261009/`: sanitized artifact, scan results, browser review, regression logs and original/derivative comparisons; private originals are also retained locally in `.git/text-redaction-backups/20261009/`.
+
+- `validation/text-review-20261009/`: value-redacted text audit, known-configuration matching, reachable-history scan and review findings.
+
+- `validation/cleanup-20261009/`: cleanup mirror, source/evidence integrity checks, Docker-context and transfer checks, fixture results and before/after diagram/browser screenshots.
+
 - `validation/docs-20261009/`: documentation artifact, compatibility checks, browser screenshots, CPU/CUDA and Python/frontend results, tutorial and Sionna/dashboard walkthroughs.
 
 - `validation/sionna-history-20260913/fix-validation/`: integration, channel and dashboard evidence.
@@ -168,4 +225,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-No implementation remains for the approved migrations; source and publishing configuration are committed locally, with no push or deployment. See the documentation validation report for evidence and unchanged qualification limits.
+Commit validation records and push `main`; retain existing commits and the documented timing limits. No manual deployment is required.

@@ -35,6 +35,7 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 - Before blaming peer back pressure, inspect executor sharing: a retry can deadlock when its thread also services the drain.
 - When moving ownership, preserve values that differed per old owner. Share the decision without accidentally sharing distinct lane coefficients.
 - Check where foreign-stack parameters bind: CLI, initialization, signaling or relative files. Do not assume later signaling repairs initialization defaults.
+- Check antenna dimensions and published endpoints against each launcher's selected topology in every supported mode; validate corrected live paths with real peers.
 - In rootless namespaces, capability probes may promise privileges the kernel refuses. Drop misleading capabilities, such as `CAP_SYS_NICE` via `setpriv --bounding-set -sys_nice`, so foreign binaries use their fallback; do not patch or grant privilege blindly.
 
 ## Validation and Evidence
@@ -63,6 +64,7 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 ## Documentation and Handoff
 
 - Maintain current English guidance in the Markdown site; link canonical glossary, status and interface pages. Preserve dated evidence and legacy routes, and validate the built artifact before publication.
+- Keep personal paths, private host details and agent-interaction narration out of public guidance and code comments. Use technical facts and portable paths; preserve contributor attribution, fixture contracts and historical evidence.
 
 - Preserve wording that works and make the smallest scoped edit. Inspect user edits first and treat them as intentional unless context contradicts them.
 - Write concise, natural technical English for informed newcomers. Define concepts before using them; structure arguments as problem, limitation, method, contribution and evidence.
