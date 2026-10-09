@@ -8,6 +8,8 @@ None; validated changes and migration commits are published to `origin/main`. St
 
 ## Repository State
 
+- README contributor credits include Quanlong Zhao; Markdown rendering and whitespace checks passed on RTX.
+
 - Comprehensive RTX validation is complete; launcher fixes are committed as `fb07a67` and dashboard corrections as `2b31656`. Five live configurations passed connectivity; timing misses remain; see the [report](docs/reports/validation/full-validation-20261009.md).
 
 - Current files and the generated site are sanitized; measurements and runtime behavior are preserved. Cleanup is committed as `b02687a`; existing commits retain their original content (`validation/text-redaction-20261009/`).
@@ -59,6 +61,10 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Contributor credits — 2026-10-09
+
+- Added Quanlong Zhao to the README contributor summary and directory as a Research Assistant at SUTD, contributing hardware-in-the-loop testing. Markdown rendering and whitespace checks passed on RTX.
 
 ### Publication — 2026-10-09
 
@@ -225,4 +231,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-No queued work remains. Source and validation records are published on `origin/main`; the configured Pages workflow handles documentation deployment. Strict timing and hardware qualification limits remain documented.
+No queued work remains. Contributor credits are current; strict timing and hardware qualification limits remain documented.

@@ -2,7 +2,7 @@
 
 Project lead: **[Zhouyou Gu](https://github.com/zhouyou-gu)** (SUTD)<br>
 Steering: **[Jihong Park](https://www.sutd.edu.sg/profile/park-jihong/)** (SUTD)<br>
-Contributors: **[Minwoo Eun](https://github.com/MinwooEun)** (Yonsei University) · **[Hyunsoo Lee](https://github.com/ehs0)** (Yonsei University) ([contributions](README.md#contributors))
+Contributors: **[Minwoo Eun](https://github.com/MinwooEun)** (Yonsei University) · **[Hyunsoo Lee](https://github.com/ehs0)** (Yonsei University) · **Quanlong Zhao** (SUTD) ([contributions](README.md#contributors))
 
 **GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks.**
 Routes `cf32` IQ between radio endpoints and applies CUDA channel models
@@ -38,6 +38,7 @@ and authorship are retained; contribution areas can overlap.
 | **[Jihong Park](https://www.sutd.edu.sg/profile/park-jihong/)** | Singapore University of Technology and Design (SUTD) | Steering | Project steering. |
 | **[Minwoo Eun](https://github.com/MinwooEun)** | Yonsei University | Rank-1 MISO/SIMO contributor | Multi-port radios and physical-link state, fixed and correlated matrix channels, live 2×1/1×2 and 4×1/1×4 gates, wire-capture scoring and transport validation, and precoding/UE feasibility studies. |
 | **[Hyunsoo Lee](https://github.com/ehs0)** | Yonsei University | Sionna integration contributor | Sionna RT bridge and live scalar/matrix updates, native integration, moving SUTD scene and antenna arrays, scene/ray/channel visualization, timing/resource views, and the initial gNB scheduler KPI panel. |
+| **Quanlong Zhao** | Singapore University of Technology and Design (SUTD) | Research Assistant | Hardware-in-the-loop testing. |
 
 The [integration guide](docs/history/milestones/sionna-integration-20260914.md#contribution-provenance)
 records the normal merge and distinguishes the original Sionna work from
