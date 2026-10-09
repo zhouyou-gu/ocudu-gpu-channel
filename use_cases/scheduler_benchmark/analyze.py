@@ -152,7 +152,7 @@ def batch_means_ci(diffs: Sequence[float]) -> tuple[float, float] | None:
     length bootstrap_block_length() picks; the batch means are close to
     independent, and mean +- t(m-1) * sd(batch means) / sqrt(m) is the
     interval. Ensemble coverage on AR(1) series of 120 segments
-    (tests/test_scheduler_benchmark.py): 94.5% at r <= 0.5, 88% at r = 0.8.
+    (tests/use_cases/test_scheduler_benchmark.py): 94.5% at r <= 0.5, 88% at r = 0.8.
     """
 
     n = len(diffs)

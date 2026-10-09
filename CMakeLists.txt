@@ -102,9 +102,9 @@ target_link_libraries(ocudu-mimo-transport-peer PRIVATE ocudu_gpu_channel_lib)
 
 # Microbench for the runtime-mutation cost M (the D2H + stream-sync + H2D the
 # current control path runs per dirty edge). CUDA-only; not a ctest -- runs on
-# the GPU workstation. See tests/bench_mutation_cost.cu.
+# the GPU workstation. See benchmarks/bench_mutation_cost.cu.
 if(OCUDU_GPU_CHANNEL_HAS_CUDA)
-  add_executable(bench-mutation-cost tests/bench_mutation_cost.cu)
+  add_executable(bench-mutation-cost benchmarks/bench_mutation_cost.cu)
   target_link_libraries(bench-mutation-cost PRIVATE ocudu_gpu_channel_lib)
   set_target_properties(bench-mutation-cost PROPERTIES
     CUDA_ARCHITECTURES "${OCUDU_GPU_CHANNEL_CUDA_ARCHITECTURES}"
@@ -123,39 +123,39 @@ endif()
 if(OCUDU_GPU_CHANNEL_BUILD_TESTS)
   enable_testing()
 
-  add_executable(test_config tests/test_config.cpp)
+  add_executable(test_config tests/core/test_config.cpp)
   target_link_libraries(test_config PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME config COMMAND test_config)
 
-  add_executable(test_mutable_params tests/test_mutable_params.cpp)
+  add_executable(test_mutable_params tests/core/test_mutable_params.cpp)
   target_link_libraries(test_mutable_params PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME mutable_params COMMAND test_mutable_params)
 
-  add_executable(test_control_server tests/test_control_server.cpp)
+  add_executable(test_control_server tests/core/test_control_server.cpp)
   target_link_libraries(test_control_server PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME control_server COMMAND test_control_server)
 
-  add_executable(test_runtime_update_parity tests/test_runtime_update_parity.cpp)
+  add_executable(test_runtime_update_parity tests/core/test_runtime_update_parity.cpp)
   target_link_libraries(test_runtime_update_parity PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME runtime_update_parity COMMAND test_runtime_update_parity)
 
-  add_executable(test_matrix_profile_history tests/test_matrix_profile_history.cpp)
+  add_executable(test_matrix_profile_history tests/core/test_matrix_profile_history.cpp)
   target_link_libraries(test_matrix_profile_history PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME matrix_profile_history COMMAND test_matrix_profile_history)
 
-  add_executable(test_hardware_probe tests/test_hardware_probe.cpp)
+  add_executable(test_hardware_probe tests/core/test_hardware_probe.cpp)
   target_link_libraries(test_hardware_probe PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME hardware_probe COMMAND test_hardware_probe)
 
-  add_executable(test_processing tests/test_processing.cpp)
+  add_executable(test_processing tests/core/test_processing.cpp)
   target_link_libraries(test_processing PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME processing COMMAND test_processing)
 
-  add_executable(test_ring tests/test_ring.cpp)
+  add_executable(test_ring tests/core/test_ring.cpp)
   target_link_libraries(test_ring PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME ring COMMAND test_ring)
 
-  add_executable(test_broker tests/test_broker.cpp)
+  add_executable(test_broker tests/core/test_broker.cpp)
   target_link_libraries(test_broker PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME broker COMMAND test_broker)
 
@@ -165,11 +165,11 @@ if(OCUDU_GPU_CHANNEL_BUILD_TESTS)
   if(Python3_Interpreter_FOUND)
     add_test(
       NAME sionna_rt_adapter
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sionna_rt_adapter.py
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/sionna_bridge/test_sionna_rt_adapter.py
     )
     add_test(
       NAME sionna_web_ui
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_sionna_web_ui.py
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/dashboard/test_sionna_web_ui.py
     )
     add_test(
       NAME native_sionna_rank1_renderer

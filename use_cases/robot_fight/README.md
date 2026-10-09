@@ -31,11 +31,11 @@ UE's network namespace that relays to the arena over a unix datagram socket
 | `fight.py` | Runs N fights (arena + 2 brains on loopback), optional `--handicap` delay/loss proxy (`robot=both` for a symmetric link) and `--modem` relay, `--comp` picks the delay-compensated balance brain per robot, summary JSON/MD. |
 | `offline_loop.py` | Physics + a brain policy through an ideal delay line, no network (threshold probes; the policy is told the true delays). |
 | `offline_curves.py` | Survival-vs-delay and vs-blackout tables for `balance` / `balance_comp` (R7a). |
-| `../../tests/test_robot_fight_protocol.py` | pack/unpack round trips, RTT from echo, position JSON validation. |
-| `../../tests/test_robot_fight_smoke.py` | one 5 s headless fight, checks RTF ≈ 1 and the streams. |
-| `../../tests/test_robot_fight_referee.py` | ring-out / fall / timeout tie-break rules on a constructed world. |
-| `../../tests/test_robot_fight_modem.py` | relay bytes + overhead; the netns case runs when `unshare -n` is allowed (gate container as root). |
-| `../../tests/test_robot_fight_balance.py` | balance bots stand through a short fight; the offline loop falls at 150 ms one-way delay and not at 15 ms. |
+| `../../tests/use_cases/test_robot_fight_protocol.py` | pack/unpack round trips, RTT from echo, position JSON validation. |
+| `../../tests/use_cases/test_robot_fight_smoke.py` | one 5 s headless fight, checks RTF ≈ 1 and the streams. |
+| `../../tests/use_cases/test_robot_fight_referee.py` | ring-out / fall / timeout tie-break rules on a constructed world. |
+| `../../tests/use_cases/test_robot_fight_modem.py` | relay bytes + overhead; the netns case runs when `unshare -n` is allowed (gate container as root). |
+| `../../tests/use_cases/test_robot_fight_balance.py` | balance bots stand through a short fight; the offline loop falls at 150 ms one-way delay and not at 15 ms. |
 
 Interpreter: `~/ocudu-work/venvs/robot/bin/python` (mujoco, numpy, pyzmq, pytest).
 
@@ -130,7 +130,7 @@ torque has priority over steering. `fight.py --bot balance` selects the
 balance policy automatically and takes `--policy` as the strategy.
 
 Tolerance of the loop (offline closed loop through a one-way delay, no
-network; `tests/test_robot_fight_balance.py` pins the ends): stands with
+network; `tests/use_cases/test_robot_fight_balance.py` pins the ends): stands with
 60 ms one-way delay at rest and 45 ms while driving at 0.6 m/s; survives a
 300 ms blackout while driving and falls at 400 ms (a blackout while standing
 still is harmless up to 400 ms — nothing moves a balanced pendulum). The
@@ -155,7 +155,7 @@ the protocol; the brain only uses the timestamps it already has:
   pendulum derived from the arena's MJCF masses and heights (body 3.5 kg, CoM
   0.58 m above the axle, `a11 = m_b + 2m_w + 2I_w/r²`, `a12 = m_b l`,
   `a22 = I_axle`, wheel-hinge damping included; open-loop pole 4.8 rad/s).
-  `tests/test_robot_fight_comp.py` pins it against MuJoCo: within 0.004 rad of
+  `tests/use_cases/test_robot_fight_comp.py` pins it against MuJoCo: within 0.004 rad of
   pitch over 100 ms with and without torque and while moving.
 - **Rollout**: from the STATE in hand, integrate `state_age + cmd_one_way +
   horizon_extra_ms` (1 ms) forward at the arena timestep, applying the torques

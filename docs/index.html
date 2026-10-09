@@ -754,7 +754,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <h2 id="channels">5. Channel models in YAML</h2>
   <p>Every model is a chain of named steps. The CPU and CUDA backends accept the same step
   set and are compared numerically at the declared test tolerances (validated by
-  <code>tests/test_processing.cpp</code>). YAML keys per step type:</p>
+  <code>tests/core/test_processing.cpp</code>). YAML keys per step type:</p>
   <table>
     <tr><th>Step type</th><th>YAML keys</th><th>Effect</th></tr>
     <tr><td><code>tdl</code></td><td><code>taps:</code> block of <code>{delay_samples, gain_db, phase_rad}</code> (+ optional <code>fading:</code> sub-config and per-tap <code>is_los</code> / <code>los_k_db</code> / <code>los_angle_rad</code>)</td><td>Tapped delay line — the chain-leading propagation step. Each tap shifts the signal by <code>delay_samples</code> (integer or fractional, resolved by the shared 8-tap Hamming-windowed sinc in <code>delay.h</code>) and applies its complex tap weight <code>10<sup>gain_db/20</sup>·exp(j·phase_rad)</code>; with a <code>fading</code> sub-config each tap's weight becomes time-varying with a Jakes-shaped Doppler spectrum (plus optional Rician line-of-sight (LOS) specular). Applied <b>device-side by default</b> in <code>apply_channel_kernel</code> (<a href="#kernels">§11 Diagram S</a>) for any topology where every incoming edge has a leading <code>tdl</code>; falls back to host-side <code>stage_link()</code> calling <code>apply_tdl_step{_fading}</code> in <code>delay.h</code> for mixed-edge or non-tdl-leading nodes. Cross-slot history lives in a per-edge <code>delay_line</code> ring (in <code>DeviceLinkState</code> global memory on the device path, in the host <code>LinkModelState</code> on the fallback). A single tap with <code>delay_samples = 0</code> is the static-gain case (subsumes the old <code>gain</code> step); a single tap with non-zero delay subsumes the old <code>integer_delay</code> / <code>fractional_delay</code> steps. The chain-leading constraint is enforced by <code>validate_cuda_support</code>; a non-leading <code>tdl</code> is rejected on the CUDA path (CPU accepts it anywhere).</td></tr>
@@ -990,7 +990,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <span class="mono">R(τ) = J<sub>0</sub>(2π·f<sub>d</sub>·τ)</span>;
   the marked blue points at τ ∈ {1, 3, 5} ms are exactly the lags the
   Bessel J<sub>0</sub> statistical test asserts (test (d) in
-  <code>tests/test_processing.cpp</code>). f<sub>d</sub> = 100 Hz
+  <code>tests/core/test_processing.cpp</code>). f<sub>d</sub> = 100 Hz
   matches the project default.</figcaption>
   </figure>
 
@@ -2117,7 +2117,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <a href="#ring-continuity">Z (cross-slot ring)</a>,
   <a href="#physics">§6 (channel physics)</a>. CPU↔CUDA agreement at
   1e-3 tolerance is asserted by the parity tests in
-  <code>tests/test_processing.cpp</code>.</figcaption>
+  <code>tests/core/test_processing.cpp</code>.</figcaption>
   </figure>
 
   <p>Once the per-edge channel has been applied — by <code>apply_channel_kernel</code> on the GPU (default), or by host <code>stage_link()</code> on the mixed-node fallback — the staged buffer contains N slots in which the channel has been fully applied. From this point on, the kernel only needs to apply the memoryless RF impairments per sample (§13) and sum across edges (§12).</p>
@@ -2162,7 +2162,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   fallback. Keeps the kernel's per-edge contract simple (one path: "read
   raw IQ, do the channel") rather than branching per edge.
   Observable via <code>ProcessorTimings.used_device_channel</code>; guarded
-  by <code>tests/test_processing.cpp:911</code> (leading-tdl ⇒ true) and
+  by <code>tests/core/test_processing.cpp:911</code> (leading-tdl ⇒ true) and
   <code>:935</code> (leading-non-tdl ⇒ false).</figcaption>
   </figure>
 
@@ -3162,9 +3162,9 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
               bit-exact determinism (same seed → same floats across
               recompiles), strong-LOS magnitude (K = 40 dB),
               <b>Bessel J<sub>0</sub> autocorrelation match</b> at three lags
-              (<code>tests/test_processing.cpp:1147</code>), and
+              (<code>tests/core/test_processing.cpp:1147</code>), and
               <b>Rician envelope PDF moments</b> at K = 10 dB
-              (<code>tests/test_processing.cpp:1333</code>).</li>
+              (<code>tests/core/test_processing.cpp:1333</code>).</li>
           <li><i>Per-sample step behaviour</i> (CPU standalone):
               <code>path_loss</code>, <code>phase</code>, <code>cfo</code>,
               <code>awgn</code> in both <code>noise_power</code> and

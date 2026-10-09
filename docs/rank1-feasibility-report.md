@@ -209,7 +209,7 @@ Feasibility 평가에서 가장 중요한 부분은 "되긴 되는데, **어떤 
 | 게이트 실행 산출물 (요약 JSON·행렬 리포트·로그·소스 핀) | `~/ocudu-native-workspace/results/{reports,logs}/rank1-2x1/20260817T091805Z`, `rank1-4x1/20260817T091856Z` |
 | 채널/게이트 fixture (제약 근거 주석 포함) | `use_cases/configs/ran/ocudu/native/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml`, `use_cases/configs/topologies/ocudu_native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml`, `topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml` |
 | 독립 행렬 checker | `scripts/native/verify-mimo-matrix-capture.py` (H는 토폴로지에서 읽고 브로커 출력은 신뢰하지 않음) |
-| 위상 스윕 단위테스트 (뮤테이션 검증) | `tests/test_processing.cpp` R1 절 |
+| 위상 스윕 단위테스트 (뮤테이션 검증) | `tests/core/test_processing.cpp` R1 절 |
 | 작업·규명 전체 서사 (원인 규명, 기각 가설 포함) | `AGENT_PROGRESS.md` "Rank-1 Workstream" 절 |
 | 로드맵·상태·측정 라벨 | [RANK1_MILESTONES.md](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/5ffd73ea4afa2295b9a588b0b03a411329e81d9b/RANK1_MILESTONES.md) |
 | 커밋 이력 | `rank1-miso-simo` 브랜치, 포크 기점 `34f669e` 이후 (R0–R2: `06d27d1`, R3 규명: `4d98e2a`, 게이트 통합: `e31fe51`, oracle: `e630bba`). 공개 브랜치는 upstream `216a28b` 위로 graft되었으므로, 이 해시가 정본이다 — 포크 이전 사설 트리의 해시는 공개 브랜치에 존재하지 않는다. |

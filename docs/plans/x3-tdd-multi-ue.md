@@ -24,7 +24,7 @@ this needs the OAI nrUE and a new gate.
 | `use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd.json` | robot-ring-walk with 4 `sionna_rt` links (X3 baseline). |
 | `use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd-ue2ue.json` | + `ue0->ue1`, `ue1->ue0` `crosstalk` (X4). |
 | `scripts/native/wire-capture-tdd-slots.py` | per-TDD-slot power of a broker wire capture (phase from the gNB TX). |
-| `tests/test_oai_multi_ue_renderer.py` | 6 unit tests (self-test, cell, labels/endpoints/scale, UL power override, IMSIs, uecap). |
+| `tests/integrations/test_oai_multi_ue_renderer.py` | 6 unit tests (self-test, cell, labels/endpoints/scale, UL power override, IMSIs, uecap). |
 
 ## The TDD cell
 

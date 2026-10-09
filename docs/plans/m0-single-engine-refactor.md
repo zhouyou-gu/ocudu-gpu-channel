@@ -229,8 +229,8 @@ void process_superposition(const std::string& dst_key,
 |---|---|
 | `src/broker.cpp` | 다중 행 진입점으로 교체 (M0에서 행 1개) |
 | `apps/ocudu_gpu_channel_bench.cpp` | 편의 오버로드로 무변경 |
-| `tests/test_processing.cpp` (4곳) | 편의 오버로드로 무변경 |
-| `tests/test_runtime_update_parity.cpp` | 편의 오버로드로 무변경 |
+| `tests/core/test_processing.cpp` (4곳) | 편의 오버로드로 무변경 |
+| `tests/core/test_runtime_update_parity.cpp` | 편의 오버로드로 무변경 |
 
 즉 **M0에서 테스트 코드 변경 0줄**이다. 이건 의도된 설계다 — 기존 회귀 스위트가 리팩터의 안전망 역할을 그대로 해야 한다.
 
@@ -253,7 +253,7 @@ void process_superposition(const std::string& dst_key,
 | M0.5 | REP `ZMQ_SNDHWM=0`, stall detector, `event=node_stall` / `event=radio_node_resolved` | ctest 8/8 |
 | M0.6 | `runtime.rx_ring_batches` 노브 + ring 점유/지연 계측 라인 | ctest 8/8 |
 
-`tests/test_broker.cpp`의 `scenario_multi_ue_lockstep`이 M0.4의 핵심 회귀다 — 이 시나리오가 원래 B2.2 deadlock을 재현하려고 만들어진 것이므로, 부분 진행 규칙이 깨지면 여기서 잡힌다.
+`tests/core/test_broker.cpp`의 `scenario_multi_ue_lockstep`이 M0.4의 핵심 회귀다 — 이 시나리오가 원래 B2.2 deadlock을 재현하려고 만들어진 것이므로, 부분 진행 규칙이 깨지면 여기서 잡힌다.
 
 ---
 

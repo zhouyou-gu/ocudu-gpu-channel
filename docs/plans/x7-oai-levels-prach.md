@@ -71,7 +71,7 @@ inside the 2 dB criterion), so the 2x2 renderer keeps the shared
 `OAI_UE_TX_POWER_2X2`. What changes is the knowledge: with the stock uplink the
 2x2 UE radiates from one port only, so the emitted power per UE is the 1x1
 one, not twice it. The renderer docstring records the measurement, and
-`tests/test_oai_renderers.py` pins the 2x2 default scale to the 1x1 one on both
+`tests/integrations/test_oai_renderers.py` pins the 2x2 default scale to the 1x1 one on both
 ports with the overrides intact.
 
 **UL-MIMO variant** (`OAI2X2_UL_MAX_RANK=2`, `OAI2X2_IPERF_DIR=both`, same
@@ -128,7 +128,7 @@ numbers are recorded here for whoever revisits the convention.
   `OAI2X2_BROKER_EXTRA` with `WIRECAP` keeps working (asking for both fails closed).
 - `scripts/native/render-oai-2x2-configs.py`: measurement recorded in
   `render_topology_2x2`; no behaviour change.
-- `tests/test_oai_renderers.py`: `test_2x2_default_scale_is_the_1x1_scale_on_both_ue_ports`.
+- `tests/integrations/test_oai_renderers.py`: `test_2x2_default_scale_is_the_1x1_scale_on_both_ue_ports`.
 - README line "The 2x2 gate assumes the same per-port level as 1x1 (unmeasured)"
   is now wrong (measured equal, port 1 silent) -- README is outside this change.
 

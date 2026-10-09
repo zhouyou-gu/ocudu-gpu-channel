@@ -18,7 +18,7 @@ Move `apply_tdl_step_fading()` (multipath + Jakes + LOS) from host-side `stage_l
 | H2D payload | N edges × 23 040 × 8 bytes = N × 180 KiB pre-shaped | **M sources × 23 040 × 8 bytes = M × 180 KiB raw**, where M ≤ N (and often M ≪ N) |
 | `superpose_kernel` | Reads `device_staged[k·count + idx]` | *Unchanged* — reads what `apply_channel_kernel` wrote |
 | CPU backend | Unchanged | Unchanged (remains the reference for parity, statistically) |
-| CPU↔CUDA bit-exact parity test | Asserts bit-exact match on TDL fading ([test_processing.cpp](../../tests/test_processing.cpp)) | Replaced with **statistical parity** (mean power, autocorrelation match, K-factor recovery) — bit-exact dropped |
+| CPU↔CUDA bit-exact parity test | Asserts bit-exact match on TDL fading ([test_processing.cpp](../../tests/core/test_processing.cpp)) | Replaced with **statistical parity** (mean power, autocorrelation match, K-factor recovery) — bit-exact dropped |
 
 ## Why this is the version worth building
 
@@ -428,7 +428,7 @@ skipped when `s->fading_enabled == 0`). Same performance as D2b.
 
 ### Correctness — bit-exact tests survived
 
-The existing CPU↔CUDA fading bit-exact test in `tests/test_processing.cpp`
+The existing CPU↔CUDA fading bit-exact test in `tests/core/test_processing.cpp`
 (asserting `require_near_buffer` at 1e-3 tolerance) **passed** on the
 remote RTX 5090. The device kernel's `__sincosf` fp32 approximation
 accumulated less drift than predicted — within 1e-3 per sample even
@@ -498,7 +498,7 @@ duplication of source bytes in H2D.
    (`apply_tdl_step{_fading}` in `delay.h`, host `delay_line` in
    `LinkModelState`) and the GPU backend (`apply_channel_kernel`, device
    `DeviceLinkState.delay_line`) share the **same data-flow shape**. The
-   CPU↔CUDA bit-exact parity test (`tests/test_processing.cpp` at 1e-3
+   CPU↔CUDA bit-exact parity test (`tests/core/test_processing.cpp` at 1e-3
    tolerance) depends on this. Moving the ring to GPU forces an
    asymmetric design — CPU keeps its host ring + `delay_line`; GPU has a
    single device ring; the math agrees but the surrounding data flow
