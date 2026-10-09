@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "sionna_rt"))
+sys.path.insert(0, str(PROJECT_ROOT / "apps" / "sionna_bridge"))
 
 from channel_adapter import (  # noqa: E402
     LaneProfile,
@@ -467,7 +467,7 @@ class AdapterTests(unittest.TestCase):
     def test_scene_mesh_path_matches_the_web_ui_side(self) -> None:
         # The bridge writes the sidecar and the web UI reads it; both derive
         # the name from --status-jsonl, so the two must not drift apart.
-        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts" / "web_ui"))
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "apps" / "dashboard"))
         try:
             import server as web_ui_server
         finally:

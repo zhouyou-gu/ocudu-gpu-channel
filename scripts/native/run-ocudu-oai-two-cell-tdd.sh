@@ -102,7 +102,7 @@ for path in "${inner}" "${renderer}" "${gnb_binary}" \
   "${native_root}/src/oai/targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml" \
   "${repo_root}/use_cases/configs/ran/oai/nrue_zmq_multi_ue.conf.in" \
   "${repo_root}/use_cases/configs/ran/open5gs/subscriber-multi-ue.csv" \
-  "${repo_root}/scripts/sionna_rt/run_bridge.py"; do
+  "${repo_root}/apps/sionna_bridge/run_bridge.py"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done
 [[ -c /dev/net/tun ]] || usage_error "/dev/net/tun is absent"
@@ -226,7 +226,7 @@ declare -a inner_args=(
   --wire-capture-skip-seconds "${mue_wire_capture_skip_seconds}"
   --stagger-seconds "${mue_stagger_seconds}"
   --control-endpoint "${control_endpoint}" --telemetry-endpoint "${telemetry_endpoint}"
-  --sionna-python "${sionna_python}" --sionna-bridge "${repo_root}/scripts/sionna_rt/run_bridge.py"
+  --sionna-python "${sionna_python}" --sionna-bridge "${repo_root}/apps/sionna_bridge/run_bridge.py"
   --sionna-scenario-config "${sionna_scenario}" --sionna-status-jsonl "${sionna_status_jsonl}"
   --sionna-update-hz "${sionna_update_hz}"
 )
@@ -272,9 +272,9 @@ printf 'event=native_oai_two_cell_tdd_gate_parameters duration=%ss cell=tdd-n78-
 
 web_pid=""
 if [[ "${web_port}" != 0 ]]; then
-  "${sionna_python}" "${repo_root}/scripts/web_ui/server.py" \
+  "${sionna_python}" "${repo_root}/apps/dashboard/server.py" \
     --port "${web_port}" --telemetry-endpoint "${telemetry_endpoint}" \
-    --status-jsonl "${sionna_status_jsonl}" --index "${repo_root}/scripts/web_ui/index.html" \
+    --status-jsonl "${sionna_status_jsonl}" --index "${repo_root}/apps/dashboard/index.html" \
     >"${log_dir}/web-ui.log" 2>&1 &
   web_pid="$!"
   printf 'Web UI: http://127.0.0.1:%s\n' "${web_port}"

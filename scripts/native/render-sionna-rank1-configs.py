@@ -161,7 +161,7 @@ def load_live_shape(path: Path) -> LiveShape:
             f"the native Sionna gates carry one UE; scenario names "
             f"{len(ue_ids)}: {', '.join(sorted(ue_ids)) or 'none'}. Run a "
             "multi-UE scenario through the Sionna bridge and web UI directly "
-            "(scripts/sionna_rt/run_bridge.py --scenario-config ...); the "
+            "(apps/sionna_bridge/run_bridge.py --scenario-config ...); the "
             "live radio stacks are what is limited to one UE, not the bridge."
         )
 

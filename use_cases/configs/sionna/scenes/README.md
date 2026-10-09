@@ -7,12 +7,12 @@ with its `"scene"` field.
 | Scene | Geometry | Notes |
 | --- | --- | --- |
 | `sionna_simple_test` | Sionna built-in `simple_street_canyon` | Alias only — no files here. Six boxes and a floor that `--simple-road` splits into a road and two verges. |
-| `sionna_SUTD_test` | OpenStreetMap, SUTD campus, Singapore | Built by `scripts/sionna_rt/build_osm_scene.py`. **See its `LICENSE.md`: the data is ODbL 1.0.** |
+| `sionna_SUTD_test` | OpenStreetMap, SUTD campus, Singapore | Built by `apps/sionna_bridge/build_osm_scene.py`. **See its `LICENSE.md`: the data is ODbL 1.0.** |
 
 ## Rebuilding an OpenStreetMap scene
 
 ```
-python3 scripts/sionna_rt/build_osm_scene.py \
+python3 apps/sionna_bridge/build_osm_scene.py \
     --name sionna_SUTD_test --center 1.34174 103.96383 --half-extent-m 300
 ```
 

@@ -26,7 +26,7 @@ scenario's `scene` name against `scenes/` (or a Sionna built-in), so
 | --- | --- | --- | --- |
 | **`ocudu-rank1-sutd.json`** | 1 gNB (4T4R) + 1 car UE | 2 | **default for `run-ocudu-sionna-rank1.sh`** |
 | `sionna-multi-ue-sutd.json` | 1 gNB + 2 UEs | 4 | default for `run-ocudu-sionna-multi-ue.sh` |
-| `multi-gnb-sutd.json` | 2 gNB + 2 UE | 10 | web UI, `scripts/sionna_rt/measure_cell_coverage.py` |
+| `multi-gnb-sutd.json` | 2 gNB + 2 UE | 10 | web UI, `apps/sionna_bridge/measure_cell_coverage.py` |
 | `sionna_SUTD_test.json` | 1 gNB + car UE + pedestrian UE | 5 | tests only |
 
 ### `scenarios/robot_ring/` — scene `robot_ring` (`scenes/robot_ring/`)

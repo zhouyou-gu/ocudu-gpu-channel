@@ -51,13 +51,13 @@ while true; do
     args_a=(); args_b=()
     [[ -z "${ma}" ]] || args_a=(--gnb-metrics-source "gnb0=${ma}")
     [[ -z "${mb}" ]] || args_b=(--gnb-metrics-source "gnb1=${mb}")
-    "${py}" "${repo}/scripts/web_ui/server.py" --bind 127.0.0.1 --port 8080 \
+    "${py}" "${repo}/apps/dashboard/server.py" --bind 127.0.0.1 --port 8080 \
       --telemetry-endpoint "ipc://${d}/telemetry-a.sock" --status-jsonl "${l}/sionna-status-a.jsonl" \
-      --index "${repo}/scripts/web_ui/index.html" "${args_a[@]}" >"${log_root}/webui-a.log" 2>&1 &
+      --index "${repo}/apps/dashboard/index.html" "${args_a[@]}" >"${log_root}/webui-a.log" 2>&1 &
     pa=$!
-    "${py}" "${repo}/scripts/web_ui/server.py" --bind 127.0.0.1 --port 8081 \
+    "${py}" "${repo}/apps/dashboard/server.py" --bind 127.0.0.1 --port 8081 \
       --telemetry-endpoint "ipc://${d}/telemetry-b.sock" --status-jsonl "${l}/sionna-status-b.jsonl" \
-      --index "${repo}/scripts/web_ui/index.html" "${args_b[@]}" >"${log_root}/webui-b.log" 2>&1 &
+      --index "${repo}/apps/dashboard/index.html" "${args_b[@]}" >"${log_root}/webui-b.log" 2>&1 &
     pb=$!
     cur="${d}"
     echo "$(date -u +%T) webui -> ${ts} (pids ${pa} ${pb}) metrics a=${ma:-off} b=${mb:-off}"

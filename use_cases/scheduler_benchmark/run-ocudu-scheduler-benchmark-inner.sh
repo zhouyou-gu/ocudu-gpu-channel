@@ -362,7 +362,7 @@ sys.path.insert(0, sys.argv[1]); import definitions as d
 print(",".join(f"{k}:{v}" for k, v in d.FANOUT_RENAME.items()))' "${bench_dir}")"
 start_group sionna "${log_dir}/sionna-bridge.log" "${aux_pin[@]}" \
   env -u CUDA_MPS_PIPE_DIRECTORY "CUDA_VISIBLE_DEVICES=${physical_gpu}" \
-  "${sionna_python}" "${repo_root}/scripts/sionna_rt/run_bridge.py" \
+  "${sionna_python}" "${repo_root}/apps/sionna_bridge/run_bridge.py" \
   --scenario-config "${config_dir}/scenario.json" \
   --control-endpoint "${control_endpoint_a}" --fanout-control-endpoint "${fanout_spec}" \
   --timeline grid --hold-until-file "${hold_file}" --profile-digest \

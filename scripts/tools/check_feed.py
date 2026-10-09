@@ -49,7 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         import zmq  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
-            "pyzmq is required; install scripts/sionna_rt/requirements.txt"
+            "pyzmq is required; install apps/sionna_bridge/requirements.txt"
         ) from exc
 
     context = zmq.Context.instance()

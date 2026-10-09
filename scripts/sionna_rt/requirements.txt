@@ -1,3 +1,0 @@
-sionna-rt==2.0.1
-pyzmq>=26,<28
-PyYAML>=6,<7

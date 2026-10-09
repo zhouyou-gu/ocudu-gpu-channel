@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 
-const source=readFileSync(new URL('../scripts/web_ui/index.html',import.meta.url),'utf8');
+const source=readFileSync(new URL('../apps/dashboard/index.html',import.meta.url),'utf8');
 const start=source.indexOf('    function markStatusUnavailable()');
 assert.ok(start>=0, 'disconnect handler must exist');
 const end=source.indexOf('    async function poll()',start);

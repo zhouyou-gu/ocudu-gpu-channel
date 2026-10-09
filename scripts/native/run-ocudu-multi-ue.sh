@@ -288,7 +288,7 @@ if [[ "${channel_mode}" == "sionna" ]]; then
     --control-endpoint "${control_endpoint}"
     --telemetry-endpoint "${telemetry_endpoint}"
     --sionna-python "${sionna_python}"
-    --sionna-bridge "${repo_root}/scripts/sionna_rt/run_bridge.py"
+    --sionna-bridge "${repo_root}/apps/sionna_bridge/run_bridge.py"
     --sionna-scenario-config "${sionna_scenario}"
     --sionna-status-jsonl "${sionna_status_jsonl}"
     --sionna-update-hz "${sionna_update_hz}"
@@ -298,10 +298,10 @@ if [[ "${channel_mode}" == "sionna" ]]; then
   )
   # Read-only observer. It tails the status JSONL the bridge writes and
   # subscribes to broker telemetry; it never touches the control socket.
-  "${sionna_python}" "${repo_root}/scripts/web_ui/server.py" \
+  "${sionna_python}" "${repo_root}/apps/dashboard/server.py" \
     --port "${web_port}" --telemetry-endpoint "${telemetry_endpoint}" \
     --status-jsonl "${sionna_status_jsonl}" \
-    --index "${repo_root}/scripts/web_ui/index.html" \
+    --index "${repo_root}/apps/dashboard/index.html" \
     >"${log_dir}/web-ui.log" 2>&1 &
   web_pid="$!"
   printf 'Web UI: http://127.0.0.1:%s\n' "${web_port}"

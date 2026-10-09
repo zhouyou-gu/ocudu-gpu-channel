@@ -7,7 +7,7 @@ message as `{"rx_unix_ms": ..., "payload": <message>}`. The receive time is
 the recorder's clock, which the analyzer maps onto the benchmark segments.
 
 The WebSocket client, endpoint parser and subscribe command are the web UI
-server's own (scripts/web_ui/server.py), not a second implementation.
+server's own (apps/dashboard/server.py), not a second implementation.
 Reconnects with backoff: the gNB starts and stops independently of this.
 """
 
@@ -22,7 +22,7 @@ import threading
 import time
 from typing import Sequence
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "web_ui"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "apps" / "dashboard"))
 
 from server import (  # noqa: E402
     GNB_METRICS_SUBSCRIBE,

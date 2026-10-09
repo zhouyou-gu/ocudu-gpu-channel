@@ -298,7 +298,7 @@ if [[ "${channel_mode}" == "sionna" ]]; then
   fi
   if [[ ! -x "${sionna_python}" ]]; then
     echo "missing Sionna Python: ${sionna_python}" >&2
-    echo "create ${workspace}/venvs/sionna and install scripts/sionna_rt/requirements.txt" >&2
+    echo "create ${workspace}/venvs/sionna and install apps/sionna_bridge/requirements.txt" >&2
     exit 2
   fi
   if [[ -z "${DRJIT_LIBOPTIX_PATH:-}" ]]; then
@@ -784,7 +784,7 @@ if [[ "${channel_mode}" == "sionna" ]]; then
     write_summary "control_server_not_ready" 1
   fi
 
-  "${project_root}/scripts/sionna_rt/run_web_ui.sh" \
+  "${project_root}/scripts/local/run_web_ui.sh" \
     --python "${sionna_python}" \
     --scenario "${sionna_scenario}" \
     --control-endpoint tcp://127.0.0.1:5559 \

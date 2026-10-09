@@ -139,10 +139,10 @@ For a quick synthetic radio-flow check and a live dashboard, choose any pair:
 
 ```bash
 cd /home/ubuntu/OCUDU/ocudu-gpu-channel
-./scripts/sionna_rt/run_synthetic_web_ui.sh single
-./scripts/sionna_rt/run_synthetic_web_ui.sh multi-ue
-./scripts/sionna_rt/run_synthetic_web_ui.sh graph
-./scripts/sionna_rt/run_synthetic_web_ui.sh multi-gnb
+./scripts/local/run_synthetic_web_ui.sh single
+./scripts/local/run_synthetic_web_ui.sh multi-ue
+./scripts/local/run_synthetic_web_ui.sh graph
+./scripts/local/run_synthetic_web_ui.sh multi-gnb
 ```
 
 Run one command at a time. The launcher prints its temporary log directory and

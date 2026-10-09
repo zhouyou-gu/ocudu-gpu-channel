@@ -5,7 +5,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('check_demo', ROOT/'scripts/sionna_rt/check_demo_topology.py')
+spec = importlib.util.spec_from_file_location('check_demo', ROOT/'apps/sionna_bridge/check_demo_topology.py')
 checker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checker)
 

@@ -227,7 +227,7 @@ for path in "${inner}" "${renderer}" "${gnb_binary}" \
   "${native_root}/builds/srsran4g-zmq-release/srsue/src/srsue" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
-  "${repo_root}/scripts/sionna_rt/run_bridge.py"; do
+  "${repo_root}/apps/sionna_bridge/run_bridge.py"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done
 [[ -c /dev/net/tun ]] || usage_error "/dev/net/tun is absent"
@@ -371,7 +371,7 @@ declare -a inner_args=(
   --protected-cpus "${protected_cpus}" --plain-cpus "${plain_cpus}"
   --control-endpoint-a "ipc://${run_dir}/control-a.sock" --telemetry-endpoint-a "ipc://${run_dir}/telemetry-a.sock"
   --control-endpoint-b "ipc://${run_dir}/control-b.sock" --telemetry-endpoint-b "ipc://${run_dir}/telemetry-b.sock"
-  --sionna-python "${sionna_python}" --sionna-bridge "${repo_root}/scripts/sionna_rt/run_bridge.py"
+  --sionna-python "${sionna_python}" --sionna-bridge "${repo_root}/apps/sionna_bridge/run_bridge.py"
   --sionna-update-hz "${sionna_update_hz}"
   --sionna-position-endpoint "${sionna_position_endpoint}"
   --sionna-position-offset "${sionna_position_offset}"
@@ -385,10 +385,10 @@ if [[ "${web_ui}" == "1" ]]; then
   # Read-only observer of cell a only (one telemetry socket per web server).
   web_metrics_args=()
   [[ -z "${gnb_metrics_socket_a}" ]] || web_metrics_args=(--gnb-metrics-endpoint "ws+unix://${gnb_metrics_socket_a}")
-  "${sionna_python}" "${repo_root}/scripts/web_ui/server.py" \
+  "${sionna_python}" "${repo_root}/apps/dashboard/server.py" \
     --port "${web_port}" --telemetry-endpoint "ipc://${run_dir}/telemetry-a.sock" \
     --status-jsonl "${log_dir}/sionna-status-a.jsonl" \
-    --index "${repo_root}/scripts/web_ui/index.html" "${web_metrics_args[@]}" \
+    --index "${repo_root}/apps/dashboard/index.html" "${web_metrics_args[@]}" \
     >"${log_dir}/web-ui.log" 2>&1 &
   web_pid="$!"
   printf 'Web UI (cell a): http://127.0.0.1:%s\n' "${web_port}"

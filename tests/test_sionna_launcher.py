@@ -39,7 +39,7 @@ else:
 ''')
             python.chmod(0o755)
             result = subprocess.run(
-                ['bash', str(ROOT / 'scripts/sionna_rt/run_web_ui.sh'),
+                ['bash', str(ROOT / 'scripts/local/run_web_ui.sh'),
                  '--python', str(python), '--scenario', str(scenario),
                  '--status-jsonl', str(folder / 'status.jsonl'),
                  '--ready-seconds', '5', *extra],

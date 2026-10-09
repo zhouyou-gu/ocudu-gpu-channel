@@ -15,7 +15,7 @@ Main has 9 unique commits; the contribution has 25. Its change set from the comm
 
 `git merge-tree --write-tree` predicts conflicts in `AGENT_PROGRESS.md` and `scripts/remote/ocudu-multi-gnb-smoke.sh`. Cleanly merged files still need semantic review.
 
-The current checkout has pre-existing edits in `scripts/remote/ocudu-multi-gnb-smoke.sh` (demo hold/keepalive) and `scripts/web_ui/index.html` (English text). Preserve them in this checkout; assess their intent separately when preparing the integration branch. Do not copy the older UI file over the new viewer. The local commits `b726ab3` and `5f55bb7` also need an equivalence check: main contains subnet-selection work, while bridge argument forwarding must remain available.
+The current checkout has pre-existing edits in `scripts/remote/ocudu-multi-gnb-smoke.sh` (demo hold/keepalive) and `apps/dashboard/index.html` (English text). Preserve them in this checkout; assess their intent separately when preparing the integration branch. Do not copy the older UI file over the new viewer. The local commits `b726ab3` and `5f55bb7` also need an equivalence check: main contains subnet-selection work, while bridge argument forwarding must remain available.
 
 ### RTX 5090 inspection
 
@@ -124,7 +124,7 @@ python3 scripts/native/render-sionna-rank1-configs.py --self-test
 compute-sanitizer --tool memcheck --error-exitcode 99 ./build-cuda-5090/test_processing
 compute-sanitizer --tool memcheck --error-exitcode 99 ./build-cuda-5090/test_runtime_update_parity
 
-"$SIONNA_PYTHON" scripts/sionna_rt/run_bridge.py \
+"$SIONNA_PYTHON" apps/sionna_bridge/run_bridge.py \
   --scenario-config use_cases/configs/sionna/scenarios/simple_street/ocudu-rank1.json \
   --dry-run --iterations 3 --update-hz 2
 ```

@@ -18,7 +18,10 @@ import platform
 import statistics
 import time
 
-import run_bridge
+if __package__:
+    from . import run_bridge
+else:
+    import run_bridge
 
 
 def summarize(values: list[float]) -> dict[str, float]:

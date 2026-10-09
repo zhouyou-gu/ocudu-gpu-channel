@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "web_ui"))
+sys.path.insert(0, str(PROJECT_ROOT / "apps" / "dashboard"))
 
 from server import (  # noqa: E402
     DEFAULT_HISTORY_WINDOW_MS,
@@ -707,7 +707,7 @@ class WebUiTests(unittest.TestCase):
         as readings they claim the UE measured the worst link on record.
         """
 
-        page = (PROJECT_ROOT / "scripts" / "web_ui" / "index.html").read_text()
+        page = (PROJECT_ROOT / "apps" / "dashboard" / "index.html").read_text()
         # CQI is guarded on the -1 sentinel rather than formatted blind.
         self.assertIn("['CQI',r=>finite(r.cqi)&&Number(r.cqi)>=0", page)
         # Every dB column goes through the clamp-aware formatter.
@@ -906,7 +906,7 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cpu_info["logical_threads"], 3)
 
     def test_web_ui_uses_measured_latency_and_channel_graphs(self) -> None:
-        index = (PROJECT_ROOT / "scripts" / "web_ui" / "index.html").read_text(
+        index = (PROJECT_ROOT / "apps" / "dashboard" / "index.html").read_text(
             encoding="utf-8"
         )
         self.assertNotIn("Current MEM", index)
@@ -1081,7 +1081,7 @@ class WebUiTests(unittest.TestCase):
         self.assertNotIn("ctx.fillRect(x0,top,Math.max(1,x1-x0),plotH)", index)
 
     def test_application_outlook_sits_between_bridge_and_scene(self) -> None:
-        index = (PROJECT_ROOT / "scripts" / "web_ui" / "index.html").read_text(
+        index = (PROJECT_ROOT / "apps" / "dashboard" / "index.html").read_text(
             encoding="utf-8"
         )
         bridge = index.index("Sionna RT bridge · how the live channel reaches the emulator")
@@ -1096,7 +1096,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(".runtime-grid,.gpu-processes,.outlook-grid", index)
 
     def test_web_ui_leads_with_rank1_workstream_brief(self) -> None:
-        index = (PROJECT_ROOT / "scripts" / "web_ui" / "index.html").read_text(
+        index = (PROJECT_ROOT / "apps" / "dashboard" / "index.html").read_text(
             encoding="utf-8"
         )
         # The brief must sit above the live dashboard, not below it.
@@ -1132,7 +1132,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("--allow-silent-source", index)
 
     def test_web_ui_documents_the_sionna_bridge_topology(self) -> None:
-        index = (PROJECT_ROOT / "scripts" / "web_ui" / "index.html").read_text(
+        index = (PROJECT_ROOT / "apps" / "dashboard" / "index.html").read_text(
             encoding="utf-8"
         )
         # The bridge diagram follows the rank-1 brief and precedes the live panels.

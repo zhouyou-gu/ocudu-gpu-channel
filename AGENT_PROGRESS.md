@@ -41,6 +41,8 @@ Reports: [integration guide](docs/sionna-integration.md), [merge validation](doc
 
 ### Structure migration — 2026-10-09
 
+- Moved the bridge and dashboard into `apps/`, retained launch orchestration in `scripts/local/`, and added installable packages with independent dependency extras. Source entrypoints remain available; installed commands resolve input paths from the launch directory.
+
 - Renamed `examples/` to `use_cases/` and updated operational references, Docker paths and native fixture pins. The pinned driver differs only by the intended directory substitution; remote checks remain pending.
 
 - Recorded the approved destination map and command interfaces in `docs/project-structure.md`; preserved the earlier planning note. Migration and isolated RTX validation are in progress.

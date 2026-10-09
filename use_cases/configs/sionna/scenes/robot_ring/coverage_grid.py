@@ -27,7 +27,7 @@ import sys
 import time
 
 HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[4] / "scripts" / "sionna_rt"))
+sys.path.insert(0, str(HERE.parents[4] / "apps" / "sionna_bridge"))
 
 from run_bridge import SionnaScenario, parse_args as bridge_parse_args  # noqa: E402
 

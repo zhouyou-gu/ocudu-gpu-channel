@@ -62,7 +62,7 @@ done
 [[ -x "${python_bin}" ]] || { echo "missing Sionna Python: ${python_bin}" >&2; exit 2; }
 
 if [[ "${case_name}" == "multi-gnb-sutd" ]]; then
-  "${python_bin}" "${script_dir}/check_demo_topology.py" \
+  "${python_bin}" "${repo_root}/apps/sionna_bridge/check_demo_topology.py" \
     --topology "${topology}" --scenario "${scenario}" \
     --sources "$(IFS=,; echo "${source_ports[*]}")" \
     --sinks "$(IFS=,; echo "${sink_ports[*]}")"

@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 
-const source=readFileSync(new URL('../scripts/web_ui/index.html',import.meta.url),'utf8');
+const source=readFileSync(new URL('../apps/dashboard/index.html',import.meta.url),'utf8');
 // Execute the shipped renderer, columns and formatters, not a copied implementation.
 const helpers=source.split('\n').filter(line=>/^\s*const (finite|fmt|esc) =/.test(line)).join('\n');
 const start=source.indexOf('    const RAN_COLUMNS=');

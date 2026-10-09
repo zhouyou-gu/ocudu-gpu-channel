@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocudu-gpu-channel-apps"
+version = "0.1.0"
+description = "Sionna bridge and dashboard for the OCUDU GPU channel emulator"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = []
+
+[project.optional-dependencies]
+dashboard = ["pyzmq>=26,<28"]
+sionna = ["sionna-rt==2.0.1", "pyzmq>=26,<28", "PyYAML>=6,<7"]
+
+[project.scripts]
+ocudu-sionna-bridge = "ocudu_sionna_bridge.run_bridge:main"
+ocudu-dashboard = "ocudu_dashboard.server:main"
+
+[tool.setuptools]
+packages = ["ocudu_sionna_bridge", "ocudu_dashboard"]
+
+[tool.setuptools.package-dir]
+ocudu_sionna_bridge = "apps/sionna_bridge"
+ocudu_dashboard = "apps/dashboard"
+
+[tool.setuptools.package-data]
+ocudu_dashboard = ["index.html", "vendor/*.js", "vendor/README.md"]

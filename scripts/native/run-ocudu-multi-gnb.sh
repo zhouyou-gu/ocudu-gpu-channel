@@ -164,7 +164,7 @@ if [[ "${channel_mode}" == "sionna" ]]; then
     --control-endpoint "ipc://${run_dir}/control.sock"
     --telemetry-endpoint "ipc://${run_dir}/telemetry.sock"
     --sionna-python "${sionna_python}"
-    --sionna-bridge "${repo_root}/scripts/sionna_rt/run_bridge.py"
+    --sionna-bridge "${repo_root}/apps/sionna_bridge/run_bridge.py"
     --sionna-scenario-config "${sionna_scenario}"
     --sionna-status-jsonl "${log_dir}/sionna-status.jsonl"
     --sionna-update-hz "${sionna_update_hz}"

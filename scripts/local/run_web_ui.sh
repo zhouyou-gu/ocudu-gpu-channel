@@ -39,7 +39,7 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-[[ -f "${scenario}" && -f "${script_dir}/run_bridge.py" ]] || usage
+[[ -f "${scenario}" && -f "${repo_root}/apps/sionna_bridge/run_bridge.py" ]] || usage
 [[ -n "${status_jsonl}" ]] || usage
 [[ -x "${python_bin}" ]] || { echo "Sionna Python is not executable: ${python_bin}" >&2; exit 2; }
 [[ "${bind_address}" == "127.0.0.1" || "${bind_address}" == "localhost" ]] || {
@@ -66,18 +66,18 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"${python_bin}" "${script_dir}/run_bridge.py" \
+"${python_bin}" "${repo_root}/apps/sionna_bridge/run_bridge.py" \
   --scenario-config "${scenario}" \
   --control-endpoint "${control_endpoint}" \
   --duration "${duration}" --update-hz "${update_hz}" \
   --status-jsonl "${status_jsonl}" "$@" &
 bridge_pid="$!"
 
-"${python_bin}" "${repo_root}/scripts/web_ui/server.py" \
+"${python_bin}" "${repo_root}/apps/dashboard/server.py" \
   --bind "${bind_address}" --port "${port}" \
   --telemetry-endpoint "${telemetry_endpoint}" \
   --status-jsonl "${status_jsonl}" \
-  --index "${repo_root}/scripts/web_ui/index.html" &
+  --index "${repo_root}/apps/dashboard/index.html" &
 web_pid="$!"
 
 deadline=$((SECONDS + ready_seconds))

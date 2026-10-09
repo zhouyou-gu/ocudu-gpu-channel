@@ -1397,7 +1397,7 @@ def scene_geometry(scene_xml: pathlib.Path) -> dict[str, Any]:
 
 
 SCENE_DIRECTORY = (
-    pathlib.Path(__file__).resolve().parents[2] / "use_cases" / "configs" / "sionna" / "scenes"
+    (pathlib.Path.cwd() if __package__ else pathlib.Path(__file__).resolve().parents[2]) / "use_cases" / "configs" / "sionna" / "scenes"
 )
 # Names the demo uses for scenes that are really Sionna built-ins, so every
 # scenario config can name its scene the same way whether the geometry ships
@@ -1545,7 +1545,7 @@ def import_sionna() -> tuple[Any, Any]:
             ) from exc
         raise RuntimeError(
             "Sionna RT is not installed. Run: "
-            "python3 -m pip install -r scripts/sionna_rt/requirements.txt"
+            "python3 -m pip install -r apps/sionna_bridge/requirements.txt"
         ) from exc
     return rt, np
 

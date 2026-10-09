@@ -146,7 +146,7 @@ done
 for path in "${inner}" "${renderer}" "${gnb_binary}" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
-  "${repo_root}/scripts/sionna_rt/run_bridge.py" "${bench_dir}/traffic.py" "${bench_dir}/analyze.py" \
+  "${repo_root}/apps/sionna_bridge/run_bridge.py" "${bench_dir}/traffic.py" "${bench_dir}/analyze.py" \
   "${bench_dir}/make_scenario.py" "${bench_dir}/gnb_metrics_recorder.py"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done

@@ -144,8 +144,8 @@ ocudu_runtime_pids() {
           "$OCUDU_REPO/scripts/native/run-ocudu-sionna-1x1.sh" | \
           "$OCUDU_REPO/scripts/native/run-ocudu-legacy-1x1.sh" | \
           "$OCUDU_REPO/scripts/native/run-ocudu-legacy-1x1-inner.sh" | \
-          "$OCUDU_REPO/scripts/sionna_rt/run_bridge.py" | \
-          "$OCUDU_REPO/scripts/web_ui/server.py" | \
+          "$OCUDU_REPO/apps/sionna_bridge/run_bridge.py" | \
+          "$OCUDU_REPO/apps/dashboard/server.py" | \
           ./scripts/native/run-ocudu-sionna-1x1.sh | \
           ./scripts/native/run-ocudu-legacy-1x1.sh)
             ocudu_matched=1

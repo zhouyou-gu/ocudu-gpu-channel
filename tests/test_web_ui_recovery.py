@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest import mock
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'scripts/web_ui'))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'apps/dashboard'))
 import server
 
 

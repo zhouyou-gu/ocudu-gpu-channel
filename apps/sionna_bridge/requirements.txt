@@ -1,0 +1,4 @@
+# Source-tree installation; keep versions aligned with pyproject.toml [sionna].
+sionna-rt==2.0.1
+pyzmq>=26,<28
+PyYAML>=6,<7

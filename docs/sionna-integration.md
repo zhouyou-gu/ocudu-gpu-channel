@@ -92,7 +92,7 @@ The two-gNB smoke launcher retains `OCUDU_MGNB_SIONNA_EXTRA_ARGS`, for example
 `--ue0-start=-20,0,1.5 --gain-offset-db 75`. Values are transported safely over
 SSH, split on whitespace without shell evaluation or filename expansion, and
 forwarded only to the Sionna bridge. To supply an individual argument containing
-spaces, invoke `scripts/sionna_rt/run_web_ui.sh` directly and put quoted bridge
+spaces, invoke `scripts/local/run_web_ui.sh` directly and put quoted bridge
 arguments after `--`. An unset option keeps the existing defaults.
 
 ## One dashboard for both gNBs
@@ -103,7 +103,7 @@ endpoints must already be running. Use the actual status JSONL path produced
 by the chosen launcher.
 
 ```bash
-python scripts/web_ui/server.py \
+python apps/dashboard/server.py \
   --bind 127.0.0.1 --port 19080 \
   --telemetry-endpoint tcp://127.0.0.1:5560 \
   --status-jsonl /path/to/run/sionna-status.jsonl \
@@ -244,7 +244,7 @@ Git. Historical design and measurement context is collected in the
 
 ## Channel-generation profiling
 
-`scripts/sionna_rt/run_bridge.py --profile-timing` adds
+`apps/sionna_bridge/run_bridge.py --profile-timing` adds
 `timing_ms.generation_stages` to each channel-update record. Existing timing
 fields retain their meaning. Each frequency/array group reports array setup,
 `path_solver`, `cir_numpy`, remaining array export, optional geometry export,
@@ -259,7 +259,7 @@ it is not a claimed performance optimization.
 For a repeatable diagnostic without launching gNB, UE, or broker processes:
 
 ```bash
-python scripts/sionna_rt/profile_replay.py \
+python apps/sionna_bridge/profile_replay.py \
   --replay /path/to/sionna-status.jsonl \
   --scenario use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk.json \
   --out /path/to/profile.json --samples 40 --rounds 2 --pace-hz 10

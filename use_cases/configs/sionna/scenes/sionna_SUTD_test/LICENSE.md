@@ -28,4 +28,4 @@ Sionna, this repository's code, and the ITU P.2040 material parameters are
 
 - Extract: Overpass API, bounding box recorded in `osm.json` under `__scene__`
 - Scene origin: see `origin_lat_lon` in `manifest.json`
-- Generator: `scripts/sionna_rt/build_osm_scene.py`
+- Generator: `apps/sionna_bridge/build_osm_scene.py`

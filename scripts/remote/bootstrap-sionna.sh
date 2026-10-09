@@ -21,7 +21,7 @@ expand_remote_path() {
 workspace="$(expand_remote_path "$1")"
 project_root="$(expand_remote_path "$2")"
 venv="${workspace}/venvs/sionna"
-requirements="${project_root}/scripts/sionna_rt/requirements.txt"
+requirements="${project_root}/apps/sionna_bridge/requirements.txt"
 
 if [[ ! -f "${requirements}" ]]; then
   echo "missing ${requirements}; run scripts/remote/sync.sh first" >&2

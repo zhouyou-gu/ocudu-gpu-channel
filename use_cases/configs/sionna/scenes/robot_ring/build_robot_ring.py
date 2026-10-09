@@ -9,7 +9,7 @@ half (NLOS pockets behind each pillar) while the eastern half is LOS.
 
     python3 build_robot_ring.py            # writes scene.xml + meshes/ here
 
-The output is what `resolve_scene()` in scripts/sionna_rt/run_bridge.py
+The output is what `resolve_scene()` in apps/sionna_bridge/run_bridge.py
 picks up as scene "robot_ring": `use_cases/configs/sionna/scenes/robot_ring/scene.xml`
 with binary little-endian PLY meshes, the same layout `build_osm_scene.py`
 produces. Nothing here imports Sionna; the geometry is plain arithmetic.

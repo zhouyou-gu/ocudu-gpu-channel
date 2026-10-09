@@ -23,9 +23,10 @@ import json
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-
-from run_bridge import SionnaScenario, parse_args as bridge_parse_args  # noqa: E402
+if __package__:
+    from .run_bridge import SionnaScenario, parse_args as bridge_parse_args
+else:
+    from run_bridge import SionnaScenario, parse_args as bridge_parse_args
 
 # What the adapter writes for a link the solver found no usable path on
 # (channel_adapter.rays_to_taps, `outage_gain_db`). A cell that only ever

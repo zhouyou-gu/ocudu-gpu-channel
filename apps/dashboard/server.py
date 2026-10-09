@@ -2,7 +2,7 @@
 """Read-only web status for the external Sionna/OCUDU channel path.
 
 The server subscribes to the broker telemetry PUB socket and tails the JSONL
-records emitted by ``scripts/sionna_rt/run_bridge.py``. It never connects to
+records emitted by ``apps/sionna_bridge/run_bridge.py``. It never connects to
 the broker control REP socket and therefore cannot mutate a live channel.
 """
 
@@ -31,7 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Sequence
 
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
+PROJECT_ROOT = (pathlib.Path.cwd() if __package__ else pathlib.Path(__file__).resolve().parents[2])
 DEFAULT_INDEX = pathlib.Path(__file__).with_name("index.html")
 # The resource charts plot a 1,000 ms window, so the sampler has to land
 # several points inside it: 10 ms gives ~100. NVML per-process and PCIe
@@ -2259,7 +2259,7 @@ def telemetry_loop(endpoint: str, store: StatusStore, stop: threading.Event) -> 
         import zmq  # type: ignore
     except ImportError as exc:  # pragma: no cover - dependency error path
         raise RuntimeError(
-            "pyzmq is required; install scripts/sionna_rt/requirements.txt"
+            "pyzmq is required; install ocudu-gpu-channel-apps[dashboard]"
         ) from exc
 
     context = zmq.Context.instance()
@@ -2597,7 +2597,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         import zmq  # type: ignore  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
-            "pyzmq is required; install scripts/sionna_rt/requirements.txt"
+            "pyzmq is required; install ocudu-gpu-channel-apps[dashboard]"
         ) from exc
     index_html = args.index.read_bytes()
     store = StatusStore()

@@ -21,7 +21,7 @@ is what Sionna scenes use. East is +x, north is +y, up is +z.
 
 Example:
 
-    python3 scripts/sionna_rt/build_osm_scene.py \
+    python3 apps/sionna_bridge/build_osm_scene.py \
         --name sionna_SUTD_test --center 1.34125 103.96345 --half-extent-m 230
 """
 
@@ -1004,7 +1004,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--output-root", type=pathlib.Path,
-                        default=pathlib.Path(__file__).resolve().parents[2]
+                        default=(pathlib.Path.cwd() if __package__ else pathlib.Path(__file__).resolve().parents[2])
                         / "use_cases" / "configs" / "sionna" / "scenes")
     parser.add_argument("--overpass-url", default=OVERPASS_URL)
     parser.add_argument("--offline", action="store_true",

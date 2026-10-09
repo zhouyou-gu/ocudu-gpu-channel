@@ -44,7 +44,7 @@ The UI tests verify authoritative zero warmup, both telemetry/ACK arrival
 orders, mixed preserving/resetting links, actual reset timestamps, and no
 interval invented from an ACK alone. The existing NVML cadence test now uses
 a deterministic clock. The remote sync excludes root build directories without
-excluding the source file `scripts/sionna_rt/build_osm_scene.py`.
+excluding the source file `apps/sionna_bridge/build_osm_scene.py`.
 
 CPU commands, from the integration worktree:
 

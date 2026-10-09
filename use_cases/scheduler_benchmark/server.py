@@ -38,7 +38,7 @@ sys.path.insert(0, str(HERE))
 import analyze  # noqa: E402
 import definitions as bench  # noqa: E402
 
-VENDOR = HERE.parents[1] / "scripts" / "web_ui" / "vendor"
+VENDOR = HERE.parents[1] / "apps" / "dashboard" / "vendor"
 INDEX = HERE / "index.html"
 RUN_ID = re.compile(r"^\d{8}T\d{6}Z$")
 REPORT_REFRESH_S = 1.0
@@ -138,7 +138,7 @@ class Runs:
                 "ocudu_gnb": "OCUDU gNB a1916edcdb (pinned)",
                 "srsue": "srsRAN_4G eea87b1d89 + repository RACH patch (zhouyou-gu fork)",
                 "open5gs": "Open5GS v2.7.6 (d9d3abdd48)",
-                "sionna": "Sionna RT PathSolver (bridge scripts/sionna_rt/run_bridge.py)",
+                "sionna": "Sionna RT PathSolver (bridge apps/sionna_bridge/run_bridge.py)",
             },
             "live": self.is_live(run_id),
         }

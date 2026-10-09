@@ -22,7 +22,7 @@ import time
 import unittest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "sionna_rt"))
+sys.path.insert(0, str(PROJECT_ROOT / "apps" / "sionna_bridge"))
 sys.path.insert(0, str(PROJECT_ROOT / "use_cases" / "scheduler_benchmark"))
 
 import analyze  # noqa: E402

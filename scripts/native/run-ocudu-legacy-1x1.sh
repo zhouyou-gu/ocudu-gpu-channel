@@ -20,10 +20,10 @@ renderer="${OCUDU_NATIVE_CONFIG_RENDERER:-${script_dir}/render-legacy-1x1-config
 renderer_uses_scenario="${OCUDU_NATIVE_RENDERER_USES_SCENARIO:-0}"
 verifier="${script_dir}/verify-legacy-1x1-artifacts.py"
 sionna_python="${OCUDU_NATIVE_SIONNA_PYTHON:-${repo_root}/../venvs/sionna/bin/python}"
-sionna_bridge="${repo_root}/scripts/sionna_rt/run_bridge.py"
+sionna_bridge="${repo_root}/apps/sionna_bridge/run_bridge.py"
 sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-docker.json}"
-web_server="${repo_root}/scripts/web_ui/server.py"
-web_index="${repo_root}/scripts/web_ui/index.html"
+web_server="${repo_root}/apps/dashboard/server.py"
+web_index="${repo_root}/apps/dashboard/index.html"
 sionna_update_hz="${OCUDU_NATIVE_SIONNA_UPDATE_HZ:-10}"
 sionna_ready_seconds="${OCUDU_NATIVE_SIONNA_READY_SECONDS:-120}"
 # Live node positions for the bridge (an external publisher). The bridge runs inside the

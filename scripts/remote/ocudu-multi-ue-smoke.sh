@@ -508,7 +508,7 @@ if [[ "${channel_mode}" == "sionna" ]]; then
   done
   grep -q 'event=control_start' "${log_dir}/broker.log" 2>/dev/null || \
     write_summary "control_server_not_ready" 1
-  "${project_root}/scripts/sionna_rt/run_web_ui.sh" \
+  "${project_root}/scripts/local/run_web_ui.sh" \
     --python "${sionna_python}" \
     --scenario "${project_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json" \
     --control-endpoint tcp://127.0.0.1:5559 \
