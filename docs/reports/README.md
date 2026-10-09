@@ -1,5 +1,7 @@
 # Reports
 
+- [Project structure migration](structure-migration-20261009.md)
+
 - [Main merge validation](../main-merge-validation.md)
 - [Sionna channel fixes](../sionna-merge-fixes-validation.md)
 - [Metrics recovery](../metrics-recovery-validation.md)

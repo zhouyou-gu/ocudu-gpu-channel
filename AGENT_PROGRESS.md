@@ -4,6 +4,8 @@
 
 ## Repository State
 
+- Approved structure migration is committed locally: `use_cases/`, runtime apps, grouped integrations/tests, Python packaging and documentation navigation. Validation evidence is in `validation/structure-20261009/`; these commits have not been pushed.
+
 - Checkout: `main` in `/Users/charles_gu/Documents/GitHub/ocudu-gpu-channel`. PRs #2–#6 are integrated through normal merges; Git records the current commit and publication state.
 - Integration and cleanup were published on 2026-09-14. Normal merges `22a51ba` and `e59e095` retain contributor tips `066a702` and `e31fe51`; no history rewrite or release tag.
 - Only this channel worktree and local `main` remain. Origin branch cleanup was verified on 2026-09-14; contributor remotes `ehs0` and `fork` remain.
@@ -27,6 +29,7 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 
 | Scope / revision | Recorded result | Limit |
 |---|---|---|
+| Structure migration, 2026-10-09 | CPU/CUDA CTest 12/12 each; GPU 9/9; Python 209 + 2 focused passed, 3 skipped; frontend, package, Docker and path checks; live rank-1 250/250 pings and matrix capture passed | Two live receive starvations; prebuilt radio images; native OAI/CMX/platform trials not repeated |
 | PRs #2–#6 integration, 2026-10-08 | CPU/CUDA CTest 12/12 each; GPU sequence 9/9; Python 208 passed + one new focused test, 3 skipped; both frontend checks; 98 shell scripts | No new live-radio, CMX, GB10 or Orin qualification |
 | Channel fixes `16af288` | CTest 12/12, Python 75/75, nine GPU stages, Node disconnect and shell checks passed; earlier extended CUDA sanitizer runs clean | Does not establish strict real-time operation |
 | Main merge `e59e095` | Python 90/90, both Node frontend regressions and shell syntax passed | Launcher/dashboard checks; no new radio qualification |
@@ -40,6 +43,9 @@ Reports: [integration guide](docs/sionna-integration.md), [merge validation](doc
 ## Completed Changes
 
 ### Structure migration — 2026-10-09
+
+- Completed remote CPU/CUDA, GPU, Python/frontend, package, Docker, patch and path validation; deterministic IQ output matches the baseline byte for byte. Details: [migration report](docs/reports/structure-migration-20261009.md).
+- Live rank-1 attachment, PDU, 250/250 pings and independent matrix capture passed using pinned prebuilt images; two receive starvations still fail strict real-time qualification. Recorded provisioning limits and restored the original container inventory.
 
 - Added application/integration indexes and documentation navigation for guides, reports, plans and milestone history, preserving published document locations. Recorded the approved responsibility boundaries in the harness and added patch-lock relocation regressions.
 
@@ -141,4 +147,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-Implement the approved structure migration in separate commits, then validate the complete tree on the RTX workstation. The baseline is `0b613d9`; no deployment or publication is queued.
+The approved structure migration and validation are complete in local commits. No implementation or deployment remains queued; publication has not been requested for this migration. See the migration report for hardware limits and OAI rebuild requirements.
