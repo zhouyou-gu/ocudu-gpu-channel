@@ -1,0 +1,66 @@
+<svg font-family="SF Mono,Menlo,monospace" font-size="11" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 380" xmlns="http://www.w3.org/2000/svg">
+<text fill="#cdd6e6" font-size="12" text-anchor="middle" x="500" y="20">Diagram Y · 8-tap polyphase windowed-sinc · per-sample read geometry · tau = tau_int + frac (frac in [0,1))</text>
+<!-- Number line: sample indices · time runs left → right · past on left, future on right -->
+<line stroke="#9aa7bd" x1="60" x2="940" y1="120" y2="120"></line>
+<text fill="#9aa7bd" font-size="9" x="60" y="155">← past</text>
+<text fill="#9aa7bd" font-size="9" text-anchor="end" x="940" y="155">future →</text>
+<g fill="#9aa7bd" font-size="9" text-anchor="middle">
+<line stroke="#9aa7bd" x1="100" x2="100" y1="115" y2="125"></line>
+<text x="100" y="140">idx−τ_int−4</text>
+<line stroke="#9aa7bd" x1="200" x2="200" y1="115" y2="125"></line>
+<text x="200" y="140">−3</text>
+<line stroke="#9aa7bd" x1="300" x2="300" y1="115" y2="125"></line>
+<text x="300" y="140">−2</text>
+<line stroke="#9aa7bd" x1="400" x2="400" y1="115" y2="125"></line>
+<text x="400" y="140">−1</text>
+<line stroke="#9aa7bd" x1="500" x2="500" y1="115" y2="125"></line>
+<text x="500" y="140">idx−τ_int  (i=3, peak)</text>
+<line stroke="#9aa7bd" x1="600" x2="600" y1="115" y2="125"></line>
+<text x="600" y="140">+1</text>
+<line stroke="#9aa7bd" x1="700" x2="700" y1="115" y2="125"></line>
+<text x="700" y="140">+2</text>
+<line stroke="#9aa7bd" x1="800" x2="800" y1="115" y2="125"></line>
+<text x="800" y="140">+3</text>
+</g>
+<!-- Read window markers (8 samples). read_idx = idx − τ_int + 3 − i:
+         i=7 → read_idx = idx − τ_int − 4 (past, LEFT)
+         i=3 → read_idx = idx − τ_int       (center)
+         i=0 → read_idx = idx − τ_int + 3 (future, RIGHT) -->
+<g>
+<rect fill="rgba(93,177,255,0.30)" height="30" stroke="#5db1ff" width="40" x="80" y="90"></rect>
+<text fill="#5db1ff" font-size="9" text-anchor="middle" x="100" y="108">h[7]</text>
+<rect fill="rgba(93,177,255,0.40)" height="40" stroke="#5db1ff" width="40" x="180" y="80"></rect>
+<text fill="#5db1ff" font-size="9" text-anchor="middle" x="200" y="103">h[6]</text>
+<rect fill="rgba(93,177,255,0.55)" height="55" stroke="#5db1ff" width="40" x="280" y="65"></rect>
+<text fill="#5db1ff" font-size="9" text-anchor="middle" x="300" y="93">h[5]</text>
+<rect fill="rgba(93,177,255,0.45)" height="70" stroke="#5db1ff" width="40" x="380" y="50"></rect>
+<text fill="#6fd08c" font-size="9" text-anchor="middle" x="400" y="78">h[4]</text>
+<rect fill="rgba(93,177,255,0.45)" height="70" stroke="#5db1ff" width="40" x="480" y="50"></rect>
+<text fill="#6fd08c" font-size="9" text-anchor="middle" x="500" y="78">h[3]</text>
+<rect fill="rgba(93,177,255,0.55)" height="55" stroke="#5db1ff" width="40" x="580" y="65"></rect>
+<text fill="#5db1ff" font-size="9" text-anchor="middle" x="600" y="93">h[2]</text>
+<rect fill="rgba(93,177,255,0.40)" height="40" stroke="#5db1ff" width="40" x="680" y="80"></rect>
+<text fill="#5db1ff" font-size="9" text-anchor="middle" x="700" y="103">h[1]</text>
+<rect fill="rgba(93,177,255,0.30)" height="30" stroke="#5db1ff" width="40" x="780" y="90"></rect>
+<text fill="#5db1ff" font-size="9" text-anchor="middle" x="800" y="108">h[0]</text>
+</g>
+<!-- Convolution formula -->
+<rect fill="#181f2e" height="50" rx="6" stroke="#cdd6e6" width="880" x="60" y="170"></rect>
+<text fill="#cdd6e6" font-size="11" text-anchor="middle" x="500" y="190">y[idx] = sum over i in 0..7  of  h[i] · x[idx − τ_int + 3 − i]</text>
+<text fill="#9aa7bd" font-size="10" text-anchor="middle" x="500" y="208">coefficients h[i] depend on frac = τ − floor(τ) via compute_windowed_sinc_taps(); sum_i h[i] = 1 (DC-normalised); h[3] = sinc(frac) · w(0)</text>
+<!-- Boundary read regions -->
+<rect fill="#13391f" height="120" rx="6" stroke="#6fd08c" width="430" x="60" y="240"></rect>
+<text fill="#6fd08c" font-size="11" text-anchor="middle" x="275" y="258">read_idx in [0, count)</text>
+<text fill="#cdd6e6" font-size="10" text-anchor="middle" x="275" y="276">x[read_idx] from in_buffer[k·count + read_idx]</text>
+<text fill="#cdd6e6" font-size="10" text-anchor="middle" x="275" y="294">(this slot's raw IQ — the normal case)</text>
+<text fill="#cdd6e6" font-size="10" text-anchor="middle" x="275" y="320">read_idx in [−dl_size, 0)</text>
+<text fill="#cdd6e6" font-size="10" text-anchor="middle" x="275" y="338">x[read_idx] from delay_line[dl_size + read_idx]</text>
+<text fill="#9aa7bd" font-size="9" text-anchor="middle" x="275" y="354">(previous slot's tail — cross-slot continuity, Diagram Z)</text>
+<rect fill="rgba(255,180,84,0.10)" height="120" rx="6" stroke="#ffb454" width="430" x="510" y="240"></rect>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="725" y="258">read_idx ≥ count</text>
+<text fill="#cdd6e6" font-size="10" text-anchor="middle" x="725" y="276">x = 0  (zero-padding into future)</text>
+<text fill="#cdd6e6" font-size="10" text-anchor="middle" x="725" y="294">edge effect: filter spans up to idx + 3</text>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="725" y="320">read_idx &lt; −dl_size</text>
+<text fill="#cdd6e6" font-size="10" text-anchor="middle" x="725" y="338">x = 0  (zero-padding before history)</text>
+<text fill="#9aa7bd" font-size="9" text-anchor="middle" x="725" y="354">only triggers on the very first slot</text>
+</svg>

@@ -1,5 +1,7 @@
 # Platforms: what runs where, and how each host is set up
 
+The hardware and version table records tested setups, not automatically the newest supported toolchain. Consult [current qualification status](../getting_started/status.md) before interpreting the measured envelopes. Select a platform, its workspace lock and its actual resolved CPU placement together.
+
 The emulator and its live gates have been run on three hosts. They differ in
 GPU memory model, CPU topology and container privileges, and each difference
 has a knob, a lock file or a patch behind it. This page collects them; the

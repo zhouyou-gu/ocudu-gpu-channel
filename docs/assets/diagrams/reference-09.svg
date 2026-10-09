@@ -1,0 +1,26 @@
+<svg font-family="SF Mono,Menlo,monospace" font-size="11" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 240" xmlns="http://www.w3.org/2000/svg">
+<text fill="#cdd6e6" font-size="12" text-anchor="middle" x="500" y="20">Diagram SG · sp.use_device_channel decision · evaluated once per destination at prepare()</text>
+<defs>
+<marker id="aa" markerheight="6" markerwidth="6" orient="auto" refx="9" refy="5" viewbox="0 0 10 10">
+<path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"></path>
+</marker>
+</defs>
+<!-- Decision diamond -->
+<polygon fill="#0b101a" points="500,50 700,110 500,170 300,110" stroke="#ffb454"></polygon>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="500" y="106">every incoming edge has</text>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="500" y="122">model.chain[0].type == tdl ?</text>
+<!-- false branch (left) → HOST fallback, green-dashed -->
+<line stroke="#6fd08c" stroke-dasharray="4 3" x1="300" x2="180" y1="110" y2="110"></line>
+<line marker-end="url(#aa)" stroke="#6fd08c" stroke-dasharray="4 3" x1="180" x2="180" y1="110" y2="190"></line>
+<text fill="#6fd08c" font-size="10" text-anchor="middle" x="240" y="100">false</text>
+<!-- FALLBACK modifier: dashed green border (HOST class) -->
+<rect fill="#0b101a" height="36" rx="6" stroke="#6fd08c" stroke-dasharray="4 3" stroke-width="1.6" width="240" x="60" y="190"></rect>
+<text fill="#6fd08c" font-size="11" text-anchor="middle" x="180" y="212">host fallback (stage_link)</text>
+<!-- true branch (right) -->
+<line stroke="#5db1ff" x1="700" x2="820" y1="110" y2="110"></line>
+<line marker-end="url(#aa)" stroke="#5db1ff" x1="820" x2="820" y1="110" y2="190"></line>
+<text fill="#5db1ff" font-size="10" text-anchor="middle" x="760" y="100">true</text>
+<!-- DEVICE class: blue solid -->
+<rect fill="#0b101a" height="36" rx="6" stroke="#5db1ff" stroke-width="1.6" width="240" x="700" y="190"></rect>
+<text fill="#5db1ff" font-size="11" text-anchor="middle" x="820" y="212">device path (apply_channel_kernel)</text>
+</svg>

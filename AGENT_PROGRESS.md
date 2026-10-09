@@ -48,6 +48,8 @@ Reports: [integration guide](docs/sionna-integration.md), [merge validation](doc
 
 ### Documentation migration — 2026-10-09
 
+- Split the technical reference into focused concepts, interfaces and guides; added the CUDA newcomer path, qualification table and concise README gateway. Preserved diagrams and added source-backed configuration, control and telemetry definitions; historical relocation and validation remain.
+
 - Added a pinned Sphinx/MyST/Furo build, separate PR validation and Pages deployment, repository-link handling, legacy routing and evidence checks. Content migration is next; full site validation follows the completed move.
 
 - Inventoried documentation, technical-reference sections, 82 legacy IDs and 22 diagrams; recorded evidence hashes, destinations and page ownership before migration. Publishing and content conversion are next.

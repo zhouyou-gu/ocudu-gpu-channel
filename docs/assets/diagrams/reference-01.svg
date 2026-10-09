@@ -1,0 +1,48 @@
+<svg font-family="SF Mono,Menlo,monospace" font-size="11" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 220" xmlns="http://www.w3.org/2000/svg">
+<text fill="#cdd6e6" font-size="12" text-anchor="middle" x="500" y="20">Diagram conventions legend · 5 classes + 2 modifiers</text>
+<!-- HOST -->
+<rect fill="#13391f" height="50" rx="6" stroke="#6fd08c" stroke-width="1.6" width="150" x="30" y="50"></rect>
+<text fill="#6fd08c" font-size="11" text-anchor="middle" x="105" y="72">HOST</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="105" y="90">CPU work or host-RAM buffer</text>
+<!-- DEVICE -->
+<rect fill="#0b101a" height="50" rx="6" stroke="#5db1ff" stroke-width="1.6" width="150" x="200" y="50"></rect>
+<text fill="#5db1ff" font-size="11" text-anchor="middle" x="275" y="70">DEVICE</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="275" y="86">GPU kernel · device buffer</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="275" y="97">H2D · D2H copy</text>
+<!-- DECISION (diamond) -->
+<polygon fill="#0b101a" points="445,50 520,75 445,100 370,75" stroke="#ffb454" stroke-width="1.6"></polygon>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="445" y="73">DECISION</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="445" y="87">gate · branch</text>
+<!-- STREAM -->
+<rect fill="#0b101a" height="50" rx="6" stroke="#ffb454" stroke-width="1.6" width="150" x="540" y="50"></rect>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="615" y="72">STREAM</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="615" y="90">shared sink (many→one)</text>
+<!-- EXTERNAL -->
+<rect fill="#181f2e" height="50" rx="6" stroke="#cdd6e6" stroke-width="1.6" width="150" x="710" y="50"></rect>
+<text fill="#cdd6e6" font-size="11" text-anchor="middle" x="785" y="72">EXTERNAL</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="785" y="90">SDR · ZMQ peer · 3rd-party</text>
+<text fill="#9aa7bd" font-size="10" x="60" y="130">Modifiers (apply on top of any class)</text>
+<!-- HIGHLIGHT modifier -->
+<rect fill="rgba(255,180,84,0.18)" height="50" rx="6" stroke="#ffb454" stroke-width="1.6" width="150" x="30" y="140"></rect>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="105" y="160">HIGHLIGHT</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="105" y="176">call-out slice</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="105" y="187">(translucent fill)</text>
+<!-- FALLBACK modifier -->
+<rect fill="#0b101a" height="50" rx="6" stroke="#6fd08c" stroke-dasharray="4 3" stroke-width="1.6" width="150" x="200" y="140"></rect>
+<text fill="#6fd08c" font-size="11" text-anchor="middle" x="275" y="160">FALLBACK</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="275" y="176">dashed border</text>
+<text fill="#cdd6e6" font-size="9" text-anchor="middle" x="275" y="187">on-demand / optional</text>
+<text fill="#9aa7bd" font-size="10" x="370" y="155">Arrows</text>
+<line marker-end="url(#leg_b)" stroke="#5db1ff" stroke-width="1.6" x1="370" x2="430" y1="170" y2="170"></line>
+<text fill="#cdd6e6" font-size="9" x="438" y="173">device transport (H2D / D2H)</text>
+<defs>
+<marker id="leg_b" markerheight="9" markerwidth="9" orient="auto" refx="8" refy="4.5"><path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"></path></marker>
+<marker id="leg_g" markerheight="9" markerwidth="9" orient="auto" refx="8" refy="4.5"><path d="M0,0 L9,4.5 L0,9 z" fill="#6fd08c"></path></marker>
+<marker id="leg_a" markerheight="9" markerwidth="9" orient="auto" refx="8" refy="4.5"><path d="M0,0 L9,4.5 L0,9 z" fill="#ffb454"></path></marker>
+<marker id="leg_n" markerheight="9" markerwidth="9" orient="auto" refx="8" refy="4.5"><path d="M0,0 L9,4.5 L0,9 z" fill="#9aa7bd"></path></marker>
+</defs>
+<line marker-end="url(#leg_g)" stroke="#6fd08c" stroke-width="1.6" x1="660" x2="720" y1="170" y2="170"></line>
+<text fill="#cdd6e6" font-size="9" x="728" y="173">host transport</text>
+<line marker-end="url(#leg_a)" stroke="#ffb454" stroke-width="1.6" x1="860" x2="920" y1="170" y2="170"></line>
+<text fill="#cdd6e6" font-size="9" x="928" y="173">annotation</text>
+</svg>

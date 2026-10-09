@@ -1,12 +1,11 @@
-# Reports
+# Measured reports
 
-- [Project structure migration](structure-migration-20261009.md)
+Each report applies to its own date, revisions, hardware and configuration. Passing connectivity and strict timing qualification are separate outcomes.
 
-- [Main merge validation](../main-merge-validation.md)
-- [Sionna channel fixes](../sionna-merge-fixes-validation.md)
-- [Metrics recovery](../metrics-recovery-validation.md)
-- [Rank-1 feasibility and evidence](../rank1-feasibility-report.md)
-- [Live gate results](../live-gate-results.md)
-- [Robot-fight R7](../robot-fight-r7.md)
+```{toctree}
+:maxdepth: 1
 
-These reports retain their revision-specific results, limits and published URLs. Add new measured reports here.
+validation/README
+experiments/README
+performance/README
+```

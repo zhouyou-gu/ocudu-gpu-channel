@@ -1,0 +1,82 @@
+<svg font-family="SF Mono,Menlo,monospace" font-size="12" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 430" xmlns="http://www.w3.org/2000/svg">
+<text fill="#9aa7bd" font-size="11" x="20" y="22">Diagram U · 1-N and M-N latency vs max(M, N) · all 21 configs collapse to one curve</text>
+<!-- axes -->
+<line stroke="#9aa7bd" x1="100" x2="100" y1="50" y2="360"></line>
+<line stroke="#9aa7bd" x1="100" x2="960" y1="360" y2="360"></line>
+<!-- Y ticks: 0, 125, 250, 500, 1000, 1500, 2000 (linear to 2000) -->
+<g fill="#9aa7bd" font-size="10" text-anchor="end">
+<text x="94" y="363">0</text>
+<text x="94" y="343">125</text>
+<text x="94" y="324">250</text>
+<text x="94" y="284">500</text>
+<text x="94" y="205">1000</text>
+<text x="94" y="125">1500</text>
+<text x="94" y="46">2000</text>
+</g>
+<text fill="#9aa7bd" font-size="11" transform="rotate(-90 32 200)" x="32" y="200">p99 latency (µs)</text>
+<!-- Reference: 500 µs slot, 125 µs green -->
+<line stroke="#ffb454" stroke-dasharray="4 3" stroke-width="1" x1="100" x2="900" y1="284" y2="284"></line>
+<text fill="#ffb454" font-size="10" text-anchor="end" x="990" y="287">500 µs slot</text>
+<line stroke="#6fd08c" stroke-dasharray="3 3" stroke-width="1" x1="100" x2="900" y1="343" y2="343"></line>
+<text fill="#6fd08c" font-size="10" text-anchor="end" x="990" y="346">125 µs</text>
+<!-- X: log2(max), labels 1, 2, 4, 8, 16, 32, 64 -->
+<g fill="#cdd6e6" font-size="11" text-anchor="middle">
+<text x="140" y="383">1</text>
+<text x="280" y="383">2</text>
+<text x="410" y="383">4</text>
+<text x="530" y="383">8</text>
+<text x="650" y="383">16</text>
+<text x="770" y="383">32</text>
+<text x="890" y="383">64</text>
+</g>
+<text fill="#9aa7bd" font-size="11" text-anchor="middle" x="500" y="405">max(M, N) — the largest fan-in at any RX node in the topology</text>
+<!-- Helper: y(us) = 360 - us * 0.157 -->
+<!-- 1-N points (orange circles): max=1..64 -> p99 64,90,135,228,425,810,1616
+         y: 350,346,339,324,293,233,107 -->
+<g fill="#ffb454">
+<circle cx="140" cy="349.9" r="5"></circle>
+<circle cx="280" cy="345.9" r="5"></circle>
+<circle cx="410" cy="338.8" r="5"></circle>
+<circle cx="530" cy="324.2" r="5"></circle>
+<circle cx="650" cy="293.3" r="5"></circle>
+<circle cx="770" cy="232.8" r="5"></circle>
+<circle cx="890" cy="106.3" r="5"></circle>
+</g>
+<!-- 1-N connecting line for visual anchor -->
+<polyline fill="none" points="140,349.9 280,345.9 410,338.8 530,324.2 650,293.3 770,232.8 890,106.3" stroke="#ffb454" stroke-dasharray="3 2" stroke-width="1.2"></polyline>
+<!-- m-n symmetric (green squares): max=2,4,8,16 -> p99 92,137,231,429 -> y 345.6,338.5,323.7,292.7 -->
+<g fill="#6fd08c">
+<rect height="9" width="10" x="284" y="341.4"></rect>
+<rect height="9" width="10" x="414" y="334.6"></rect>
+<rect height="9" width="10" x="534" y="319.4"></rect>
+<rect height="9" width="10" x="654" y="288.6"></rect>
+</g>
+<!-- m-n asym N-larger (blue triangles): (2,4)max=4:135, (2,8)max=8:228, (2,16)max=16:424, (4,8)max=8:230, (4,16)max=16:427 -->
+<!-- y for these: 338.8, 324.2, 293.4, 323.9, 292.9 -->
+<g fill="#5db1ff">
+<polygon points="404,344 414,328 424,344"></polygon> <!-- (2,4) max=4 -->
+<polygon points="524,329 534,313 544,329"></polygon> <!-- (2,8) max=8 -->
+<polygon points="644,298 654,282 664,298"></polygon> <!-- (2,16) max=16 -->
+<polygon points="520,329 530,313 540,329"></polygon> <!-- (4,8) max=8 (overlap with above) -->
+<polygon points="640,298 650,282 660,298"></polygon> <!-- (4,16) max=16 -->
+</g>
+<!-- m-n asym M-larger (open diamonds, neutral grey — 4th series; not a §2.1 class signal) -->
+<g fill="none" stroke="#cdd6e6" stroke-width="1.4">
+<polygon points="396,340 404,332 412,340 404,348"></polygon> <!-- (4,2) max=4 -->
+<polygon points="516,325 524,317 532,325 524,333"></polygon> <!-- (8,2) max=8 -->
+<polygon points="636,294 644,286 652,294 644,302"></polygon> <!-- (16,2) max=16 -->
+<polygon points="520,325 528,317 536,325 528,333"></polygon> <!-- (8,4) max=8 -->
+<polygon points="640,294 648,286 656,294 648,302"></polygon> <!-- (16,4) max=16 -->
+</g>
+<!-- Legend -->
+<g font-size="11">
+<circle cx="148" cy="418" fill="#ffb454" r="5"></circle>
+<text fill="#9aa7bd" x="160" y="421">1-N (Set 1)</text>
+<rect fill="#6fd08c" height="9" width="10" x="280" y="414"></rect>
+<text fill="#9aa7bd" x="294" y="421">M-N symmetric (M=N)</text>
+<polygon fill="#5db1ff" points="490,422 500,406 510,422"></polygon>
+<text fill="#9aa7bd" x="514" y="421">M-N many-N (N&gt;M)</text>
+<polygon fill="none" points="716,418 724,410 732,418 724,426" stroke="#cdd6e6" stroke-width="1.4"></polygon>
+<text fill="#9aa7bd" x="738" y="421">M-N many-M (M&gt;N)</text>
+</g>
+</svg>

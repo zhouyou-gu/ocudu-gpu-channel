@@ -1,0 +1,79 @@
+<svg font-family="SF Mono,Menlo,monospace" font-size="12" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 295" xmlns="http://www.w3.org/2000/svg">
+<text fill="#9aa7bd" x="20" y="22">Cursor evolution across serves · wall-clock time → (pinned by the throttle)</text>
+<!-- time axis -->
+<line stroke="#9aa7bd" x1="100" x2="980" y1="42" y2="42"></line>
+<g stroke="#ffb454" stroke-width="1.5">
+<line x1="100" x2="100" y1="38" y2="46"></line>
+<line x1="393" x2="393" y1="38" y2="46"></line>
+<line x1="686" x2="686" y1="38" y2="46"></line>
+<line x1="980" x2="980" y1="38" y2="46"></line>
+</g>
+<g fill="#ffb454" font-size="11" text-anchor="middle">
+<text x="100" y="62">t = 0</text>
+<text x="393" y="62">+ 1 ms</text>
+<text x="686" y="62">+ 2 ms</text>
+<text x="980" y="62">+ 3 ms</text>
+</g>
+<text fill="#9aa7bd" font-size="10" text-anchor="middle" x="100" y="74">throttle anchor</text>
+<!-- src 0 ring -->
+<text fill="#6fd08c" font-size="11" x="20" y="98">src 0 ring</text>
+<g stroke="#2c3850">
+<rect fill="#1a2233" height="28" width="293" x="100" y="82"></rect>
+<rect fill="#1a2233" height="28" width="293" x="393" y="82"></rect>
+<rect fill="#1a2233" height="28" width="294" x="686" y="82"></rect>
+</g>
+<g fill="#e7ecf5" font-size="11" text-anchor="middle">
+<text x="246" y="100">seq 0 … 23 039</text>
+<text x="539" y="100">seq 23 040 … 46 079</text>
+<text x="833" y="100">seq 46 080 … 69 119</text>
+</g>
+<!-- src 1 ring -->
+<text fill="#6fd08c" font-size="11" x="20" y="135">src 1 ring</text>
+<g stroke="#2c3850">
+<rect fill="#1a2233" height="28" width="293" x="100" y="119"></rect>
+<rect fill="#1a2233" height="28" width="293" x="393" y="119"></rect>
+<rect fill="#1a2233" height="28" width="294" x="686" y="119"></rect>
+</g>
+<g fill="#e7ecf5" font-size="11" text-anchor="middle">
+<text x="246" y="137">seq 0 … 23 039</text>
+<text x="539" y="137">seq 23 040 … 46 079</text>
+<text x="833" y="137">seq 46 080 … 69 119</text>
+</g>
+<text fill="#9aa7bd" font-size="11" text-anchor="middle" x="540" y="162">⋮  (one row per incoming edge)</text>
+<!-- src N-1 ring -->
+<text fill="#6fd08c" font-size="11" x="20" y="190">src N−1</text>
+<g stroke="#2c3850">
+<rect fill="#1a2233" height="28" width="293" x="100" y="174"></rect>
+<rect fill="#1a2233" height="28" width="293" x="393" y="174"></rect>
+<rect fill="#1a2233" height="28" width="294" x="686" y="174"></rect>
+</g>
+<g fill="#e7ecf5" font-size="11" text-anchor="middle">
+<text x="246" y="192">seq 0 … 23 039</text>
+<text x="539" y="192">seq 23 040 … 46 079</text>
+<text x="833" y="192">seq 46 080 … 69 119</text>
+</g>
+<!-- Vertical dashed lines at serve boundaries -->
+<g stroke="#ffb454" stroke-dasharray="3 2">
+<line x1="100" x2="100" y1="78" y2="206"></line>
+<line x1="393" x2="393" y1="78" y2="206"></line>
+<line x1="686" x2="686" y1="78" y2="206"></line>
+<line x1="980" x2="980" y1="78" y2="206"></line>
+</g>
+<!-- Cursor positions row -->
+<text fill="#ffb454" font-size="11" x="20" y="228">cursor_k</text>
+<text fill="#9aa7bd" font-size="10" x="68" y="240">(all k)</text>
+<g fill="#ffb454" font-size="11" text-anchor="middle">
+<text x="100" y="234">0</text>
+<text x="393" y="234">23 040</text>
+<text x="686" y="234">46 080</text>
+<text x="980" y="234">69 120</text>
+</g>
+<g fill="#9aa7bd" font-size="10" text-anchor="middle">
+<text x="246" y="234">+= serve</text>
+<text x="539" y="234">+= serve</text>
+<text x="833" y="234">+= serve</text>
+</g>
+<!-- Bottom annotations -->
+<text fill="#cdd6e6" text-anchor="middle" x="500" y="262">co-init at t = 0 sets every cursor to seq 0 of its source · they advance lockstep by 'serve' samples after every serve</text>
+<text fill="#cdd6e6" text-anchor="middle" x="500" y="278">throttle pins each serve boundary to real time: t_serve(n) = anchor + n · serve / sample_rate</text>
+</svg>

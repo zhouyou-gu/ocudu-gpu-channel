@@ -1,0 +1,75 @@
+<svg font-family="SF Mono,Menlo,monospace" font-size="12" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 450" xmlns="http://www.w3.org/2000/svg">
+<text fill="#9aa7bd" font-size="11" x="20" y="22">Diagram T · Set 1 (1-to-N) · p99 latency vs N · CUDA · RTX 5090 · slot = 500 µs</text>
+<!-- axes -->
+<line stroke="#9aa7bd" x1="100" x2="100" y1="50" y2="380"></line>
+<line stroke="#9aa7bd" x1="100" x2="960" y1="380" y2="380"></line>
+<!-- Y ticks: 0, 250, 500, 750, 1000, 1250, 1500, 1750 (linear scale, max 1750) -->
+<g fill="#9aa7bd" font-size="10" text-anchor="end">
+<text x="94" y="383">0</text>
+<text x="94" y="335">250</text>
+<text x="94" y="288">500</text>
+<text x="94" y="241">750</text>
+<text x="94" y="194">1000</text>
+<text x="94" y="147">1250</text>
+<text x="94" y="100">1500</text>
+<text x="94" y="55">1750</text>
+</g>
+<text fill="#9aa7bd" font-size="11" transform="rotate(-90 32 220)" x="32" y="220">p99 latency (µs)</text>
+<!-- Reference lines: 500 µs slot, 125 µs green -->
+<line stroke="#ffb454" stroke-dasharray="4 3" stroke-width="1" x1="100" x2="900" y1="288" y2="288"></line>
+<text fill="#ffb454" font-size="10" text-anchor="end" x="990" y="291">500 µs = 1 slot (red threshold)</text>
+<line stroke="#6fd08c" stroke-dasharray="3 3" stroke-width="1" x1="100" x2="900" y1="356.5" y2="356.5"></line>
+<text fill="#6fd08c" font-size="10" text-anchor="end" x="990" y="359">125 µs = 25 % slot (green threshold)</text>
+<!-- X axis: log2-spaced N values 1, 2, 4, 8, 16, 32, 64 mapped to x=140, 280, 410, 530, 650, 770, 890 -->
+<g fill="#cdd6e6" font-size="11" text-anchor="middle">
+<text x="140" y="403">1</text>
+<text x="280" y="403">2</text>
+<text x="410" y="403">4</text>
+<text x="530" y="403">8</text>
+<text x="650" y="403">16</text>
+<text x="770" y="403">32</text>
+<text x="890" y="403">64</text>
+</g>
+<text fill="#9aa7bd" font-size="11" text-anchor="middle" x="520" y="425">N = incoming edges at the gNB (log scale)</text>
+<!-- Helper: y(us) = 380 - us * 0.189
+         total:    64,90,135,228,425,810,1616  -> 368.0,363.0,354.5,336.9,299.6,226.7,74.5
+         h2d:      26,40,68,119,229,445,884    -> 375.1,372.4,367.1,357.5,336.7,295.8,212.9
+         kernel:    5,5,7,10,17,29,54          -> 379.1,379.1,378.7,378.1,376.8,374.5,369.8
+         d2h:     18,20,20,18,18,18,18         -> 376.6,376.2,376.2,376.6,376.6,376.6,376.6 -->
+<!-- total (orange thick) -->
+<polyline fill="none" points="140,368.0 280,363.0 410,354.5 530,336.9 650,299.6 770,226.7 890,74.5" stroke="#ffb454" stroke-width="2.4"></polyline>
+<g fill="#ffb454">
+<circle cx="140" cy="368.0" r="4"></circle><circle cx="280" cy="363.0" r="4"></circle>
+<circle cx="410" cy="354.5" r="4"></circle><circle cx="530" cy="336.9" r="4"></circle>
+<circle cx="650" cy="299.6" r="4"></circle><circle cx="770" cy="226.7" r="4"></circle>
+<circle cx="890" cy="74.5" r="4"></circle>
+</g>
+<text fill="#ffb454" font-size="9" text-anchor="middle" x="890" y="68">1616</text>
+<text fill="#ffb454" font-size="9" text-anchor="middle" x="770" y="220">810</text>
+<text fill="#ffb454" font-size="9" text-anchor="middle" x="650" y="293">425</text>
+<text fill="#ffb454" font-size="9" text-anchor="middle" x="530" y="330">228</text>
+<text fill="#ffb454" font-size="9" text-anchor="middle" x="410" y="348">135</text>
+<!-- h2d (blue) -->
+<polyline fill="none" points="140,375.1 280,372.4 410,367.1 530,357.5 650,336.7 770,295.8 890,212.9" stroke="#5db1ff" stroke-width="1.8"></polyline>
+<g fill="#5db1ff">
+<circle cx="140" cy="375.1" r="3"></circle><circle cx="280" cy="372.4" r="3"></circle>
+<circle cx="410" cy="367.1" r="3"></circle><circle cx="530" cy="357.5" r="3"></circle>
+<circle cx="650" cy="336.7" r="3"></circle><circle cx="770" cy="295.8" r="3"></circle>
+<circle cx="890" cy="212.9" r="3"></circle>
+</g>
+<!-- kernel (DEVICE blue, solid; H2D line above already light blue) -->
+<polyline fill="none" points="140,379.1 280,379.1 410,378.7 530,378.1 650,376.8 770,374.5 890,369.8" stroke="#5db1ff" stroke-opacity="0.55" stroke-width="1.6"></polyline>
+<!-- d2h (gray) -->
+<polyline fill="none" points="140,376.6 280,376.2 410,376.2 530,376.6 650,376.6 770,376.6 890,376.6" stroke="#9aa7bd" stroke-dasharray="2 2" stroke-width="1.6"></polyline>
+<!-- Legend -->
+<g font-size="11">
+<line stroke="#ffb454" stroke-width="2.4" x1="140" x2="170" y1="438" y2="438"></line>
+<text fill="#9aa7bd" x="178" y="442">total model_mix p99</text>
+<line stroke="#5db1ff" stroke-width="1.8" x1="340" x2="370" y1="438" y2="438"></line>
+<text fill="#9aa7bd" x="378" y="442">H2D p99 (dominates)</text>
+<line stroke="#5db1ff" stroke-opacity="0.55" stroke-width="1.6" x1="540" x2="570" y1="438" y2="438"></line>
+<text fill="#9aa7bd" x="578" y="442">kernel p99 (scales mildly)</text>
+<line stroke="#9aa7bd" stroke-dasharray="2 2" stroke-width="1.6" x1="760" x2="790" y1="438" y2="438"></line>
+<text fill="#9aa7bd" x="798" y="442">D2H p99 (flat)</text>
+</g>
+</svg>

@@ -1,0 +1,150 @@
+.legacy-diagram {
+    --bg:#0f1420; --panel:#1a2233; --ink:#e7ecf5; --muted:#9aa7bd;
+    --edge:#2c3850; --accent:#5db1ff; --warm:#ffb454; --good:#6fd08c;
+    --cell:#0b101a;
+  }.legacy-diagram * { box-sizing:border-box; }.legacy-diagram {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.65 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }.legacy-diagram .wrap { max-width:1060px; margin:0 auto; padding:40px 28px 80px; }.legacy-diagram h1 { font-size:30px; margin:0 0 6px; }.legacy-diagram h2 { font-size:21px; margin:42px 0 10px; border-bottom:1px solid var(--edge); padding-bottom:6px; }.legacy-diagram h2.part-divider { font-size:14px; text-transform:uppercase; letter-spacing:2px;
+    color:var(--accent); border:none; border-top:1px solid var(--edge);
+    margin:64px 0 4px; padding:18px 0 0; }.legacy-diagram h2.part-divider + p.sub { margin-bottom:24px; }.legacy-diagram h3 { font-size:16px; margin:26px 0 8px; color:var(--accent); }.legacy-diagram p { color:#cdd6e6; }.legacy-diagram code { font-family:"SF Mono",Menlo,Consolas,monospace; background:#0b101a;
+    border:1px solid var(--edge); border-radius:4px; padding:1px 5px; font-size:13px; }.legacy-diagram .sub { color:var(--muted); margin-top:0; }.legacy-diagram .panel { background:var(--panel); border:1px solid var(--edge); border-radius:10px;
+    padding:18px 20px; margin:16px 0; }.legacy-diagram table { border-collapse:collapse; width:100%; margin:10px 0; font-size:14px; }.legacy-diagram th, .legacy-diagram td { border:1px solid var(--edge); padding:7px 10px; text-align:left; vertical-align:top; }.legacy-diagram th { background:#0b101a; color:var(--muted); font-weight:600; }.legacy-diagram .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:10px;
+    background:#0b101a; border:1px solid var(--edge); color:var(--muted); }.legacy-diagram figure { margin:18px 0; }.legacy-diagram figcaption { color:var(--muted); font-size:13px; margin-top:8px; text-align:center; }.legacy-diagram svg { display:block; margin:0 auto; max-width:100%; height:auto; }.legacy-diagram .key { font-size:13px; color:var(--muted); }.legacy-diagram .key b { color:var(--ink); }.legacy-diagram .mono { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; }.legacy-diagram .num { font-size:26px; font-weight:700; }.legacy-diagram .numrow { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:14px 0; }.legacy-diagram .numrow .panel { text-align:center; margin:0; }.legacy-diagram .numrow .panel div:last-child { color:var(--muted); font-size:13px; }.legacy-diagram ul { color:#cdd6e6; }.legacy-diagram ul.tight { margin:6px 0 6px 22px; }.legacy-diagram ul.tight li { margin:2px 0; }.legacy-diagram .hero { padding:4px 0 0; }.legacy-diagram .hero h1 { font-size:38px; letter-spacing:-0.5px; line-height:1.15;
+    margin:0 0 4px; color:var(--ink); }.legacy-diagram .hero .hero-byline { font-size:13px; color:var(--muted); margin:0 0 14px;
+    display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; }.legacy-diagram .hero .hero-byline b { color:var(--ink); }.legacy-diagram .hero .hero-byline a { color:var(--accent); text-decoration:none; }.legacy-diagram .hero .hero-byline a:hover { text-decoration:underline; }.legacy-diagram .hero .hero-byline .sep { color:var(--edge); }.legacy-diagram .hero .hero-subtitle { font-size:13px; color:var(--accent); font-weight:600;
+    letter-spacing:1.5px; text-transform:uppercase; margin:0 0 18px; }.legacy-diagram .hero .hero-tagline { font-size:17px; color:var(--ink); line-height:1.55;
+    margin:0 0 18px; max-width:780px; }.legacy-diagram .hero .hero-meta { font-size:13px; color:var(--muted); margin:0 0 24px;
+    display:flex; flex-wrap:wrap; gap:0 14px; align-items:center; }.legacy-diagram .hero .hero-meta a { color:var(--accent); text-decoration:none; }.legacy-diagram .hero .hero-meta a:hover { text-decoration:underline; }.legacy-diagram .hero .hero-meta b { color:var(--ink); }.legacy-diagram .hero .hero-meta .sep { color:var(--edge); }.legacy-diagram .hero-stats { margin:0 0 36px; }.legacy-diagram .hero-stats .panel { padding:14px 12px; }.legacy-diagram .hero-stats .num { font-size:20px; color:var(--accent); }.legacy-diagram .hero-stats .panel div:last-child { font-size:12px; line-height:1.4; }.legacy-diagram .tier-stack { display:flex; flex-direction:column; gap:8px; }.legacy-diagram .tier {
+    border-radius:8px; padding:14px 16px; background:var(--panel);
+    border:1px solid var(--edge);
+  }.legacy-diagram .tier--host { border-color:var(--ink); }.legacy-diagram .tier--broker { background:#13391f; border-color:var(--good); }.legacy-diagram .tier--gpu { background:#0b101a; border-color:var(--accent); }.legacy-diagram .tier-label {
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+    color:var(--muted); margin-bottom:10px; letter-spacing:.3px;
+  }.legacy-diagram .tier--host .tier-label { color:var(--ink); }.legacy-diagram .tier--broker .tier-label { color:var(--good); }.legacy-diagram .tier--gpu .tier-label { color:var(--accent); }.legacy-diagram .tier-cells { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }.legacy-diagram .tier-cell {
+    background:var(--cell); padding:10px 12px; border-radius:6px;
+    border:1px solid var(--edge); text-align:center; font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; color:var(--ink);
+  }.legacy-diagram .tier-cell small { display:block; color:var(--muted); font-size:11px; margin-top:4px; font-family:-apple-system,sans-serif; }.legacy-diagram .flow-arrow {
+    text-align:center; color:var(--accent); font-size:12px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; padding:2px 0;
+  }.legacy-diagram .flow-arrow::before { content:"▼ "; color:var(--accent); }.legacy-diagram .gantt { display:flex; flex-direction:column; gap:8px; padding:14px 16px;
+    background:var(--panel); border:1px solid var(--edge); border-radius:8px; }.legacy-diagram .gantt-header { display:grid; grid-template-columns:120px 1fr; gap:10px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--muted); }.legacy-diagram .gantt-tick-row { position:relative; height:14px; border-bottom:1px dashed var(--edge); }.legacy-diagram .gantt-tick { position:absolute; top:0; font-size:10px; color:var(--muted);
+    transform:translateX(-50%); font-family:"SF Mono",Menlo,Consolas,monospace; white-space:nowrap; }.legacy-diagram .gantt-row { display:grid; grid-template-columns:120px 1fr; gap:10px; align-items:center; }.legacy-diagram .gantt-label { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+    color:var(--ink); text-align:right; }.legacy-diagram .gantt-track { position:relative; height:22px; background:var(--cell);
+    border-radius:3px; border:1px solid var(--edge); }.legacy-diagram .gantt-bar { position:absolute; top:2px; bottom:2px; border-radius:2px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:10px;
+    display:flex; align-items:center; justify-content:center; color:#0b101a;
+    font-weight:600; overflow:hidden;
+  }.legacy-diagram .gantt-bar--h2d { background:var(--accent); opacity:.55; }.legacy-diagram .gantt-bar--kernel { background:var(--accent); }.legacy-diagram .gantt-bar--d2h { background:var(--accent); opacity:.30; }.legacy-diagram .gantt-legend { display:flex; gap:14px; justify-content:center; font-size:11px;
+    color:var(--muted); margin-top:6px; font-family:"SF Mono",Menlo,Consolas,monospace; }.legacy-diagram .gantt-swatch { display:inline-block; width:10px; height:10px; border-radius:2px;
+    margin-right:4px; vertical-align:middle; }.legacy-diagram pre.code-block { background:#0b101a; border:1px solid var(--edge); border-radius:6px;
+    padding:12px 14px; overflow-x:auto; font-size:12.5px; color:var(--ink); line-height:1.5;
+    font-family:"SF Mono",Menlo,Consolas,monospace; }.legacy-diagram pre.code-block code { background:none; border:none; padding:0; font-size:inherit; }.legacy-diagram .stage-fig {
+    background:var(--panel); border:1px solid var(--edge); border-radius:8px;
+    padding:18px 20px; display:flex; flex-direction:column; gap:12px;
+  }.legacy-diagram .stage-section-label {
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+    color:var(--muted); letter-spacing:.3px;
+  }.legacy-diagram .stage-inputs { display:flex; flex-direction:column; gap:6px; }.legacy-diagram .stage-input-row {
+    display:grid; grid-template-columns:110px 1fr 130px; gap:10px; align-items:center;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+  }.legacy-diagram .stage-input-row .stage-edge { text-align:left; font-weight:600; }.legacy-diagram .stage-input-row .stage-buf {
+    background:var(--cell); padding:7px 10px; border-radius:4px; color:var(--ink);
+    text-align:center; letter-spacing:.5px;
+  }.legacy-diagram .stage-input-row .stage-size { color:var(--muted); font-size:10px; text-align:right; }.legacy-diagram .stage-edge--e0, .legacy-diagram .stage-input-row.r0 .stage-buf { border:1px solid var(--accent); color:var(--accent); }.legacy-diagram .stage-edge--e1, .legacy-diagram .stage-input-row.r1 .stage-buf { border:1px solid var(--good); color:var(--good); }.legacy-diagram .stage-edge--eN, .legacy-diagram .stage-input-row.rN .stage-buf { border:1px solid var(--noise); color:var(--noise); }.legacy-diagram .stage-input-row.r0 .stage-edge { color:var(--accent); }.legacy-diagram .stage-input-row.r1 .stage-edge { color:var(--good); }.legacy-diagram .stage-input-row.rN .stage-edge { color:var(--noise); }.legacy-diagram .stage-input-row.r0 .stage-buf { color:var(--ink); }.legacy-diagram .stage-input-row.r1 .stage-buf { color:var(--ink); }.legacy-diagram .stage-input-row.rN .stage-buf { color:var(--ink); }.legacy-diagram .stage-input-vdots {
+    text-align:center; color:var(--muted); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:13px; padding:2px 0;
+  }.legacy-diagram .stage-arrow {
+    text-align:center; color:var(--accent); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px; padding:2px 0;
+  }.legacy-diagram .stage-arrow::before { content:"▼ "; }.legacy-diagram .stage-output {
+    display:flex; flex-direction:column; gap:4px;
+  }.legacy-diagram .stage-strip {
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:0;
+    background:var(--cell); border:1px solid var(--edge); border-radius:4px; overflow:hidden;
+  }.legacy-diagram .stage-strip .stage-seg {
+    padding:10px 8px; font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+    text-align:center; color:var(--ink);
+  }.legacy-diagram .stage-strip .stage-seg small {
+    display:block; color:var(--muted); font-size:10px; margin-top:3px;
+    font-family:-apple-system,sans-serif;
+  }.legacy-diagram .stage-strip .stage-seg.s0 { background:rgba(111,208,140,0.10); border-right:1px dashed var(--edge); color:var(--good); }.legacy-diagram .stage-strip .stage-seg.s1 { background:rgba(111,208,140,0.18); border-right:1px dashed var(--edge); color:var(--good); }.legacy-diagram .stage-strip .stage-seg.sN { background:rgba(111,208,140,0.26); color:var(--good); }.legacy-diagram .stage-offsets {
+    display:grid; grid-template-columns:repeat(4, 1fr); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:10px; color:var(--muted); margin-top:-2px;
+  }.legacy-diagram .stage-offsets span { text-align:left; }.legacy-diagram .stage-offsets span:last-child { text-align:right; }.legacy-diagram .stage-formula {
+    text-align:center; color:var(--warm); font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:12px; padding:6px 0 2px;
+  }.legacy-diagram .stage-device {
+    text-align:center; padding:10px 12px; border-radius:4px;
+    background:#0b101a; border:1px solid var(--accent); color:var(--ink);
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+  }.legacy-diagram .stage-device small { display:block; color:var(--muted); font-size:11px; margin-top:3px; font-family:-apple-system,sans-serif; }.legacy-diagram .bk-pipe {
+    padding:14px 16px; background:var(--panel); border:1px solid var(--edge);
+    border-radius:8px; display:flex; flex-direction:column; gap:6px;
+  }.legacy-diagram .bk-axis {
+    display:grid; grid-template-columns:130px 1fr; gap:10px; align-items:end;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px;
+    color:var(--muted); padding-bottom:2px;
+  }.legacy-diagram .bk-axis-bar {
+    position:relative; height:34px;
+    border-bottom:1px dashed var(--edge);
+  }.legacy-diagram .bk-tick {
+    position:absolute; top:0; bottom:0; width:1px;
+    background:rgba(255,180,84,0.45);
+  }.legacy-diagram .bk-tick-label {
+    position:absolute; bottom:0; font-size:10px; color:var(--warm);
+    white-space:nowrap; transform:translateX(-50%);
+  }.legacy-diagram .bk-tick-sub {
+    display:block; color:var(--muted); font-size:9px;
+    font-family:-apple-system,sans-serif;
+  }.legacy-diagram .bk-lane {
+    display:grid; grid-template-columns:130px 1fr; gap:10px; align-items:center;
+  }.legacy-diagram .bk-label {
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--ink);
+    text-align:right;
+  }.legacy-diagram .bk-label small {
+    display:block; color:var(--muted); font-size:10px;
+    font-family:-apple-system,sans-serif; margin-top:2px;
+  }.legacy-diagram .bk-track {
+    position:relative; height:46px; background:var(--cell);
+    border:1px solid var(--edge); border-radius:4px;
+  }.legacy-diagram .bk-stage {
+    position:absolute; top:3px; bottom:3px; border-radius:3px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:10.5px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:var(--ink); padding:3px 4px; overflow:hidden; line-height:1.2;
+  }.legacy-diagram .bk-stage b {
+    display:block; font-weight:600; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; max-width:100%;
+  }.legacy-diagram .bk-stage small {
+    display:block; font-size:9px; color:var(--muted);
+    font-family:"SF Mono",Menlo,Consolas,monospace; margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+  }.legacy-diagram .bk-stage--zmq { background:rgba(205,214,230,0.15); border:1px solid var(--ink); }.legacy-diagram .bk-stage--cpu { background:rgba(111,208,140,0.18); border:1px solid var(--good); }.legacy-diagram .bk-stage--gpu { background:rgba(93,177,255,0.18); border:1px solid var(--accent); }.legacy-diagram .bk-handoff-layer {
+    position:relative; height:0;
+  }.legacy-diagram .bk-handoff-row {
+    display:grid; grid-template-columns:130px 1fr; gap:10px; height:14px;
+    align-items:center;
+  }.legacy-diagram .bk-handoff-row .bk-handoff-label {
+    text-align:right; font-family:-apple-system,sans-serif;
+    font-size:10px; color:var(--muted);
+  }.legacy-diagram .bk-handoff-row .bk-handoff-arrows {
+    position:relative; height:14px;
+  }.legacy-diagram .bk-handoff {
+    position:absolute; top:0; bottom:0; display:flex; align-items:center;
+    transform:translateX(-50%); color:var(--warm); font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+  }.legacy-diagram .bk-legend {
+    display:flex; gap:14px; justify-content:center; font-size:11px;
+    color:var(--muted); margin-top:6px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+  }.legacy-diagram .bk-legend-sw {
+    display:inline-block; width:10px; height:10px; border-radius:2px;
+    margin-right:4px; vertical-align:middle;
+  }.legacy-diagram .bk-disclaimer {
+    text-align:center; font-size:10px; color:var(--muted);
+    font-family:-apple-system,sans-serif; margin-top:-4px;
+  }
+

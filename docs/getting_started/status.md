@@ -1,0 +1,19 @@
+# Current capabilities and measured limits
+
+Reviewed for the documentation migration on **9 October 2026**, against source baseline `58d3156`. Implementation state describes the code; validation outcome describes a particular experiment. A passing synthetic or package check does not establish live-radio qualification.
+
+| Capability | Implementation state | Recorded validation | Boundary and evidence |
+|---|---|---|---|
+| CPU/CUDA broker, channel processing and topology handling | Implemented | RTX 5090, 2026-10-09: CPU/CUDA CTest 12/12 each; nine GPU stages passed; deterministic IQ matched the pre-migration baseline | [Structure migration](../reports/validation/structure-migration-20261009.md); report identifies configurations and evidence root |
+| Rank-1 multi-port processing with srsUE | Implemented | RTX synthetic multi-branch checks; 2026-10-09 live attachment/PDU, 250/250 pings and matrix capture passed using pinned prebuilt images | Live DL radiates only port 0 in the tested setup; two receive starvations fail strict real-time qualification. [Rank-1 report](../reports/validation/rank1-feasibility.md), [latest run](../reports/validation/structure-migration-20261009.md) |
+| Sionna matrix updates and one multi-gNB dashboard | Implemented | September channel, delayed-echo and metrics recovery checks passed at their recorded revisions | Snapshot replacement; geometry changes can reset history. [Channel validation](../reports/validation/sionna-merge-fixes-validation.md), [metrics validation](../reports/validation/metrics-recovery-validation.md) |
+| Continuous moving two-UE traffic | Implemented integration, qualification failed | September SUTD moving run: intermittent UE1 traffic despite initial sessions and advancing channel telemetry | [Recovery and moving evidence](../history/milestones/sionna-integration-20260914.md#ue-recovery-validation); continuous connectivity remains failed |
+| Strict zero-miss real-time operation | Gate implemented, qualification failed in recorded live runs | Starvations persisted in September and the October structure-migration run | Passing ping and average throughput do not clear misses; see [testing](../development/testing.md) |
+| OAI rank-2, GB10 and Orin routes | Contributor implementations merged | Platform- and revision-specific contributor results | Not repeated during October integration/migration. [Platform evidence](../guides/platforms.md), [rank-2 record](../history/designs/m6-rank2-su-mimo-live.md) |
+| CMX500/X310 bridge | Contributed implementation merged | Attachment evidence recorded by contributor | Uplink timing remains late; IP traffic untested. [Use case](../../use_cases/cmx500/README.md) |
+| Buffered sample-aligned Sionna CIR streaming | Proposed architecture | No qualification of this proposed mechanism | Shipping bridge replaces snapshots; [design](../development/designs/sionna-live-channel.md) |
+| Full statistical CDL, seamless geometry changes, handover and same-PRB MU-MIMO | Proposed or unqualified | No qualification claimed here | [Design inventory](../development/designs/README.md) |
+
+The centered eight-tap fractional-delay filter can require up to three future samples at a block boundary. Attached fractional-TDL hardware claims still need a validated guard or streaming treatment; synthetic agreement alone does not resolve that boundary.
+
+Historical reports remain authoritative for their own measured values, revisions and setup. See [reports](../reports/README.md) for methodology and reproduction, and [requirements](requirements.md) before choosing hardware or a workflow.

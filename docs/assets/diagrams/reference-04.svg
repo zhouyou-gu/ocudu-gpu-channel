@@ -1,0 +1,74 @@
+<svg font-family="SF Mono,Menlo,monospace" font-size="12" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 470" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<marker id="arv" markerheight="10" markerwidth="10" orient="auto" refx="8" refy="5">
+<path d="M0,0 L10,5 L0,10 z" fill="#5db1ff"></path>
+</marker>
+</defs>
+<text fill="#cdd6e6" text-anchor="middle" x="500" y="18">Node ↔ edge mapping: built host-side at startup, consumed by host every serve, exposed to the device as packed indices</text>
+<!-- Column 1: YAML topology — EXTERNAL class (config file outside the runtime) -->
+<rect fill="#181f2e" height="190" rx="8" stroke="#cdd6e6" stroke-width="1.6" width="300" x="20" y="36"></rect>
+<text fill="#cdd6e6" font-size="11" text-anchor="middle" x="170" y="58">YAML topology (config-time input)</text>
+<line stroke="#2c3850" x1="30" x2="310" y1="68" y2="68"></line>
+<text fill="#9aa7bd" font-size="11" x="34" y="86">devices:</text>
+<text fill="#e7ecf5" font-size="11" x="46" y="102">- id: gnb0</text>
+<text fill="#e7ecf5" font-size="11" x="46" y="116">- id: ue0</text>
+<text fill="#e7ecf5" font-size="11" x="46" y="130">- id: ue1</text>
+<text fill="#9aa7bd" font-size="11" x="34" y="152">links:</text>
+<text fill="#e7ecf5" font-size="11" x="46" y="168">- {from: ue0,  to: gnb0, …}</text>
+<text fill="#e7ecf5" font-size="11" x="46" y="182">- {from: ue1,  to: gnb0, …}</text>
+<text fill="#e7ecf5" font-size="11" x="46" y="196">- {from: gnb0, to: ue0,  …}</text>
+<text fill="#e7ecf5" font-size="11" x="46" y="210">- {from: gnb0, to: ue1,  …}</text>
+<line marker-end="url(#arv)" stroke="#5db1ff" x1="324" x2="354" y1="130" y2="130"></line>
+<!-- Column 2: Host runtime resolution at broker startup -->
+<rect fill="#13391f" height="190" rx="8" stroke="#6fd08c" width="324" x="356" y="36"></rect>
+<text fill="#6fd08c" font-size="11" text-anchor="middle" x="518" y="58">HOST · Broker::prepare() · runs ONCE at startup</text>
+<line stroke="#2c3850" x1="366" x2="670" y1="68" y2="68"></line>
+<text fill="#cdd6e6" font-size="11" x="370" y="86">for each destination device d:</text>
+<text fill="#ffb454" font-size="12" x="386" y="104">incoming = { i : links[i].to == d.id }</text>
+<text fill="#9aa7bd" font-size="10" x="386" y="124">(filter the global links[] list once)</text>
+<line stroke="#2c3850" stroke-dasharray="2 2" x1="370" x2="660" y1="138" y2="138"></line>
+<text fill="#cdd6e6" font-size="11" x="370" y="158">build per-server vector:</text>
+<text fill="#e7ecf5" font-size="11" x="386" y="178">superposition[k] = {</text>
+<text fill="#e7ecf5" font-size="11" x="402" y="194">link_key,  model*</text>
+<text fill="#e7ecf5" font-size="11" x="386" y="210">}   for k in 0 .. N−1</text>
+<line marker-end="url(#arv)" stroke="#5db1ff" x1="684" x2="714" y1="130" y2="130"></line>
+<!-- Column 3: gnb0's resolved incoming set — HIGHLIGHT modifier (example call-out) -->
+<rect fill="rgba(255,180,84,0.18)" height="190" rx="8" stroke="#ffb454" stroke-width="1.6" width="264" x="716" y="36"></rect>
+<text fill="#ffb454" font-size="11" text-anchor="middle" x="848" y="58">e.g. for d = gnb0</text>
+<line stroke="#2c3850" x1="724" x2="972" y1="68" y2="68"></line>
+<text fill="#cdd6e6" font-size="11" x="728" y="86">incoming = [0, 1]    (N=2)</text>
+<text fill="#cdd6e6" font-size="11" x="728" y="108">superposition:</text>
+<text fill="#e7ecf5" font-size="11" x="744" y="126">[0] ue0→gnb0  model:far</text>
+<text fill="#e7ecf5" font-size="11" x="744" y="142">[1] ue1→gnb0  model:near</text>
+<text fill="#9aa7bd" font-size="10" x="728" y="170">fixed for the life of the run;</text>
+<text fill="#9aa7bd" font-size="10" x="728" y="184">per-slot loop never re-resolves it.</text>
+<!-- Vertical arrows: this drives per-slot host + device work -->
+<line marker-end="url(#arv)" stroke="#5db1ff" x1="170" x2="170" y1="240" y2="270"></line>
+<line marker-end="url(#arv)" stroke="#5db1ff" x1="848" x2="848" y1="240" y2="270"></line>
+<!-- Bottom row: per-slot consumption -->
+<rect fill="#13391f" height="174" rx="8" stroke="#6fd08c" width="660" x="20" y="280"></rect>
+<text fill="#6fd08c" font-size="11" text-anchor="middle" x="350" y="302">HOST · server thread · runs EVERY slot · walks superposition[k]</text>
+<line stroke="#2c3850" x1="30" x2="670" y1="312" y2="312"></line>
+<text fill="#cdd6e6" font-size="11" x="34" y="330">for k in 0 .. N−1:</text>
+<text fill="#e7ecf5" font-size="11" x="50" y="348">co-init cursor[k] to ring[src].earliest_seq</text>
+<text fill="#9aa7bd" font-size="10" x="50" y="364">— §9 alignment / Diagram H</text>
+<text fill="#e7ecf5" font-size="11" x="50" y="384">read common window from ring[src] into inputs[k]</text>
+<text fill="#e7ecf5" font-size="11" x="50" y="404">memcpy inputs[src_first[s]] → host_source_iq + s·count   (per unique source, D4)</text>
+<text fill="#9aa7bd" font-size="10" x="50" y="420">— device-default · channel runs in apply_channel_kernel on GPU (§11 Diagram S)</text>
+<text fill="#9aa7bd" font-size="10" x="50" y="436">— host-fallback · stage_link writes shaped IQ into host_staged if gate is false</text>
+<text fill="#cdd6e6" font-size="11" x="50" y="450">build step_meta[0..2N−1] for the kernel  ·  edges share src_index into device_source_iq</text>
+<rect fill="#0b101a" height="174" rx="8" stroke="#5db1ff" width="280" x="700" y="280"></rect>
+<text fill="#5db1ff" font-size="11" text-anchor="middle" x="840" y="302">DEVICE · superpose_kernel</text>
+<line stroke="#2c3850" x1="710" x2="970" y1="312" y2="312"></line>
+<text fill="#9aa7bd" font-size="10" x="714" y="332">never sees superposition[] directly.</text>
+<text fill="#9aa7bd" font-size="10" x="714" y="348">consumes the packed indices:</text>
+<text fill="#e7ecf5" font-size="11" x="714" y="370">for k in 0 .. N−1:</text>
+<text fill="#e7ecf5" font-size="11" x="730" y="386">s = device_staged[</text>
+<text fill="#e7ecf5" font-size="11" x="744" y="402">     k·count + idx]</text>
+<text fill="#e7ecf5" font-size="11" x="730" y="418">apply_chain via</text>
+<text fill="#e7ecf5" font-size="11" x="744" y="434">  step_meta[k]</text>
+<text fill="#ffb454" font-size="11" x="730" y="450">acc += s    (§12)</text>
+<!-- H2D arrow between host work and device consumption -->
+<line marker-end="url(#arv)" stroke="#5db1ff" x1="684" x2="700" y1="380" y2="380"></line>
+<text fill="#5db1ff" font-size="9" x="688" y="370">H2D</text>
+</svg>

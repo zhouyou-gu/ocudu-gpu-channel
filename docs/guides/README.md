@@ -1,9 +1,18 @@
-# Guides
+# Operating guides
 
-- [Sionna integration and dashboard](../sionna-integration.md)
-- [OCUDU interoperation](../ocudu-interop.md)
-- [Hardware platforms](../platforms.md)
-- [Distributed IQ transport](../distributed.md)
-- [Repository and remote workspace](../project-structure.md)
+Choose the workflow you need after the first synthetic run. Exact fields and message formats belong in the reference.
 
-Existing guides stay at their published URLs. Add new operational guides here.
+```{toctree}
+:maxdepth: 1
+
+broker
+live-stacks
+sionna
+dashboard
+platforms
+cuda-gnb
+remote-workspace
+native-operation
+distributed
+troubleshooting
+```
