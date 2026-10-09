@@ -39,15 +39,13 @@ case "${case_name}" in
     topology="${repo_root}/use_cases/configs/topologies/basic/topology.graph.cuda.yaml"
     scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/graph.json"
     source_ports=(16000 16002 16004); sink_ports=(16001 16003 16005) ;;
-  multi-gnb)
-    topology="${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"
-    scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json"
-    source_ports=(3000 3002 3101 3103); sink_ports=(3001 3003 3100 3102) ;;
-  # Same two-cell topology, on the OpenStreetMap SUTD campus instead of the
-  # built-in street canyon.
-  multi-gnb-sutd)
+  # Both two-cell scenes declare four antennas per gNB and one per UE.
+  multi-gnb|multi-gnb-sutd)
     topology="${repo_root}/use_cases/configs/topologies/sionna/topology.sionna-multi-gnb.cuda.yaml"
-    scenario="${repo_root}/use_cases/configs/sionna/scenarios/sutd/multi-gnb-sutd.json"
+    scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json"
+    if [[ "${case_name}" == "multi-gnb-sutd" ]]; then
+      scenario="${repo_root}/use_cases/configs/sionna/scenarios/sutd/multi-gnb-sutd.json"
+    fi
     source_ports=(3000 3002 3004 3006 3010 3012 3014 3016 3101 3103)
     sink_ports=(3001 3003 3005 3007 3011 3013 3015 3017 3100 3102) ;;
   *) echo "unknown case: ${case_name}" >&2; exit 2 ;;
@@ -61,7 +59,7 @@ for executable in ocudu-gpu-channel ocudu-zmq-source ocudu-zmq-sink; do
 done
 [[ -x "${python_bin}" ]] || { echo "missing Sionna Python: ${python_bin}" >&2; exit 2; }
 
-if [[ "${case_name}" == "multi-gnb-sutd" ]]; then
+if [[ "${case_name}" == multi-gnb* ]]; then
   "${python_bin}" "${repo_root}/apps/sionna_bridge/check_demo_topology.py" \
     --topology "${topology}" --scenario "${scenario}" \
     --sources "$(IFS=,; echo "${source_ports[*]}")" \

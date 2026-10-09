@@ -10,8 +10,11 @@ Reproducible workflows that run on the RTX workstation. Every script sources
 | `init-workspace.sh` | Create the remote workspace directory tree once. |
 | `bootstrap-user-tools.sh` | Install user-space CMake / CUDA Toolkit / ZeroMQ under `~/ocudu-gpu-channel-workspace/tools/`. No root. |
 | `probe.sh` | Sanity-check the remote toolchain (cmake, nvcc, nvidia-smi, ZeroMQ). |
-| `sync.sh` | rsync the local working tree to the remote project root. |
+| `sync.sh` | Fetch and fast-forward the remote clone to the current branch on origin; local uncommitted changes are not uploaded. |
+| `bootstrap-sionna.sh` | Install the optional bridge dependencies in the remote workspace’s `venvs/sionna`; requires a synchronized checkout. |
 | `common.sh` | Shared sourcing (sourced by every other script). |
+
+The GPU sequence, performance sweeps and selected smoke scripts upload the local working tree with rsync before running. Their shared `rsync-excludes.txt` keeps local settings, research, tooling and generated artifacts out of the upload; excluded remote files are preserved. Ordinary untracked source is included. This upload is separate from `sync.sh`’s Git update.
 
 ## Build + run
 
@@ -31,14 +34,19 @@ Reproducible workflows that run on the RTX workstation. Every script sources
 | `ocudu-rank1-4x1-multi-ue-smoke.sh` | R3-MU | 4T4R gNB + **two** 1-antenna srsUEs: both uplinks superpose on the four gNB receive ports |
 | `ocudu-rank1-2x1-triple-ue-smoke.sh` | — | 2T2R + **three** srsUEs. **Blocked**: all three reach RRC, PDU unreliable |
 | `ocudu-rank1-2x1-quad-ue-smoke.sh` | — | 2T2R + **four** srsUEs. **Blocked**: only the last-started UE attaches |
+| `ocudu-multi-ue-smoke.sh` | B | 1 gNB + 2 UEs on one cell |
+| `ocudu-multi-gnb-smoke.sh` | C | 2 gNBs + 2 UEs, inter-cell interference |
+| `ocudu-interop-smoke.sh` | — | Broader OCUDU interop sanity |
 
 Measured results for every gate above, including why the three- and four-UE
 gates are blocked, are recorded in [`docs/reports/validation/live-gate-results.md`](../../docs/reports/validation/live-gate-results.md).
 The three- and four-UE scripts are committed as reproducible investigations, not
 as passing gates; **two UEs per cell is the supported multi-user configuration.**
-| `ocudu-multi-ue-smoke.sh` | B | 1 gNB + 2 UEs on one cell |
-| `ocudu-multi-gnb-smoke.sh` | C | 2 gNBs + 2 UEs, inter-cell interference |
-| `ocudu-interop-smoke.sh` | — | Broader OCUDU interop sanity |
+
+The static two-cell gate uses one antenna per gNB, with TX ports 3000 and
+3002. Sionna mode uses four antennas per gNB, with TX ports 3000/3002/3004/3006
+and 3010/3012/3014/3016. Custom topologies and scenarios must match the selected
+mode's antenna dimensions and endpoints.
 
 The Milestone C script also runs directly on a GPU host without SSH or
 `.config`. The local launcher enables the Sionna RT channel by default:
@@ -55,7 +63,7 @@ to complete RRC attach, PDU-session setup, and ping. Results are written under
 
 ## Perf sweeps
 
-Three sweep scripts with overlapping but distinct scopes:
+Four sweep scripts with overlapping but distinct scopes:
 
 | Script | Backend(s) | Configs | What it measures | When to use |
 |---|---|---|---|---|
