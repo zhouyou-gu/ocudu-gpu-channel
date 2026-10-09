@@ -15,7 +15,9 @@ CMX500 -- RF cable -- X310 <-> usrp_zmq_bridge <-> ocudu-gpu-channel (CUDA) <-> 
 | `use_cases/cmx500/` | `run_cmx_loop.sh` (starts bridge, srsUE, broker in order), `sweep_dl.sh` + `sweep_report.py` (live downlink SNR sweep), timing analysis scripts |
 | `use_cases/configs/topologies/cmx/topology.cmx-bridge.*.yaml` | Broker topologies: passthrough, and downlink path loss in front of a fixed noise floor |
 | `use_cases/configs/ran/srsue/srsue_zmq_cmx_n3.conf.in` | srsUE config template for the CMX500 cell. `@UE_IMSI@` and `@UE_K@` must be filled in |
-| `scripts/native/patches/srsue-cmx/` | srsUE patches (see below) |
+| `integrations/srsran/patches/srsue-cmx/` | srsUE patches (see below) |
+
+Build the bridge with `cmake -S integrations/usrp -B <external-build-dir>` and `cmake --build <external-build-dir>`; UHD and ZeroMQ are required.
 
 The scripts assume the paths of the container they were developed in (`/workspace/...`); adjust the variables at the top.
 

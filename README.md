@@ -300,6 +300,8 @@ factor goes from 0.65 to 0.82 and 20 MHz under load reaches 0.98
   procedure.
 - [Distributed IQ over network](docs/distributed.md) — bandwidth, jitter, and
   packet-loss requirements when broker and radios run on different hosts.
+- [Documentation directory](docs/README.md) — guides, measured reports and milestone history.
+- [Applications](apps/README.md), [use cases](use_cases/README.md) and [external integrations](integrations/README.md).
 - [Project structure](docs/project-structure.md) — local repo and remote RTX
   workstation layout.
 

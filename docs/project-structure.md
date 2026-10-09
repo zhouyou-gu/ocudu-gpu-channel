@@ -20,7 +20,7 @@ External source checkouts, build outputs, logs, captures and datasets remain out
 
 ## Migration map — 2026-10-09
 
-The migration is being applied in separate commits. The destination paths below define the supported layout after completion; no old-path wrappers are retained.
+The migration was applied in separate commits. The destination paths below define the supported layout; no old-path wrappers are retained.
 
 | Previous location | Destination |
 |---|---|
@@ -53,9 +53,9 @@ ocudu-dashboard --help
 python3 -m pip install '.[sionna]'
 ocudu-sionna-bridge --help
 
-bash scripts/local/run_web_ui.sh --help
-bash use_cases/robot_fight/run-ocudu-robot-fight.sh --help
-bash use_cases/scheduler_benchmark/run-ocudu-scheduler-benchmark.sh --help
+bash scripts/local/run_web_ui.sh --scenario /path/to/scenario.json --status-jsonl /path/to/status.jsonl --python /path/to/venv/bin/python
+bash use_cases/robot_fight/run-ocudu-robot-fight.sh
+bash use_cases/scheduler_benchmark/run-ocudu-scheduler-benchmark.sh
 ```
 
 Direct source entrypoints remain available at `apps/sionna_bridge/run_bridge.py` and `apps/dashboard/server.py`. Installed commands accept the same flags. Supply scenario/scene paths explicitly when using the installed bridge outside the checkout; use-case assets are repository inputs, not bundled package data.

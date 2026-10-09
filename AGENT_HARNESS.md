@@ -11,6 +11,8 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 
 ## Repository and Runtime
 
+- Organize by responsibility: runnable components in `apps/`, scenarios in `use_cases/`, external patches and revision pins in `integrations/`, and orchestration in `scripts/`. Keep shared workspace locks with their workflows.
+
 - Deliver UE/gNB fixes as separate local patches with reproducible application and validation; preserve upstream source checkouts.
 
 - Local source is canonical; the RTX 5090 workstation is a reproducible validation mirror. Keep remote builds, dependencies, logs, captures and datasets outside tracked source unless deliberately promoted.
