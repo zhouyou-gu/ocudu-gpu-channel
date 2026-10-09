@@ -2,6 +2,10 @@
 
 > **Entry rules:** One bullet per meaningful change; at most two sentences and 40 words. Record outcomes, decisive checks and blockers; link details and omit repeated context. Apply the [harness rules](AGENT_HARNESS.md#progress-entries) before finishing.
 
+## Current Objective
+
+Implement the approved documentation structure and publishing plan in five commits; validate the site and rewritten commands on RTX before handoff.
+
 ## Repository State
 
 - Approved structure migration is committed locally: `use_cases/`, runtime apps, grouped integrations/tests, Python packaging and documentation navigation. Validation evidence is in `validation/structure-20261009/`; these commits have not been pushed.
@@ -41,6 +45,10 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/sionna-integration.md), [merge validation](docs/main-merge-validation.md), [channel fix validation](docs/sionna-merge-fixes-validation.md), [metrics recovery](docs/metrics-recovery-validation.md), and [rank-1 results](docs/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Documentation migration — 2026-10-09
+
+- Inventoried documentation, technical-reference sections, 82 legacy IDs and 22 diagrams; recorded evidence hashes, destinations and page ownership before migration. Publishing and content conversion are next.
 
 ### Structure migration — 2026-10-09
 
@@ -147,4 +155,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-The approved structure migration and validation are complete in local commits. No implementation or deployment remains queued; publication has not been requested for this migration. See the migration report for hardware limits and OAI rebuild requirements.
+Documentation migration is active: inventory complete; implement the Sphinx publishing foundation, current pages and historical bundles, then validate on RTX. Existing structure-migration commits remain local and unchanged.

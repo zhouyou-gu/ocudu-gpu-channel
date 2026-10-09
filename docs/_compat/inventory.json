@@ -1,0 +1,1168 @@
+{
+  "baseline": "58d3156c939187580a723db29e4beeb667b648f9",
+  "files": [
+    {
+      "source": "CROSSTALK_MILESTONES.md",
+      "destination": "docs/history/milestones/CROSSTALK_MILESTONES.md",
+      "sha256": "4b29542a4bfea454ca63e7a0dfb682fdd5c10a66ef30a7626721451b7d14127d",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "CUDA_MILESTONES.md",
+      "destination": "docs/history/milestones/CUDA_MILESTONES.md",
+      "sha256": "f9af34257bec5e1ec70b8f9f671198a8e18255b5aa8db598bf0dcc73bdfbd9a8",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "JETSON_MILESTONES.md",
+      "destination": "docs/history/milestones/JETSON_MILESTONES.md",
+      "sha256": "ae45dab8f46aaa348a4e446ca8d3ed72efa1d997a8e03149987b771031211504",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "ROBOT_FIGHT_MILESTONES.md",
+      "destination": "docs/history/milestones/ROBOT_FIGHT_MILESTONES.md",
+      "sha256": "2857d273fb3c2ec443f121854646014612633573708667b8fc0d541fe3aff91a",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "SPARK_MILESTONES.md",
+      "destination": "docs/history/milestones/SPARK_MILESTONES.md",
+      "sha256": "497b75425897b7a87eda4b80c9fd1837bd9008327226276c3b35403c23825bbf",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "ZERO_COPY_MILESTONES.md",
+      "destination": "docs/history/milestones/ZERO_COPY_MILESTONES.md",
+      "sha256": "cd0d99765f514e815dbe6415a693ec6f27971a678c35b60bb68892fb31f92631",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/.nojekyll",
+      "destination": "docs/.nojekyll",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/README.md",
+      "destination": "docs/README.md",
+      "sha256": "603687561c69b809d9bc93d51cb5d2b48a11a0b60eb99ece2c4eb305f033c9e1",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/blueprint-generated/Project_Architecture_Blueprint.md",
+      "destination": "docs/history/generated/Project_Architecture_Blueprint.md",
+      "sha256": "14df7cad276e0f642c574f0f91a994f77ff27da142809d3cd5c40647b7f7d443",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/README.md",
+      "destination": "docs/reports/performance/2026-05-sweeps/README.md",
+      "sha256": "78983ea37d8a43ffa1ba8077ddc3ab49c1eecb769ae2c46e1afcbb461523edb8",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-T-fanin-breakdown.svg",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-T-fanin-breakdown.svg",
+      "sha256": "972bab115db41cf0f924e2f1f92e273d0ac993a1670315d9b33f0e6c72add235",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-U-mn-collapse.svg",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-U-mn-collapse.svg",
+      "sha256": "79baf2c01fd710699cbdd29588ac1225c3249c04ff9999d0c0e285d8957ed710",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-W-pcie-h2d.svg",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-W-pcie-h2d.svg",
+      "sha256": "b9b1db6e7a7c0c09b907bc1963455dcecda34b03745d0c098e6f10ec7c97b552",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-backend-compare-2026-05-25.json",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-backend-compare-2026-05-25.json",
+      "sha256": "9b7d5a135d8449e581335dd1d71f44c63806683e7337b0bd398088f6da4885ad",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M16_N16.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M16_N16.csv",
+      "sha256": "2dd98dbf9dd67c5effe437852ad853155e0ee35983cac6c797eed821bb64db59",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M16_N16.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M16_N16.gpu.csv",
+      "sha256": "4bbeacb6e364dd67d79367bc98ad5ca27a991e7d6832498459ce170e33799009",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M16_N2.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M16_N2.csv",
+      "sha256": "32ac235ce006044ccac1748e4bc047e5325cef97bf8d98143597d9ec3d4cd716",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M16_N2.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M16_N2.gpu.csv",
+      "sha256": "0d64acf058398c6b27e234a9022c9c58071e776e30e35dba2e010605f01f3027",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M16_N4.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M16_N4.csv",
+      "sha256": "c09f3caed279fca9d0b23ceaba34181c88ec4ccd75c23c56fd57d2254b6c37bc",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M16_N4.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M16_N4.gpu.csv",
+      "sha256": "a1082ca7aaccceea05635be5872ce8620ea9d9d233acd6b709499e14a9ae8007",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N16.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N16.csv",
+      "sha256": "8d9cdcf5da5fcead8e8ac38e08167c913a70b18d3bd1db822cc51eecf9aedbf9",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N16.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N16.gpu.csv",
+      "sha256": "394bd0aff833fe9ecccf41ca0fe671bd4a219a0437032af7b540478d286de114",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N2.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N2.csv",
+      "sha256": "dc2d982a02bde955ce1870df2c935585bfe6edc2e9ee5ba81149a3c3fe40a13a",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N2.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N2.gpu.csv",
+      "sha256": "f026fa808fab5c25acc40181b3458d331cf8757704762d786fff0ded52e54317",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N4.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N4.csv",
+      "sha256": "a9339278bcd3a0bcd9e2da1af74b921a1efcb1d904a3736d51a6b8fd576b4ab7",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N4.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N4.gpu.csv",
+      "sha256": "12e7bbd9eaca7d1144067c45dc6f9131dbe493bbb9c102d43eb0b969795611f1",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N8.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N8.csv",
+      "sha256": "f54da69cba2ab29cd2f821a7356046f3cf9f39e05c12ffe4ba0307cbe4fe00f0",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M2_N8.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M2_N8.gpu.csv",
+      "sha256": "aa068d4d831eec7a65964678f7bc60b5e92683c24c3cee23eeecfc72386b4144",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N16.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N16.csv",
+      "sha256": "fe15d31f97f326210ce949bee5aaab5ed2ce2df7eba45c609e82b800f4463a70",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N16.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N16.gpu.csv",
+      "sha256": "014ad3f7df77025a83727d33bf76205193dd206e05677d623a50ac252e5e6cba",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N2.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N2.csv",
+      "sha256": "21b0048e51d72407dda7c569242c6dfe3c45eb84bf76b7c2714bd71b44cbd74e",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N2.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N2.gpu.csv",
+      "sha256": "901cbcb0713e9d6c19c57671c54897cb982cc2b28a1c7a5cf43d31caf2921c61",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N4.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N4.csv",
+      "sha256": "3961cff22a0ebe8c0bcc44a55be673e66ed84ff7a8d78d8e5c04f61baa055a6a",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N4.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N4.gpu.csv",
+      "sha256": "7d223d9d73e9fc4e6474303022c1b1579418a0bb2eb176199293cd4dab33c6c3",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N8.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N8.csv",
+      "sha256": "9855879b61ebe7ec3bc5b4e8b092c242288e84ee4a3ce74687c9ce7b40690264",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M4_N8.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M4_N8.gpu.csv",
+      "sha256": "121c9294097cf564030ab28d83602485871974afcd23867eafbe1b2beded48f3",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M8_N2.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M8_N2.csv",
+      "sha256": "98a88da42d05b27938dbfb578368e0148edeefd6724f45fef39cae1c9e6a6965",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M8_N2.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M8_N2.gpu.csv",
+      "sha256": "5c81b977a7205086ac8b683bf091722812ff570b70da94d2e7d07ecacbf1d1c8",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M8_N4.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M8_N4.csv",
+      "sha256": "b44ec4c4ff6809a5eeeede922a1ff1af0abb77b616794a08f9aead9af3dde927",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M8_N4.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M8_N4.gpu.csv",
+      "sha256": "95fbb5b24b828ce051a8a7801583976f069f5c98158e2240d9cc0ee8c648a42c",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M8_N8.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M8_N8.csv",
+      "sha256": "c5a8928e312618d649faf82246a053a230aa19f25b59f8ad0dcfa7c45d5aaf48",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/m-to-n_M8_N8.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/m-to-n_M8_N8.gpu.csv",
+      "sha256": "a60ef4fb55dc8793fdf73c38852763512f6bf74459302a6f2ee27149e388f355",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N1.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N1.csv",
+      "sha256": "0c8381efdc8fef230d9acd094d66cb8ab66fec6d5bda9648da704a906156d460",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N1.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N1.gpu.csv",
+      "sha256": "43d9af3b2af28c7451e2db7981dd2fc67bb462cb0a3ab4538df74db7dff7707c",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N16.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N16.csv",
+      "sha256": "0a8da37e2d3825d197446575c24308fdc2914b511a07ddb3bc24b22f78410075",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N16.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N16.gpu.csv",
+      "sha256": "21ce392bbba38f402e8ab147ef381a1d1eea052913f9014a75281547b9434338",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N2.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N2.csv",
+      "sha256": "e50674b9a7eab115a5a71010f55dce00b4e0d84b490e213bd92d3148f441c8ca",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N2.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N2.gpu.csv",
+      "sha256": "534f91ec6a8db606b8af974d00163e48acb88ee9ed2bba175f4e9281b953fc40",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N32.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N32.csv",
+      "sha256": "0a904d3a8c9e8569f3262dd2d9e7e5762c035e30b73bb0e5bd81b19206b1a863",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N32.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N32.gpu.csv",
+      "sha256": "805a7827c0acd285ce0f7c566cf76374766de7836e6a3c45da20736d5c5663c3",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N4.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N4.csv",
+      "sha256": "a8bcc4ec98efe1cf4cab11217e27a815aa4baf6d7f5ab5fb4f9a9092fcd3c675",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N4.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N4.gpu.csv",
+      "sha256": "8670f4ad070b91b827a57ad3c5c358d5a683f775e51014bda41a3b907180206b",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N64.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N64.csv",
+      "sha256": "5b545822cfd5c8272e2a156719d1db782231920a54187c20f0a63a683d543dac",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N64.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N64.gpu.csv",
+      "sha256": "bad81e0ef4a271340f941a0bd7ed6b914da542da18dd3182f79bda396717c45e",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N8.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N8.csv",
+      "sha256": "296ed6e33ed0817e168cf549cc3d04ec896a1dfc9a438167cf535591ad8a0d4d",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/one-to-n_N8.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/one-to-n_N8.gpu.csv",
+      "sha256": "389187b16eb1fbab324c01a35b8d262dd523347678d6814ba1d7d4c607520b0e",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/tdl-a_E16.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/tdl-a_E16.csv",
+      "sha256": "7fe6371d14eb4f3d8ea912c033d2f0ceb5a267e4837a45e63d590bf1d3f57451",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/tdl-a_E16.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/tdl-a_E16.gpu.csv",
+      "sha256": "313c25342659f7fc3c0e70ab0aa60cdb404fcdb8de2a389324967c4582c2524b",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/tdl-a_E2.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/tdl-a_E2.csv",
+      "sha256": "d0bb38ba22cbc926eecf14fc00474106d98a4ec09813efc95392df09c9f8e323",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/perf-fanin-post-d4/tdl-a_E2.gpu.csv",
+      "destination": "docs/reports/performance/2026-05-sweeps/perf-fanin-post-d4/tdl-a_E2.gpu.csv",
+      "sha256": "4546e50d62ddbd3bcf2b1a831ef8517ac0d6dbb465d0f3a71bbdd09207154400",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/sweep-2026-05-22.json",
+      "destination": "docs/reports/performance/2026-05-sweeps/sweep-2026-05-22.json",
+      "sha256": "a1c0882d08e2eb01e985531bd96b64f31ec3b9dfd9c3344e830b27c74678cde8",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/sweep-2026-05-25-post-d2b.json",
+      "destination": "docs/reports/performance/2026-05-sweeps/sweep-2026-05-25-post-d2b.json",
+      "sha256": "fb7b6513db6a94b8bb8e427e1d4a483c0180b6235e84bdb5379e4fc49a30b260",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/sweep-2026-05-25-post-d3.json",
+      "destination": "docs/reports/performance/2026-05-sweeps/sweep-2026-05-25-post-d3.json",
+      "sha256": "9c3e7d965bf029e248364ceb22c077f87c53fb6c8deab99574226c2579c05c07",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/blueprint-generated/sweep-2026-05-25.json",
+      "destination": "docs/reports/performance/2026-05-sweeps/sweep-2026-05-25.json",
+      "sha256": "74c4af9a79cd7cedec2a8d8e84eacfdc59bb7320e8fbc93ce0c08dd66562ddd2",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/cuda-ocudu-integration.html",
+      "destination": "docs/guides/cuda-gnb.md",
+      "sha256": "bdad3fd134d7104cb3e0f920db2abc89a8ec9ec2a4be31dfaa82827454f5797f",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/cuda-ocudu-integration.ko.html",
+      "destination": "docs/history/translations/ko/cuda-ocudu-integration.html",
+      "sha256": "4aea62612384c757c321456994e754045827623711a06a45ef52253ff8683aa0",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/distributed.md",
+      "destination": "docs/guides/distributed.md",
+      "sha256": "9119baafd40166453e88c4b1d9cbb9c44a4150f1c34a7e8d8b3c2d5262c0fb65",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/evidence/m6.3/equaliser-sign-errors.txt",
+      "destination": "docs/reports/experiments/rank2-m6/evidence/equaliser-sign-errors.txt",
+      "sha256": "1c767968f3aa1846ea077900724f1504b74fbc2a651a5eec0adc3a98cd20b512",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/evidence/m6.3/oai-zf-compare.debug.patch",
+      "destination": "docs/reports/experiments/rank2-m6/evidence/oai-zf-compare.debug.patch",
+      "sha256": "f26b252d96f956485ba4b4c88b0d6e6983d1c7294c9376242df08bbb6f158bf1",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/evidence/m6.3/zf-vs-oai-equaliser.txt",
+      "destination": "docs/reports/experiments/rank2-m6/evidence/zf-vs-oai-equaliser.txt",
+      "sha256": "8fcd391fd437e538c6ccf830ac7b2b66719c73e0aa6e7b5d7fbf99cc855398fc",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/favicon.svg",
+      "destination": "docs/assets/branding/favicon.svg",
+      "sha256": "83adbc4caa15d2a31a6073bafe51c739c16e95c4ef6cf287e1e6eddf9ca9a43c",
+      "kind": "evidence",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/figures/diag-P-tdl-pdp.svg",
+      "destination": "docs/assets/figures/diag-P-tdl-pdp.svg",
+      "sha256": "9b8ae3ea40bc1ff3672c7f7a4c9210aed432e08cf8b895d5e56e47827ee6a4db",
+      "kind": "evidence",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/figures/diag-Q-jakes-spectrum.svg",
+      "destination": "docs/assets/figures/diag-Q-jakes-spectrum.svg",
+      "sha256": "b8f98fcfa83aab8dfbabf68c1f2890cca0ef9c1d8709a1b9f9e88b2449ec8098",
+      "kind": "evidence",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/figures/diag-R-wssus-scattering.svg",
+      "destination": "docs/assets/figures/diag-R-wssus-scattering.svg",
+      "sha256": "9b4ce54f57b98349c6e4578f20a418e4d0987951a0f6e63e7b593053af2b5d61",
+      "kind": "evidence",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/guides/README.md",
+      "destination": "docs/guides/README.md",
+      "sha256": "45779d39c7f0bf3526a83862cf7d341ebb16e3d02d44e210697585e2dc718ba2",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/index.html",
+      "destination": "docs/index.html",
+      "sha256": "76b621c1dcc38da4c27f1ad4fa6c1ab7cf28b8c33c173c6e4ca6ad25301c0eb6",
+      "kind": "document",
+      "treatment": "split by section"
+    },
+    {
+      "source": "docs/live-gate-results.md",
+      "destination": "docs/reports/validation/live-gate-results.md",
+      "sha256": "ae7ebddedccf3f44b0786c130293e2da86114a123107220dca304e34c0ce6ba4",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/main-merge-validation.md",
+      "destination": "docs/reports/validation/main-merge-validation.md",
+      "sha256": "aadb524a6f55a011cb06771b10424e2f9edc4703dd35220db71ce3ac6aac04b9",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/metrics-recovery-validation.md",
+      "destination": "docs/reports/validation/metrics-recovery-validation.md",
+      "sha256": "45d9a742d1cc0a406d32d77a0b480e9670434b99a333e5e9b69120c777c7329a",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/milestones/README.md",
+      "destination": "docs/history/milestones/README.md",
+      "sha256": "7e9366cd40dcfd6021cc03eabc4ba42728ef2ab6b37ca0a2c9c80f0a58d38a31",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/mimo-integration-report.html",
+      "destination": "docs/history/designs/mimo-integration-assessment.md",
+      "sha256": "76a7cdf82da5a6fc9095af896e072c7f9ff61c9bea286d91e550bd691aa8ed55",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/native-sionna-live-restart.md",
+      "destination": "docs/history/translations/ko/native-sionna-live-restart.md",
+      "sha256": "440b58e655b10d8ffe864c8eb7b3b9888ecc582f51eb1a0dc361512c3666fb53",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/ocudu-interop.md",
+      "destination": "docs/guides/live-stacks.md",
+      "sha256": "a16acd7f9e58c9b222f669d39f12d7933ec737ea369aecc2f8b48239117810de",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/og-image.svg",
+      "destination": "docs/assets/branding/og-image.svg",
+      "sha256": "4ca519d28de84019bc95ad8ae44d11d3c56f70f67f2598922d3b513d681074be",
+      "kind": "evidence",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/paper/2026-05-contribution-map.md",
+      "destination": "docs/history/research/2026-05-contribution-map.md",
+      "sha256": "cb97103c4c21f7730968cd620b9fcf88732c32e15b50eaa14740ab049fa7fdc7",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/README.md",
+      "destination": "docs/development/designs/README.md",
+      "sha256": "26ac4c7eff843ea2a2a468338b4a55ba91fe632d68ad4996057a0c6c33d4a916",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/plans/cmx500-x310-srsue-feasibility.md",
+      "destination": "docs/development/designs/cmx500-x310-srsue-feasibility.md",
+      "sha256": "dc4b7cdf9536014376c70cf0e70c4a68b40605211f6d2003453ab795391b46c4",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/plans/device-channel-pipeline.md",
+      "destination": "docs/history/designs/device-channel-pipeline.md",
+      "sha256": "883f31e7eaeb1790534e60eb2c221a5182fa20d27169cd502095c447dcf461de",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/m0-single-engine-refactor.md",
+      "destination": "docs/history/designs/m0-single-engine-refactor.md",
+      "sha256": "5fbf688f2fda46429bbb31800ad1829ca771a1cb9e6f68eeeedca7e603eda17e",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/m1-dimensions-and-fixed-matrix.md",
+      "destination": "docs/history/designs/m1-dimensions-and-fixed-matrix.md",
+      "sha256": "88982cc537c036670b2128d80ef0bb2a8509663f26cc87ffd89547943e0ca372",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/m2-iid-stochastic-fading.md",
+      "destination": "docs/history/designs/m2-iid-stochastic-fading.md",
+      "sha256": "7144a04a65441af826c29223d24ed99a0b7109cc4e4583524f38f69094a4211d",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/m3-spatial-correlation-and-los.md",
+      "destination": "docs/history/designs/m3-spatial-correlation-and-los.md",
+      "sha256": "ef8bc74da36eb1f830185e7235864eb796935e6f39ef85aec78a6ede7efe57c0",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/m4-physical-link-runtime-control.md",
+      "destination": "docs/history/designs/m4-physical-link-runtime-control.md",
+      "sha256": "25fbab6d93348d1ca534fea6263e976b1962570e22bbddfd6c3f0313d2ea117f",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/m5-live-integration.md",
+      "destination": "docs/history/designs/m5-live-integration.md",
+      "sha256": "066cc4e9ded9c09a0228dbcb5397d38d97ba115ad708f85cf006c023294adcf7",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/m6-rank2-su-mimo-live.md",
+      "destination": "docs/history/designs/m6-rank2-su-mimo-live.md",
+      "sha256": "8582236029f89c9c78e817e9572a84010513c2bb53123cfa26ae51e29069d93d",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/merge-miso-siso-sionna-rt-5090.md",
+      "destination": "docs/history/designs/merge-miso-siso-sionna-rt-5090.md",
+      "sha256": "053937ef535612d5dbfab6befac7b832b07fea1ebff2dc426be760f151a46e87",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/r4c-ul-noise.patch",
+      "destination": "docs/reports/experiments/x7-oai-levels-prach/evidence/r4c-ul-noise.patch",
+      "sha256": "d16f00b9229c875284b5451738b939eebf38c72b4e3343b8fcfd9060bf88b5f8",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/runtime-mutable-channel-v2.md",
+      "destination": "docs/history/designs/runtime-mutable-channel-v2.md",
+      "sha256": "bad8c0dff2808e552fc50212638e8281975ca6d02425dc171aa424638c721b9a",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/runtime-mutable-channel-v3.md",
+      "destination": "docs/history/designs/runtime-mutable-channel-v3.md",
+      "sha256": "6c5728519e4c78b7d822dd1a52b7ddc4f77eb8c49e6c0a41aadca0ea1737c621",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/runtime-mutable-channel.md",
+      "destination": "docs/history/designs/runtime-mutable-channel.md",
+      "sha256": "544c3eb3944bd302971fc133c7729bd998a904c4e48b41137c97087b6fd1b376",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/sionna-live-channel.md",
+      "destination": "docs/development/designs/sionna-live-channel.md",
+      "sha256": "94229837d431a54814c02672ca4799e80f0c6a2d9b92ba9e4e222741ecd1604c",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/plans/x3-tdd-multi-ue.md",
+      "destination": "docs/reports/experiments/x3-tdd-multi-ue/README.md",
+      "sha256": "3b98b2c31e52d9e8981e91a51ee85dd8593c2e98ace1895a3efe421a98e43a1e",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/x5-tdd-cli.md",
+      "destination": "docs/reports/experiments/x5-tdd-cli/README.md",
+      "sha256": "94ffdb9e63e4262667f0e9447863d8975530b07a37519a40554126a4f7b13435",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/x6-gnb-realtime-traffic.md",
+      "destination": "docs/reports/experiments/x6-gnb-realtime-traffic/README.md",
+      "sha256": "58becaabbfc75ec8aa9ec2c276272724f73ec039bc30840b842a6a3b95625917",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/plans/x7-oai-levels-prach.md",
+      "destination": "docs/reports/experiments/x7-oai-levels-prach/README.md",
+      "sha256": "e4ce9f8090cbbebedcbe28d3b475b4505d0b645e4ecbe0b11548254611357e7d",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/platforms.md",
+      "destination": "docs/guides/platforms.md",
+      "sha256": "e916ec6c2208cf63325b16c5f29ac1ef43086b5acdfe394386dfff6cde7de9fc",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/project-structure.md",
+      "destination": "docs/development/project-structure.md",
+      "sha256": "612b65c0bfa3673e3ce45cdf2f205ddeb978849786c192de9a72c5dbdd7497e8",
+      "kind": "document",
+      "treatment": "rewrite current guidance"
+    },
+    {
+      "source": "docs/rank1-feasibility-report.en.html",
+      "destination": "docs/reports/validation/rank1-feasibility.md",
+      "sha256": "d764799b452f19483b81b24795f3633b31ed88a7f20ad2c95ef0a7b4d7e391f8",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/rank1-feasibility-report.html",
+      "destination": "docs/history/translations/ko/rank1-feasibility-report.html",
+      "sha256": "db33606e4cd982f7dfde8ec09f50903b6a36af9850f0705a27e8221a1c63a659",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/rank1-feasibility-report.md",
+      "destination": "docs/history/translations/ko/rank1-feasibility-report.md",
+      "sha256": "e4c9435b78b939187aa61c48b61bc4982f47e9fedf915c0933b66a6219aecf77",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/reports/README.md",
+      "destination": "docs/reports/README.md",
+      "sha256": "79a3708c274a031500088bbbcd56370744bae3a6d782e5bf52d03ad6d3e16e2c",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/reports/structure-migration-20261009.md",
+      "destination": "docs/reports/validation/structure-migration-20261009.md",
+      "sha256": "0cb39ff58f7d0e113a80a4954e672699e83c153ddb3c747d3efc12f93bede1b1",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-audit.json",
+      "destination": "docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-audit.json",
+      "sha256": "57a703d9c7a3ccb29d0e73457450f05024e417503a5518d94388797b80c0a1d0",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-comparison.png",
+      "destination": "docs/reports/experiments/robot-fight-r7/figures/robot-fight-r7-comparison.png",
+      "sha256": "0123ec034de1409aa0c633c766a28b72b70eb9b2062a1a14e2b252800e93d7e0",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-controls.png",
+      "destination": "docs/reports/experiments/robot-fight-r7/figures/robot-fight-r7-controls.png",
+      "sha256": "cc4d4ebc0b6107b5e1685236aaeb91b9ee7b8e97a6e7eeaa65cbf2ed07692c03",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-probes.json",
+      "destination": "docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-probes.json",
+      "sha256": "bfcff37ff642b0faeaf9b04e76815ad66cc02b745ad2e4fbc6ec102fdad59475",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-probes.png",
+      "destination": "docs/reports/experiments/robot-fight-r7/figures/robot-fight-r7-probes.png",
+      "sha256": "b476262f7e1c7c1a919914f8aec8bf12c03e6e6a7f51c0135a5a78cf2569f389",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-results.json",
+      "destination": "docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-results.json",
+      "sha256": "28f911bbc8d2266faf3be09937112ad1e90909802e5570c27da01c6660a1afab",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-robustness.json",
+      "destination": "docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-robustness.json",
+      "sha256": "e0f3bcebec230e443fb426aceafb84d32a866132682122fc751a2c4df1e9e80c",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7-robustness.png",
+      "destination": "docs/reports/experiments/robot-fight-r7/figures/robot-fight-r7-robustness.png",
+      "sha256": "3fe5e3ce85a894eec0b699547effd9079a290d7f0e5eb60fd2066924bfaffa37",
+      "kind": "evidence",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/robot-fight-r7.md",
+      "destination": "docs/reports/experiments/robot-fight-r7/README.md",
+      "sha256": "d47bb1cbe0b6926865c40ca36a8c070b3d93c0abbc92cf61a06c099f3ec69ab7",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/sionna-integration.md",
+      "destination": "docs/history/milestones/sionna-integration-20260914.md",
+      "sha256": "c74794daab7d49ecc7fec5bbd339a973aa5f41fffcc2cb6955ec6e3602320550",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/sionna-matrix-history.md",
+      "destination": "docs/reports/validation/sionna-matrix-history.md",
+      "sha256": "c66af3de23c5efe7fef2e06dbda7e4d750cd0873709a687e1624bfab5db7d779",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/sionna-merge-fixes-validation.md",
+      "destination": "docs/reports/validation/sionna-merge-fixes-validation.md",
+      "sha256": "4631c29a7432d1ca231d6f810d35c66faf3d37d42d2f70261fd86925c7718184",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    },
+    {
+      "source": "docs/why-radionode-and-srsue-rank1-ko.md",
+      "destination": "docs/history/translations/ko/why-radionode-and-srsue-rank1.md",
+      "sha256": "3255af47894ff50b1e6da6829185d895cdf0bed52fa395fbc4d42a1520291c89",
+      "kind": "document",
+      "treatment": "relocate preserving historical body"
+    }
+  ],
+  "technical_reference_sections": [
+    {
+      "heading": "Part I — Concepts",
+      "destination": "docs/concepts/README.md",
+      "ids": [
+        "part-i"
+      ]
+    },
+    {
+      "heading": "1. Overview",
+      "destination": "docs/getting_started/overview.md",
+      "ids": []
+    },
+    {
+      "heading": "2. Key terms — quick reference",
+      "destination": "docs/concepts/glossary.md",
+      "ids": [
+        "diagram-rules",
+        "leg_b",
+        "leg_g",
+        "leg_a",
+        "leg_n"
+      ]
+    },
+    {
+      "heading": "3. System architecture — three layers",
+      "destination": "docs/concepts/architecture.md",
+      "ids": []
+    },
+    {
+      "heading": "Part II — Configuration",
+      "destination": "docs/reference/configuration.md",
+      "ids": [
+        "part-ii"
+      ]
+    },
+    {
+      "heading": "4. Topology graph and YAML model",
+      "destination": "docs/reference/configuration.md",
+      "ids": [
+        "topology",
+        "arg",
+        "argx"
+      ]
+    },
+    {
+      "heading": "5. Channel models in YAML",
+      "destination": "docs/reference/configuration.md",
+      "ids": [
+        "channels"
+      ]
+    },
+    {
+      "heading": "6. Channel physics — Jakes, Rician, TDL profiles",
+      "destination": "docs/concepts/channel-models.md",
+      "ids": [
+        "physics"
+      ]
+    },
+    {
+      "heading": "Part III — Runtime — one slot at a time",
+      "destination": "docs/concepts/architecture.md",
+      "ids": [
+        "part-iii"
+      ]
+    },
+    {
+      "heading": "7. End-to-end serve flow — one slot at a glance",
+      "destination": "docs/concepts/architecture.md",
+      "ids": [
+        "master-flow",
+        "arwmf"
+      ]
+    },
+    {
+      "heading": "8. The broker — per-slot loop",
+      "destination": "docs/concepts/broker-loop.md",
+      "ids": [
+        "broker-loop",
+        "arv"
+      ]
+    },
+    {
+      "heading": "9. Signal alignment and time discipline",
+      "destination": "docs/concepts/timing.md",
+      "ids": [
+        "alignment"
+      ]
+    },
+    {
+      "heading": "10. The staged buffer — packing N edges for one H2D",
+      "destination": "docs/reference/backends.md",
+      "ids": [
+        "staged"
+      ]
+    },
+    {
+      "heading": "11. The channel — applied per edge (device kernel by default, host fallback)",
+      "destination": "docs/reference/device-pipeline.md",
+      "ids": [
+        "kernels",
+        "pipeline",
+        "ars",
+        "dispatch-gate",
+        "aa",
+        "link-lifecycle",
+        "arxn",
+        "polyphase",
+        "ring-continuity",
+        "arz"
+      ]
+    },
+    {
+      "heading": "12. Superposition — N edges summed per GPU thread",
+      "destination": "docs/reference/device-pipeline.md",
+      "ids": [
+        "superposition",
+        "ar",
+        "ar2"
+      ]
+    },
+    {
+      "heading": "13. RF impairments — the device-side per-sample chain",
+      "destination": "docs/reference/device-pipeline.md",
+      "ids": [
+        "rf-chain",
+        "are"
+      ]
+    },
+    {
+      "heading": "Part IV — System integration",
+      "destination": "docs/reference/backends.md",
+      "ids": [
+        "part-iv"
+      ]
+    },
+    {
+      "heading": "14. Processor backends — CPU and CUDA",
+      "destination": "docs/reference/backends.md",
+      "ids": [
+        "backends"
+      ]
+    },
+    {
+      "heading": "15. Signal memory — pinned host buffers paired with device buffers",
+      "destination": "docs/reference/backends.md",
+      "ids": [
+        "signal-memory",
+        "ard"
+      ]
+    },
+    {
+      "heading": "16. Multi-stream concurrency — overlapping serves",
+      "destination": "docs/reference/backends.md",
+      "ids": [
+        "stream-concurrency"
+      ]
+    },
+    {
+      "heading": "Part V — Runtime mutability",
+      "destination": "docs/reference/control-api.md",
+      "ids": [
+        "part-v"
+      ]
+    },
+    {
+      "heading": "17. Runtime mutability — the control plane",
+      "destination": "docs/reference/control-api.md",
+      "ids": [
+        "runtime-mutability",
+        "rtm-architecture",
+        "rtm-protocol",
+        "rtm-events",
+        "rtm-warmup",
+        "rtm-force",
+        "rtm-hardware",
+        "rtm-validation"
+      ]
+    },
+    {
+      "heading": "Part VI — Operations",
+      "destination": "docs/development/README.md",
+      "ids": [
+        "part-vi"
+      ]
+    },
+    {
+      "heading": "18. Validation",
+      "destination": "docs/development/testing.md",
+      "ids": [
+        "test-layer-unit",
+        "test-layer-remote",
+        "test-layer-live",
+        "test-layer-mimo",
+        "test-architecture"
+      ]
+    },
+    {
+      "heading": "19. Profiling — instrumentation system design",
+      "destination": "docs/development/profiling.md",
+      "ids": [
+        "profiling",
+        "arr_on",
+        "arr_od",
+        "arr_on_b",
+        "arr_grey",
+        "profiling-events",
+        "counter-taxonomy"
+      ]
+    },
+    {
+      "heading": "20. Performance — measured boundaries",
+      "destination": "docs/reports/performance/measured-boundaries.md",
+      "ids": [
+        "perf",
+        "perf-phase2",
+        "perf-mimo",
+        "perf-method",
+        "perf-cpu-cuda",
+        "perf-bottleneck",
+        "perf-resource",
+        "perf-pcie",
+        "perf-fanin",
+        "perf-boundary"
+      ]
+    },
+    {
+      "heading": "21. Operational guidance",
+      "destination": "docs/guides/broker.md",
+      "ids": [
+        "latency-gate",
+        "container"
+      ]
+    },
+    {
+      "heading": "Part VII — Multi-port radios and the matrix channel",
+      "destination": "docs/concepts/radio-topology.md",
+      "ids": [
+        "part-vii"
+      ]
+    },
+    {
+      "heading": "22. Radio nodes — a radio is not its socket",
+      "destination": "docs/concepts/radio-topology.md",
+      "ids": [
+        "mimo-nodes"
+      ]
+    },
+    {
+      "heading": "23. One sample epoch per radio",
+      "destination": "docs/concepts/timing.md",
+      "ids": [
+        "mimo-epoch",
+        "mimo-pacing"
+      ]
+    },
+    {
+      "heading": "24. The matrix channel — fixed, correlated, and coherent LOS",
+      "destination": "docs/concepts/channel-models.md",
+      "ids": [
+        "mimo-matrix",
+        "mimo-kernel"
+      ]
+    },
+    {
+      "heading": "25. Live evidence, and the line it stops at",
+      "destination": "docs/reports/validation/rank1-boundaries.md",
+      "ids": [
+        "mimo-evidence"
+      ]
+    },
+    {
+      "heading": "Part VIII — Scope",
+      "destination": "docs/development/designs/README.md",
+      "ids": [
+        "part-viii"
+      ]
+    },
+    {
+      "heading": "26. Scope and planned work",
+      "destination": "docs/development/designs/scope-history.md",
+      "ids": [
+        "scope"
+      ]
+    }
+  ],
+  "inline_svg_count": 22,
+  "legacy_id_count": 82
+}
