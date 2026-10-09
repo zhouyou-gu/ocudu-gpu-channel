@@ -17,7 +17,7 @@
     .pill.ok { color:var(--green); border-color:#276d48; } .pill.bad { color:var(--amber); border-color:#6b5725; } .pill.fail { color:var(--red); border-color:#73313e; }
     main { padding:20px 24px 40px; max-width:1500px; margin:auto; }
     .grid { display:grid; grid-template-columns:minmax(430px,1.25fr) minmax(360px,.75fr); gap:16px; }
-    .panel { background:linear-gradient(145deg,#132331e8,#0d1822e8); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:0 16px 50px #0004; }
+    .panel { min-width:0; background:linear-gradient(145deg,#132331e8,#0d1822e8); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:0 16px 50px #0004; }
     .panel h2 { font-size:14px; margin:0 0 12px; color:#bed1de; text-transform:uppercase; letter-spacing:.08em; }
     canvas { display:block; width:100%; height:520px; border-radius:10px; background:#07111a; border:1px solid #213443; }
     .legend { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-top:10px; color:var(--muted); font-size:12px; }
@@ -58,7 +58,7 @@
     .delivery strong { display:block; color:var(--green); margin-bottom:4px; } .delivery strong.wait { color:var(--amber); }
     .tag-ok { color:var(--green); } .tag-wait { color:var(--amber); } .mono { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
     .foot { color:var(--muted); font-size:12px; margin-top:12px; }
-    .deadline-grid,.edge-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }
+    .deadline-grid,.edge-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr)); gap:12px; }
     .deadline-card,.edge-card { border:1px solid var(--line); border-radius:10px; background:#09141d; padding:12px; min-width:0; }
     .card-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; margin-bottom:8px; }
     .card-head strong { font-size:15px; } .card-head span { color:var(--muted); font-size:11px; }
@@ -77,7 +77,7 @@
     .metric-guide th,.metric-guide td { padding:6px; white-space:normal; vertical-align:top; text-align:left; }
     .metric-guide p { margin:8px 0 0; }
     .edge-meta { color:var(--muted); font-size:11px; margin-bottom:8px; overflow-wrap:anywhere; }
-    .brief { display:grid; gap:16px; }
+    .brief { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
     .brief h3 { margin:0 0 6px; font-size:16px; line-height:1.35; color:var(--text); }
     .brief-head { margin:0 0 8px; font-size:12px; color:#bed1de; text-transform:uppercase; letter-spacing:.08em; }
     .brief-head span { color:var(--muted); text-transform:none; letter-spacing:0; font-size:11px; font-weight:400; }
@@ -94,12 +94,12 @@
     .plane-legend .brief-mode { flex:1 1 300px; }
     .brief-mode span { color:var(--muted); font-size:11.5px; }
     .arch-figure { display:block; width:100%; height:auto; border:1px solid #20323f; border-radius:10px; background:#07111a; }
-    .brief-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px; }
+    .brief-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr)); gap:10px; }
     .brief-card { border:1px solid #20323f; border-radius:9px; background:#07111a; padding:11px; min-width:0; }
     .brief-card strong { display:block; color:#bed1de; margin-bottom:5px; font-size:12.5px; }
     .brief-card p { margin:0 0 8px; color:var(--muted); font-size:11.5px; }
     .brief-card .mono { color:var(--cyan); font-size:11px; overflow-wrap:anywhere; }
-    .score-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:10px; }
+    .score-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(270px,100%),1fr)); gap:10px; }
     .score-card { border:1px solid #20323f; border-radius:9px; background:#07111a; padding:11px; min-width:0; }
     .score-card strong { display:block; font-size:12.5px; margin-bottom:5px; }
     .score-card b { display:block; font-size:15px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; margin-bottom:5px; }
@@ -146,8 +146,8 @@
        hid lane 4 behind — it only ever fit while the gNB had two ports.
        The grid puts two lanes side by side whenever the card is wide
        enough, so All 4 stays about as tall as two stacked lanes. */
-    .lane-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:9px; align-items:start; }
-    .lane-tap-block { border:1px solid #20323f; border-radius:8px; background:#07111a; overflow:hidden; }
+    .lane-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:9px; align-items:start; }
+    .lane-tap-block { border:1px solid #20323f; border-radius:8px; background:#07111a; overflow-x:auto; }
     .lane-tap-head { display:flex; justify-content:space-between; gap:10px; padding:7px; border-bottom:1px solid #20323f; color:var(--muted); font-size:10px; }
     .lane-tap-head b { color:var(--text); }
     .tap-table th,.tap-table td { padding:5px 6px; font-size:11px; }
@@ -156,7 +156,7 @@
     .phase-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
     .empty { text-align:center; color:var(--muted); padding:24px; border:1px dashed var(--line); border-radius:10px; }
     .runtime-grid { display:grid; grid-template-columns:repeat(2,minmax(280px,1fr)); gap:12px; }
-    .node-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
+    .node-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); gap:10px; }
     .node-card { border:1px solid var(--line); border-radius:10px; background:#09141d; padding:12px; min-width:0; }
     .node-card-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:10px; }
     .node-card-head strong { font-size:17px; }
@@ -164,7 +164,7 @@
     .node-facts { display:grid; grid-template-columns:72px minmax(0,1fr); gap:6px 10px; margin:0; }
     .node-facts dt { color:var(--muted); }
     .node-facts dd { margin:0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-    .hardware-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:10px; margin-bottom:10px; }
+    .hardware-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:10px; margin-bottom:10px; }
     .hardware-card { padding:10px; border:1px solid #20323f; border-radius:9px; background:#07111a; min-width:0; }
     .hardware-card strong { display:block; color:#bed1de; margin-bottom:4px; overflow-wrap:anywhere; }
     .hardware-card.active { color:#101820; background:#f4f7fa; border-color:#fff; box-shadow:0 0 0 1px #ffffff66,0 5px 18px #0005; }
@@ -186,7 +186,7 @@
     .memory-process-head { color:var(--muted); background:#0c1822; font-size:9px; text-transform:uppercase; }
     .memory-process-name b { display:block; color:var(--text); font-size:12px; }
     .memory-process-name span { display:block; color:var(--muted); font-size:9px; overflow-wrap:anywhere; }
-    .memory-process-value { color:var(--text); font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+    .memory-process-value { color:var(--text); font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; overflow-wrap:anywhere; }
     .memory-explain { color:var(--muted); font-size:10px; line-height:1.5; margin-top:8px; }
     .gpu-processes { display:grid; grid-template-columns:repeat(2,minmax(260px,1fr)); gap:12px; }
     .gpu-process { min-width:0; padding:10px; border:1px solid #20323f; border-radius:9px; background:#07111a; }
@@ -197,8 +197,8 @@
     .loop-flow i { color:var(--cyan); font-style:normal; }
     @media (max-width:1300px) { header { align-items:flex-start; flex-direction:column; } .pills { width:100%; grid-template-columns:repeat(4,minmax(145px,1fr)); } }
     @media (max-width:1100px) { .resource-charts { grid-template-columns:1fr; } .system-metrics { grid-template-columns:repeat(3,1fr); } }
-    @media (max-width:700px) { .pills { grid-template-columns:repeat(2,minmax(0,1fr)); } #updatedPill { grid-column:2; } .runtime-grid,.gpu-processes,.outlook-grid { grid-template-columns:1fr; } .system-metrics,.gpu-metrics { grid-template-columns:repeat(2,1fr); } .deadline-cumulative { grid-template-columns:repeat(2,1fr); } .memory-process-row { grid-template-columns:minmax(110px,1.2fr) repeat(2,minmax(76px,1fr)); } }
-    @media (max-width:950px) { .grid { grid-template-columns:1fr; } canvas { height:420px; } .brief-lede { grid-template-columns:1fr; } }
+    @media (max-width:700px) { .pills { grid-template-columns:repeat(2,minmax(0,1fr)); } #updatedPill { grid-column:2; } .runtime-grid,.gpu-processes,.outlook-grid { grid-template-columns:1fr; } .system-metrics,.gpu-metrics { grid-template-columns:repeat(2,1fr); } .deadline-cumulative { grid-template-columns:repeat(2,1fr); } .memory-process-row { grid-template-columns:minmax(0,1.2fr) repeat(2,minmax(0,1fr)); } }
+    @media (max-width:950px) { .grid { grid-template-columns:minmax(0,1fr); } canvas { height:420px; } .brief-lede { grid-template-columns:minmax(0,1fr); } }
   </style>
 </head>
 <body>
@@ -209,24 +209,24 @@
   <main>
     <div class="grid">
       <section class="panel wide">
-        <h2>Rank-1 multi-antenna channel emulation · workstream brief</h2>
+        <h2>Rank-1 multi-antenna channel emulation · example</h2>
         <div class="brief">
           <div class="brief-lede">
             <div>
-              <h3>A real 4T4R base station and a real handset exchange live traffic through a GPU-synthesised radio channel — and every run proves the channel was exactly the one we declared.</h3>
-              <p>The emulator used to model each node as a single scalar stream. It now models a node as a set of antenna ports (<span class="mono">RadioNode</span>), so the channel between two nodes is a matrix, not a number. The base station is an unmodified OCUDU stack (4T4R) and the handset is a real srsUE held at <span class="mono">nof_antennas = 1</span> throughout — none of this comes from modifying the UE. Transport is ZMQ: no RF hardware anywhere in the loop.</p>
+              <h3>A four-port gNB and a single-port UE communicate through a declared channel matrix.</h3>
+              <p>This diagram illustrates a rank-1 configuration using OCUDU and the srsUE software stack. Each radio is a set of antenna ports (<span class="mono">RadioNode</span>); the UE uses <span class="mono">nof_antennas = 1</span>. Synthetic demos use ZMQ peers instead of radio stacks. Live attachment, traffic and matrix correctness require separate checks; dashboard readiness alone does not establish them.</p>
             </div>
             <div class="brief-modes">
               <div class="brief-mode"><span class="mode-pill dl">Downlink</span><span>4 gNB TX ports → 1 UE RX port · row vector (1×4) · MISO</span></div>
               <div class="brief-mode"><span class="mode-pill ul">Uplink</span><span>1 UE TX port → 4 gNB RX ports · column vector (4×1) · SIMO</span></div>
             </div>
           </div>
-          <svg class="arch-figure" viewBox="0 0 1400 600" role="img" aria-label="Architecture: an unmodified OCUDU 4T4R gNB and a single-antenna srsUE exchange traffic through the GPU channel emulator, which applies a 1x4 downlink row vector and a 4x1 uplink column vector once per 1 ms slot" font-family="ui-sans-serif,system-ui,sans-serif">
+          <svg class="arch-figure" viewBox="0 0 1400 600" role="img" aria-label="Example architecture: an OCUDU 4T4R gNB and a single-antenna srsUE exchange traffic through the GPU channel emulator, which applies a 1x4 downlink row vector and a 4x1 uplink column vector to nominal 1 ms slots" font-family="ui-sans-serif,system-ui,sans-serif">
             <rect x="20" y="24" width="320" height="540" rx="14" fill="#09141d" stroke="#285c6e"/>
             <text x="180" y="66" text-anchor="middle" fill="#42d3ff" font-size="21" font-weight="700">OCUDU gNB</text>
-            <text x="180" y="88" text-anchor="middle" fill="#8ca4b5" font-size="12">4T4R · real base-station stack</text>
+            <text x="180" y="88" text-anchor="middle" fill="#8ca4b5" font-size="12">4T4R · software base station</text>
             <rect x="115" y="102" width="130" height="24" rx="12" fill="#0c2431" stroke="#285c6e"/>
-            <text x="180" y="118" text-anchor="middle" fill="#42d3ff" font-size="12" font-weight="700">unmodified</text>
+            <text x="180" y="118" text-anchor="middle" fill="#42d3ff" font-size="12" font-weight="700">4T4R example</text>
             <text x="42" y="169" fill="#42d3ff" font-size="13" font-weight="700">TX ports ×4</text>
             <text x="322" y="199" text-anchor="end" fill="#8ca4b5" font-size="12">tx0</text><rect x="333" y="187" width="14" height="14" rx="3" fill="#42d3ff"/>
             <text x="322" y="231" text-anchor="end" fill="#8ca4b5" font-size="12">tx1</text><rect x="333" y="219" width="14" height="14" rx="3" fill="#42d3ff"/>
@@ -276,7 +276,7 @@
             <text x="985" y="416" text-anchor="middle" fill="#ffc857" font-size="12" font-weight="700">1 stream</text>
             <rect x="1070" y="24" width="310" height="540" rx="14" fill="#09141d" stroke="#6b5725"/>
             <text x="1225" y="66" text-anchor="middle" fill="#ffc857" font-size="21" font-weight="700">srsUE</text>
-            <text x="1225" y="88" text-anchor="middle" fill="#8ca4b5" font-size="12">real handset stack</text>
+            <text x="1225" y="88" text-anchor="middle" fill="#8ca4b5" font-size="12">software UE stack</text>
             <rect x="1090" y="102" width="270" height="26" rx="8" fill="#2b2414" stroke="#6b5725"/>
             <text x="1225" y="119" text-anchor="middle" fill="#ffc857" font-size="12" font-weight="700">nof_antennas = 1 (never changed)</text>
             <rect x="1063" y="235" width="14" height="14" rx="3" fill="#42d3ff"/>
@@ -305,13 +305,13 @@
           </div>
           <div>
             <h3 class="brief-head">Measured results</h3>
-            <table class="brief-table"><tbody>
+            <div class="scroll"><table class="brief-table"><tbody>
               <tr><td>Uplink 1×4 — all four branches live</td><td class="value">per-row max |y − Hx| = 4.66e-05 · 2.14e-05 · 1.68e-05 · 2.78e-05</td></tr>
               <tr><td>Downlink 4×1 — multi-branch, no waiver</td><td class="value">5.27e-08, off-diagonal share 0.081</td></tr>
               <tr><td>End-to-end procedure</td><td class="value">attach + PDU session + ping at 0 % loss</td></tr>
               <tr><td>Data integrity</td><td class="value">overflow · sequence-gap · ZMQ error counters all zero</td></tr>
               <tr><td>Array gain</td><td class="value">2×1 MRT vs port0-only = −0.54 dB measured, against −0.53 dB predicted (0.01 dB agreement)</td></tr>
-            </tbody></table>
+            </tbody></table></div>
           </div>
           <div class="claim"><b>Claim boundary</b> — not implemented and not claimed: rank &gt; 1 SU-MIMO · UE-side receive beamforming · closed-loop PMI · same-PRB MU-MIMO · “end-to-end 4×4 MIMO”. All results are stated as DL 2×1/4×1 MISO and UL 1×2/1×4 SIMO only. Multiple UEs are single-layer users sharing the time axis, not same-PRB MU-MIMO. Precoding weights are oracle-selected by the experimenter from channel knowledge, which implies no closed-loop PMI. Unverified signal replication is never called diversity — replication was measured to be 1.24 dB worse than MRT.</div>
           <details class="metric-guide">
@@ -324,7 +324,7 @@
               <tr><td><b>MAC pcap is incompatible with 2-port downlink</b></td><td>Enabling the instrumentation breaks the multi-port path.</td><td>Separated in the gates.</td></tr>
               <tr><td><b>Intermittent 4-receiver uplink failures</b></td><td>With CSI off, the gNB's uplink link adaptation picks an over-aggressive MCS — a persistent ~20 % bimodal failure.</td><td>Capped via <span class="mono">pusch.max_ue_mcs: 9</span>, recorded in the fixture with its rationale.</td></tr>
             </tbody></table>
-            <p><b>Why this is hard:</b> a commercial base-station stack only handles the transmitting side of multi-antenna operation. Reproducing how those four branches mix in the air — in real time, without breaking the standard procedure — requires alignment, the 1 ms budget, and provability at once. This workstream satisfies all three and automated the third as a standing gate.</p>
+            <p><b>Validation boundaries:</b> multi-antenna emulation requires sample alignment, correct matrix processing and timely delivery. These are separate checks; successful attachment or matrix verification does not establish zero-miss real-time operation. Consult the dated validation reports for each tested configuration and its remaining timing failures.</p>
             <p><b>Reproducibility:</b></p>
             <div class="brief-repro">bash scripts/native/run-ocudu-rank1-2x1.sh   # 2×1 DL MISO + 1×2 UL SIMO
 bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
@@ -457,13 +457,13 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
           </div>
           <div>
             <h3 class="brief-head">Planes and defaults</h3>
-            <table class="brief-table"><thead><tr><th>Plane</th><th>Direction and socket</th><th>Default endpoint</th><th>Cadence</th></tr></thead><tbody>
+            <div class="scroll"><table class="brief-table"><thead><tr><th>Plane</th><th>Direction and socket</th><th>Default endpoint</th><th>Cadence</th></tr></thead><tbody>
               <tr><td>Control</td><td>bridge REQ → emulator REP</td><td class="value">tcp://127.0.0.1:5559</td><td>2 Hz batch · 5 s request timeout</td></tr>
               <tr><td>Telemetry</td><td>emulator PUB → Web UI SUB</td><td class="value">tcp://127.0.0.1:5560</td><td>20 Hz · one frame per link per slot</td></tr>
               <tr><td>Status</td><td>bridge appends → Web UI tails</td><td class="value">results/sionna-2gnb-2ue.jsonl</td><td>0.25 s poll · 4 MiB initial window</td></tr>
               <tr><td>IQ data</td><td>producer REP ↔ broker ↔ consumer REQ</td><td class="value">tcp://127.0.0.1:3000–3103</td><td>23.04 MS/s · 23,040 samples per slot</td></tr>
               <tr><td>Dashboard</td><td>browser → Web UI HTTP</td><td class="value">127.0.0.1:8080/api/status</td><td>500 ms browser poll</td></tr>
-            </tbody></table>
+            </tbody></table></div>
           </div>
           <div class="foot">The default 2×2 layout carries 10 links: 4 downlink, 4 uplink and 2 UE↔UE crosstalk. Link ids follow <span class="mono">source&gt;destination:model</span>, for example <span class="mono">gnb0&gt;ue0:sionna_rt</span> — byte-identical to the emulator's internal link key, which is why the telemetry topic is the link id itself. The scene is <span class="mono">simple_street_canyon</span> with a 14 m synthetic road; downlink 1842.5 MHz and uplink 1747.5 MHz are traced separately because each carrier needs its own solve.</div>
         </div>

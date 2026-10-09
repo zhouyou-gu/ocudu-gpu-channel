@@ -1030,13 +1030,13 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(">All ${lanes.length}</button>", index)
         self.assertNotIn("label:`RX ${port}`", index)
         self.assertNotIn("label:`TX ${port}`", index)
-        # All selected lanes must be readable without a scroll box: the
+        # All selected lanes must be readable without a vertical scroll cap: the
         # old 680px cap fit two lanes and hid lane 4 once the gNB had
         # four ports.
         self.assertNotIn("max-height:680px", index)
         self.assertIn(
             ".lane-tables { display:grid; "
-            "grid-template-columns:repeat(auto-fit,minmax(300px,1fr));",
+            "grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));",
             index,
         )
         self.assertIn("const laneSelection={}", index)
