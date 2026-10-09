@@ -492,13 +492,6 @@
       "treatment": "relocate preserving historical body"
     },
     {
-      "source": "docs/favicon.svg",
-      "destination": "docs/assets/branding/favicon.svg",
-      "sha256": "83adbc4caa15d2a31a6073bafe51c739c16e95c4ef6cf287e1e6eddf9ca9a43c",
-      "kind": "evidence",
-      "treatment": "rewrite current guidance"
-    },
-    {
       "source": "docs/figures/diag-P-tdl-pdp.svg",
       "destination": "docs/assets/figures/diag-P-tdl-pdp.svg",
       "sha256": "9b8ae3ea40bc1ff3672c7f7a4c9210aed432e08cf8b895d5e56e47827ee6a4db",

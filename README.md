@@ -1,4 +1,4 @@
-# ocudu-gpu-channel
+# <img src="docs/assets/branding/logo.svg" alt="" height="40" align="top"> ocudu-gpu-channel
 
 Project lead: **[Zhouyou Gu](https://github.com/zhouyou-gu)** (SUTD)<br>
 Steering: **[Jihong Park](https://www.sutd.edu.sg/profile/park-jihong/)** (SUTD)<br>

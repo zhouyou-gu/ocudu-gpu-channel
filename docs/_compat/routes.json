@@ -20,7 +20,7 @@
     "plans/r4c-ul-noise.patch": "reports/experiments/x7-oai-levels-prach/evidence/r4c-ul-noise.patch",
     "milestones/README.md": "history/milestones/README.html",
     "plans/README.md": "development/designs/README.html",
-    "favicon.svg": "assets/branding/favicon.svg",
+    "favicon.svg": "assets/branding/logo.svg",
     "og-image.svg": "assets/branding/og-image.svg",
     "blueprint-generated/perf-T-fanin-breakdown.svg": "reports/performance/2026-05-sweeps/perf-T-fanin-breakdown.svg",
     "blueprint-generated/perf-U-mn-collapse.svg": "reports/performance/2026-05-sweeps/perf-U-mn-collapse.svg",
@@ -236,7 +236,7 @@
   },
   "assets": {
     "plans/r4c-ul-noise.patch": "reports/experiments/x7-oai-levels-prach/evidence/r4c-ul-noise.patch",
-    "favicon.svg": "assets/branding/favicon.svg",
+    "favicon.svg": "assets/branding/logo.svg",
     "og-image.svg": "assets/branding/og-image.svg",
     "blueprint-generated/perf-T-fanin-breakdown.svg": "reports/performance/2026-05-sweeps/perf-T-fanin-breakdown.svg",
     "blueprint-generated/perf-U-mn-collapse.svg": "reports/performance/2026-05-sweeps/perf-U-mn-collapse.svg",
