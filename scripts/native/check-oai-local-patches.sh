@@ -140,7 +140,7 @@ if [[ "${probe}" == 1 ]]; then
     env HOME=/root OCUDU_NATIVE_ROOT="${native_root}" "$@" \
       OAI2X2_PATH=broker OAI2X2_MAX_RANK=2 OAI2X2_BROKER_SECONDS=55 OAI2X2_IPERF_SECONDS=8 \
       OAI2X2_IPERF_RATE=200M OAI2X2_LABEL="patch-check ${label}" \
-      OAI2X2_TOPOLOGY="${repo_root}/examples/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml" \
+      OAI2X2_TOPOLOGY="${repo_root}/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml" \
       bash "${script_dir}/run-ocudu-oai-2x2.sh" >"${log}" 2>&1
     grep -o 'report=[^ ]*' "${log}" | tail -1 | cut -d= -f2
     rm -f "${log}"

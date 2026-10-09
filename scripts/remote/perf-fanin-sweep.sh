@@ -131,9 +131,9 @@ for cfg in "${CONFIGS[@]}"; do
   elif [[ "${mode}" == "static-tdl-a" ]]; then
     # Static TDL-A example -- 1-edge (M=1 -> demo YAML) or 8-edge fan-in.
     if [[ "${M}" == "1" ]]; then
-      cp "${project_root}/examples/configs/topologies/channel_models/topology.tdl-a.cuda.yaml" "${yaml}"
+      cp "${project_root}/use_cases/configs/topologies/channel_models/topology.tdl-a.cuda.yaml" "${yaml}"
     else
-      cp "${project_root}/examples/configs/topologies/perf/topology.perf-tdl-a-fanin-8.cuda.yaml" "${yaml}"
+      cp "${project_root}/use_cases/configs/topologies/perf/topology.perf-tdl-a-fanin-8.cuda.yaml" "${yaml}"
     fi
   else
     echo "    unknown mode '${mode}' for ${label}" >&2

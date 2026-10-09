@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-SOURCE = Path(__file__).resolve().parents[1] / 'examples/robot_fight/launch/run_r7_probe_sweep.sh'
+SOURCE = Path(__file__).resolve().parents[1] / 'use_cases/robot_fight/launch/run_r7_probe_sweep.sh'
 
 
 class SweepTests(unittest.TestCase):
@@ -14,7 +14,7 @@ class SweepTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        launch = root / 'examples/robot_fight/launch'
+        launch = root / 'use_cases/robot_fight/launch'
         launch.mkdir(parents=True)
         shutil.copyfile(SOURCE, launch / SOURCE.name)
         (launch / 'run_r7_spark.sh').write_text('''#!/usr/bin/env bash

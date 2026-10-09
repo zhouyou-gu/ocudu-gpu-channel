@@ -4,7 +4,7 @@
 The output is a plain Mitsuba scene directory that `run_bridge.py --scene`
 loads by name:
 
-    examples/configs/sionna/scenes/<name>/
+    use_cases/configs/sionna/scenes/<name>/
         scene.xml          Mitsuba scene, ITU radio materials, relative meshes
         meshes/*.ply       ground, road strips, extruded buildings
         osm.json           the raw Overpass response the scene was built from
@@ -1005,7 +1005,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--output-root", type=pathlib.Path,
                         default=pathlib.Path(__file__).resolve().parents[2]
-                        / "examples" / "configs" / "sionna" / "scenes")
+                        / "use_cases" / "configs" / "sionna" / "scenes")
     parser.add_argument("--overpass-url", default=OVERPASS_URL)
     parser.add_argument("--offline", action="store_true",
                         help="rebuild from the scene's saved osm.json")

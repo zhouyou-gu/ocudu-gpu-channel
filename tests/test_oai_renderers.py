@@ -15,8 +15,8 @@ from unittest import mock
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 RENDERER_1X1 = PROJECT_ROOT / "scripts" / "native" / "render-oai-1x1-configs.py"
 RENDERER_2X2 = PROJECT_ROOT / "scripts" / "native" / "render-oai-2x2-configs.py"
-LEGACY_TOPOLOGY = PROJECT_ROOT / "examples" / "configs" / "topologies" / "ocudu_docker" / "topology.ocudu-docker.cuda.yaml"
-TOPOLOGY_2X2 = PROJECT_ROOT / "examples" / "configs" / "topologies" / "ocudu_native" / "topology.ocudu.oai-2x2.cuda.yaml"
+LEGACY_TOPOLOGY = PROJECT_ROOT / "use_cases" / "configs" / "topologies" / "ocudu_docker" / "topology.ocudu-docker.cuda.yaml"
+TOPOLOGY_2X2 = PROJECT_ROOT / "use_cases" / "configs" / "topologies" / "ocudu_native" / "topology.ocudu.oai-2x2.cuda.yaml"
 
 
 def load(path: pathlib.Path, name: str):

@@ -93,7 +93,7 @@ audited_oai="2b69bde6aeafe892cda1531a0f0cbba2e37792cd"
 export OAI2X2_PATH="${OAI2X2_PATH:-broker}"
 max_rank="${OAI2X2_MAX_RANK:-2}"
 csi_rs="${OAI2X2_CSI_RS:-on}"
-topology="${OAI2X2_TOPOLOGY:-${repo_root}/examples/configs/topologies/ocudu_native/topology.ocudu.oai-2x2.cuda.yaml}"
+topology="${OAI2X2_TOPOLOGY:-${repo_root}/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2.cuda.yaml}"
 
 usage_error()
 {

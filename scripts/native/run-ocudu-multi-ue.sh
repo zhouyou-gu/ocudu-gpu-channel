@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Native multi-UE attach gate: one OCUDU gNB, two srsUEs, Open5GS, and this
-# tree's broker on examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml, with no
+# tree's broker on use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml, with no
 # container runtime anywhere.
 #
 # This is the Docker-free counterpart of scripts/remote/ocudu-multi-ue-smoke.sh.
@@ -147,7 +147,7 @@ for path in "${inner}" "${renderer}" \
   "${native_root}/builds/srsran4g-zmq-release/srsue/src/srsue" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
-  "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml"; do
+  "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done
 [[ -c /dev/net/tun ]] || usage_error "/dev/net/tun is absent"

@@ -27,7 +27,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
-scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/examples/configs/sionna/scenarios/simple_street/ocudu-rank1.json}"
+scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-rank1.json}"
 [[ "${scenario}" == /* && -f "${scenario}" && ! -L "${scenario}" ]] || {
   printf 'error: OCUDU_NATIVE_SIONNA_SCENARIO must be an absolute regular file: %s\n' \
     "${scenario}" >&2

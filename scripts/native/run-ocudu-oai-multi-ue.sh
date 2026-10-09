@@ -25,7 +25,7 @@ cuda_arch="${OCUDU_NATIVE_CUDA_ARCH:-120}"
 inner="${script_dir}/run-ocudu-oai-multi-ue-inner.sh"
 renderer="${script_dir}/render-oai-multi-ue-configs.py"
 gnb_binary="${OCUDU_NATIVE_GNB_BINARY:-${native_root}/builds/ocudu-zmq-release/apps/gnb/gnb}"
-sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/examples/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd.json}"
+sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd.json}"
 sionna_python="${OCUDU_NATIVE_SIONNA_PYTHON:-}"
 sionna_update_hz="${OCUDU_NATIVE_SIONNA_UPDATE_HZ:-10}"
 # Read-only web UI; 0 (default) = none. The srsUE gate's default 8080 is
@@ -93,8 +93,8 @@ for path in "${inner}" "${renderer}" "${gnb_binary}" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
   "${native_root}/src/oai/targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml" \
-  "${repo_root}/examples/configs/ran/oai/nrue_zmq_multi_ue.conf.in" \
-  "${repo_root}/examples/configs/ran/open5gs/subscriber-multi-ue.csv" \
+  "${repo_root}/use_cases/configs/ran/oai/nrue_zmq_multi_ue.conf.in" \
+  "${repo_root}/use_cases/configs/ran/open5gs/subscriber-multi-ue.csv" \
   "${repo_root}/scripts/sionna_rt/run_bridge.py"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done

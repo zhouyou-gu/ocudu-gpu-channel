@@ -668,9 +668,9 @@
   the link keys described here.</p>
   <p>The topology is a directed graph: nodes are devices (gNBs and UEs); edges are channel
   edges between them, each with a named <code>model</code>. The broker reads
-  <code>examples/configs/topologies/*/topology.*.yaml</code> and builds one
+  <code>use_cases/configs/topologies/*/topology.*.yaml</code> and builds one
   <code>CudaLinkSlot</code> per edge. The 3-node example below
-  (<code>examples/configs/topologies/basic/topology.graph.cuda.yaml</code>) carries both <b>desired</b> edges (downlink
+  (<code>use_cases/configs/topologies/basic/topology.graph.cuda.yaml</code>) carries both <b>desired</b> edges (downlink
   + uplink) and <b>crosstalk</b> edges (UE↔UE leakage).</p>
   <figure>
   <svg viewBox="0 0 700 380" font-family="SF Mono,Menlo,monospace" font-size="12">
@@ -683,7 +683,7 @@
       </marker>
     </defs>
 
-    <text x="20" y="20" fill="#9aa7bd" font-size="11">3-node graph · examples/configs/topologies/basic/topology.graph.cuda.yaml · 6 edges total</text>
+    <text x="20" y="20" fill="#9aa7bd" font-size="11">3-node graph · use_cases/configs/topologies/basic/topology.graph.cuda.yaml · 6 edges total</text>
 
     <!-- nodes: EXTERNAL class (gnb0, ue0, ue1 are external SDR endpoints) -->
     <circle cx="350" cy="90" r="42" fill="#181f2e" stroke="#cdd6e6" stroke-width="2"/>
@@ -813,7 +813,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <code>tdl{(7.0, 0 dB, 0)}</code> — the tap delay shifts from 1 to
   1 + (2 + 4) = 7. At idx = 7 the receiver sees the source's sample 0. For a
   runnable variant of this composition see
-  <code>examples/configs/topologies/ocudu_docker/topology.ocudu-docker.tx-offset.cuda.yaml</code> — the same
+  <code>use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.tx-offset.cuda.yaml</code> — the same
   single-cell OCUDU topology with a 4-sample <code>tx_timing_offset_samples</code>
   on gNB plus a 3-sample <code>propagation_delay_samples</code> on the uplink
   edge.</p>
@@ -1018,7 +1018,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   <p>The five canonical 3GPP TR 38.901 §7.7.2 profiles
   (<b>TDL-A</b> through <b>TDL-E</b>) ship as ready-to-run example
   topologies in
-  <code>examples/configs/topologies/channel_models/topology.tdl-{a,b,c,d,e}.cuda.yaml</code>. Each YAML is a
+  <code>use_cases/configs/topologies/channel_models/topology.tdl-{a,b,c,d,e}.cuda.yaml</code>. Each YAML is a
   bidirectional gNB↔UE pair with the profile applied to both edges.</p>
 
   <p><b>Translation rule.</b> The published normalised delays are scaled
@@ -1047,7 +1047,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   picks up two CDL-shaped configs at the end of its existing
   one-to-N / M-to-N grid: a 1-edge TDL-A baseline (the demo YAML above)
   and an 8-UE fan-in TDL-A
-  (<code>examples/configs/topologies/perf/topology.perf-tdl-a-fanin-8.cuda.yaml</code> — 1 gNB +
+  (<code>use_cases/configs/topologies/perf/topology.perf-tdl-a-fanin-8.cuda.yaml</code> — 1 gNB +
   8 UEs, TDL-A on all 16 edges). The pair shows how the multi-tap
   convolution + Jakes generator scales with fan-in under realistic
   multipath, instead of only the single-tap <code>cuda_mvp</code> path.</p>
@@ -4325,7 +4325,7 @@ models:     desired:     [ tdl{(0, -3 dB, 0)} · phase 0.1 rad · cfo 150 Hz ]
   live srsRAN gNB already expects (<code>tcp://host.docker.internal</code>):</p>
   <pre><code>docker build -t ocudu-gpu-channel:latest .
 docker run --rm --gpus all --network host ocudu-gpu-channel:latest \
-  --config /opt/ocudu/examples/configs/topologies/basic/topology.mvp.cuda.yaml --duration 15s</code></pre>
+  --config /opt/ocudu/use_cases/configs/topologies/basic/topology.mvp.cuda.yaml --duration 15s</code></pre>
   <p class="key">On non-host networking (Docker Desktop), publish the control
   plane with <code>-p 5559:5559 -p 5560:5560</code> plus the per-node data
   endpoints instead. <b>Real-time caveat:</b> prefer <code>--cpuset-cpus</code>

@@ -863,7 +863,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default="sionna_simple_test",
         help=(
             "scene XML path, a directory name under "
-            "examples/configs/sionna/scenes, or a built-in Sionna scene"
+            "use_cases/configs/sionna/scenes, or a built-in Sionna scene"
         ),
     )
     parser.add_argument("--duration", type=float, default=30.0,
@@ -1397,7 +1397,7 @@ def scene_geometry(scene_xml: pathlib.Path) -> dict[str, Any]:
 
 
 SCENE_DIRECTORY = (
-    pathlib.Path(__file__).resolve().parents[2] / "examples" / "configs" / "sionna" / "scenes"
+    pathlib.Path(__file__).resolve().parents[2] / "use_cases" / "configs" / "sionna" / "scenes"
 )
 # Names the demo uses for scenes that are really Sionna built-ins, so every
 # scenario config can name its scene the same way whether the geometry ships
@@ -1409,7 +1409,7 @@ def resolve_scene(name: str, rt: Any) -> pathlib.Path:
     """Turn a --scene value into a Mitsuba scene XML path.
 
     Accepts, in order: a path to an XML file, a scene generated into
-    `examples/configs/sionna/scenes/<name>/scene.xml`, an alias for a built-in, and
+    `use_cases/configs/sionna/scenes/<name>/scene.xml`, an alias for a built-in, and
     finally a Sionna built-in scene name.
     """
 

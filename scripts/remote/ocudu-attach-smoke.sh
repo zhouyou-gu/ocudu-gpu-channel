@@ -14,8 +14,8 @@ srsran_ref="${SRSRAN_4G_REF:-master}"
 skip_remote_pull="${OCUDU_ATTACH_SKIP_REMOTE_PULL:-0}"
 sync_worktree="${OCUDU_ATTACH_SYNC_WORKTREE:-1}"
 # Override the broker topology with OCUDU_ATTACH_TOPOLOGY (path is relative
-# to the project root, e.g. examples/configs/topologies/ocudu_docker/topology.ocudu-docker.tx-offset.cuda.yaml).
-topology_rel="${OCUDU_ATTACH_TOPOLOGY:-examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml}"
+# to the project root, e.g. use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.tx-offset.cuda.yaml).
+topology_rel="${OCUDU_ATTACH_TOPOLOGY:-use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml}"
 # Run the broker as a Docker image instead of the native build. Empty (default)
 # = native binary from the CUDA build dir; non-empty = `docker run --gpus all
 # --network host <image>` (e.g. OCUDU_ATTACH_BROKER_IMAGE=ocudu-gpu-channel:latest).
@@ -31,7 +31,7 @@ broker_image="${OCUDU_ATTACH_BROKER_IMAGE:-}"
 #   ALLOW_SILENT comma-separated `FROM>TO:TXIDX` declarations for transmit
 #              columns that are known not to radiate (see the gate wrappers)
 #   PING_COUNT ICMP packets the user-plane check must land
-gnb_config_rel="${OCUDU_ATTACH_GNB_CONFIG:-examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml}"
+gnb_config_rel="${OCUDU_ATTACH_GNB_CONFIG:-use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml}"
 gnb_tx_ports="${OCUDU_ATTACH_GNB_TX_PORTS:-2000}"
 # ssh flattens the remote argument vector into a single command string, so a
 # positional containing a space would arrive as two. Normalise any spaces the

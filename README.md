@@ -62,7 +62,7 @@ between the radio endpoints.
 - **CPU reference backend** — same step set, used by tests and local development.
 - **Sionna RT bridge and Web UI** — live matrix updates, moving scene and ray
   views, channel/resource plots, and independent scheduler metrics for each gNB.
-- Example topologies in [`examples/`](examples/): single-edge MVP, 3-node
+- Example topologies in [`use_cases/`](use_cases/): single-edge MVP, 3-node
   interference + crosstalk graph, 2-cell / 4-node multi-gNB, multi-UE OCUDU
   Docker, 16-edge stress, and TR 38.901 §7.7.2 TDL-A through TDL-E profiles.
 
@@ -94,7 +94,7 @@ Open four terminals: two synthetic IQ sources, the broker, two paced sinks.
 ./build/ocudu-zmq-source --endpoint tcp://*:2101 --duration 20s
 
 # Terminal 3: broker — applies the channel per slot (CPU backend in this local example)
-./build/ocudu-gpu-channel --config examples/configs/topologies/basic/topology.local.cpu.yaml --duration 20s
+./build/ocudu-gpu-channel --config use_cases/configs/topologies/basic/topology.local.cpu.yaml --duration 20s
 
 # Terminal 4: paced sinks (one request per 1 ms at 23.04 MS/s)
 ./build/ocudu-zmq-sink --endpoint tcp://127.0.0.1:2001 --duration 10s --request-interval-us 1000
@@ -140,7 +140,7 @@ docker build -t ocudu-gpu-channel:latest .
 
 # Run the broker on a baked-in example (Linux host networking).
 docker run --rm --gpus all --network host ocudu-gpu-channel:latest \
-  --config /opt/ocudu/examples/configs/topologies/basic/topology.mvp.cuda.yaml --duration 15s
+  --config /opt/ocudu/use_cases/configs/topologies/basic/topology.mvp.cuda.yaml --duration 15s
 ```
 
 Tune for your hardware and host:
@@ -171,10 +171,10 @@ inject scheduling stalls). The deeper [technical reference
 
 ```sh
 # CPU reference (any platform)
-./build/ocudu-gpu-channel-bench --config examples/configs/topologies/basic/topology.local.cpu.yaml --duration 10s --scs-khz 30
+./build/ocudu-gpu-channel-bench --config use_cases/configs/topologies/basic/topology.local.cpu.yaml --duration 10s --scs-khz 30
 
 # CUDA backend (adds per-stage GPU timings)
-./build/ocudu-gpu-channel-bench --config examples/configs/topologies/basic/topology.mvp.cuda.yaml --duration 10s --scs-khz 30
+./build/ocudu-gpu-channel-bench --config use_cases/configs/topologies/basic/topology.mvp.cuda.yaml --duration 10s --scs-khz 30
 ```
 
 CUDA output emits `model_mix_latency` plus `h2d_us`, `kernel_us`, `d2h_us`,
@@ -207,7 +207,7 @@ Strict-realtime validation (fails the process on any flow / starvation /
 continuity error):
 
 ```sh
-./build/ocudu-gpu-channel --config examples/configs/topologies/basic/topology.mvp.cuda.yaml --duration 20s --strict-realtime
+./build/ocudu-gpu-channel --config use_cases/configs/topologies/basic/topology.mvp.cuda.yaml --duration 20s --strict-realtime
 ```
 
 ## Remote RTX workstation
@@ -252,10 +252,10 @@ records the exact build, real two-gNB/two-UE results and remaining limits.
 
 End-to-end-validated topologies:
 
-- Single-cell, single-UE: [`examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml`](examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml)
-- Multi-UE, one cell, realistic per-UE channel: [`examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml`](examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml)
-- 3-node shared-carrier interference graph (UE->UE edges are physical only because all ports share one carrier): [`examples/configs/topologies/basic/topology.graph.cuda.yaml`](examples/configs/topologies/basic/topology.graph.cuda.yaml)
-- 2-cell / 4-node / 8-edge multi-gNB: [`examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml`](examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml)
+- Single-cell, single-UE: [`use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml`](use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml)
+- Multi-UE, one cell, realistic per-UE channel: [`use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml`](use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml)
+- 3-node shared-carrier interference graph (UE->UE edges are physical only because all ports share one carrier): [`use_cases/configs/topologies/basic/topology.graph.cuda.yaml`](use_cases/configs/topologies/basic/topology.graph.cuda.yaml)
+- 2-cell / 4-node / 8-edge multi-gNB: [`use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml`](use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml)
 
 Synthetic-loop validation matches the analytic superposition to < 0.3 % on real
 GPU runs, with all broker data-integrity counters at zero.

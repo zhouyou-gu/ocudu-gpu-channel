@@ -152,7 +152,7 @@ ctest --test-dir "${cuda_build}" --output-on-failure >"${log_dir}/ctest.log" 2>&
 gnb_config="${config_dir}/gnb_zmq_b210_fdd_srsue.yaml"
 compose_override="${config_dir}/docker-compose.ocudu-gpu-channel.yml"
 ocudu_dockerfile="${config_dir}/Dockerfile.ocudu-zmq"
-cp "${project_root}/examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml" "${gnb_config}"
+cp "${project_root}/use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml" "${gnb_config}"
 
 awk '
   { print }
@@ -247,7 +247,7 @@ taskset -c 2 "${cuda_build}/ocudu-zmq-sink" \
 ue_sink_pid="$!"
 
 taskset -c 0 "${cuda_build}/ocudu-gpu-channel" \
-  --config "${project_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  --config "${project_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
   --duration "${run_duration_seconds}s" \
   --strict-realtime >"${log_dir}/broker.log" 2>&1 &
 broker_pid="$!"

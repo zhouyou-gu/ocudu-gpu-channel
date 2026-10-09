@@ -354,7 +354,7 @@ def self_test() -> None:
         else:
             raise AssertionError(bad)
 
-    fixture = Path(__file__).resolve().parents[2] / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml"
+    fixture = Path(__file__).resolve().parents[2] / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml"
     source = fixture.read_text(encoding="utf-8")
     log_dir = Path("/tmp/x")
     cell_a = render_cell(source, CELLS[0], a, log_dir)
@@ -450,9 +450,9 @@ def main() -> int:
     except ValueError as error:
         legacy.fail(str(error))
 
-    gnb_source = legacy.read_regular(repo_root / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture")
+    gnb_source = legacy.read_regular(repo_root / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture")
     open5gs_source = legacy.read_regular(native_root / "src/ocudu/docker/open5gs/open5gs-5gc.yml", "pinned OCUDU Open5GS template")
-    nrue_source = legacy.read_regular(repo_root / "examples/configs/ran/oai/nrue_zmq_multi_ue.conf.in", "native OAI nrUE multi-UE template")
+    nrue_source = legacy.read_regular(repo_root / "use_cases/configs/ran/oai/nrue_zmq_multi_ue.conf.in", "native OAI nrUE multi-UE template")
     _, subscriber_path, _ = legacy.LAYOUTS[UE_COUNT]
     subscriber_source = legacy.read_regular(repo_root / subscriber_path, "native subscriber template")
     uecap_source = legacy.read_regular(native_root / "src/oai/targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml",

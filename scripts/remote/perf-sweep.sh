@@ -148,11 +148,11 @@ PY
 
 # ---- topology sweep: bench each config under CPU and CUDA ----
 declare -A CONFIGS=(
-  [mvp-2-edge]="examples/configs/topologies/basic/topology.mvp.cuda.yaml"
-  [multi-ue-4-edge]="examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml"
-  [graph-6-edge]="examples/configs/topologies/basic/topology.graph.cuda.yaml"
-  [multi-gnb-8-edge]="examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"
-  [stress-16-edge]="examples/configs/topologies/perf/topology.stress-16-edge.cuda.yaml"
+  [mvp-2-edge]="use_cases/configs/topologies/basic/topology.mvp.cuda.yaml"
+  [multi-ue-4-edge]="use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml"
+  [graph-6-edge]="use_cases/configs/topologies/basic/topology.graph.cuda.yaml"
+  [multi-gnb-8-edge]="use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"
+  [stress-16-edge]="use_cases/configs/topologies/perf/topology.stress-16-edge.cuda.yaml"
 )
 ORDER=(mvp-2-edge multi-ue-4-edge graph-6-edge multi-gnb-8-edge stress-16-edge)
 

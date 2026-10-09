@@ -37,7 +37,7 @@ IFS=$'\t' read -r gnb_binary gnb_source gnb_build gnb_commit <<<"${selection}"
 # interpolates are bound first, with the same meaning that file gives them.
 script_dir_saved="${script_dir}"
 script_dir="${native_dir}"
-scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/examples/configs/sionna/scenarios/simple_street/ocudu-rank1.json}"
+scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-rank1.json}"
 [[ "${scenario}" == /* && -f "${scenario}" && ! -L "${scenario}" ]] || {
   printf 'error: OCUDU_NATIVE_SIONNA_SCENARIO must be an absolute regular file: %s\n' "${scenario}" >&2
   exit 2

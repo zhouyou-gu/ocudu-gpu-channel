@@ -392,10 +392,10 @@ write_topology "${awgn_topo}" "      - type: awgn
 run_relay_check "AWGN relay" "${awgn_topo}" 1.25 0.05
 
 echo "== [5/9] synthetic CUDA 3-node interference graph =="
-run_graph_check "${project_root}/examples/configs/topologies/basic/topology.graph.cuda.yaml"
+run_graph_check "${project_root}/use_cases/configs/topologies/basic/topology.graph.cuda.yaml"
 
 echo "== [6/9] synthetic CUDA 2-cell multi-gNB graph =="
-run_multi_gnb_check "${project_root}/examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"
+run_multi_gnb_check "${project_root}/use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"
 
 echo "== [7/9] synthetic CUDA TDL-A profile relay (TR 38.901 §7.7.2, 23-tap NLOS, Jakes 100 Hz) =="
 # Sum of TDL-A tap linear powers ≈ 3.468 -- the ensemble-mean sink avg_power for
@@ -411,7 +411,7 @@ sed -e 's|tcp://127.0.0.1:17000|tcp://127.0.0.1:15000|' \
     -e 's|tcp://\*:17001|tcp://*:15001|' \
     -e 's|tcp://127.0.0.1:17101|tcp://127.0.0.1:15101|' \
     -e 's|tcp://\*:17100|tcp://*:15100|' \
-    "${project_root}/examples/configs/topologies/channel_models/topology.tdl-a.cuda.yaml" > "${tdl_a_topo}"
+    "${project_root}/use_cases/configs/topologies/channel_models/topology.tdl-a.cuda.yaml" > "${tdl_a_topo}"
 run_relay_check "TDL-A profile" "${tdl_a_topo}" 3.468 1.5
 
 echo "== [8/9] synthetic CUDA 2x2 correlated MIMO relay =="
@@ -419,18 +419,18 @@ echo "== [8/9] synthetic CUDA 2x2 correlated MIMO relay =="
 # Running both is the point: 9.71 alone could be a coincidence of the profile,
 # while 9.71 next to 6.94 is the declared R_tx and nothing else.
 mimo_corr_topo="$(mktemp --suffix=.yaml)"
-sed -e 's|:172|:152|g' "${project_root}/examples/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml" \
+sed -e 's|:172|:152|g' "${project_root}/use_cases/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml" \
   > "${mimo_corr_topo}"
 run_mimo_correlated_check "2x2 correlated" "${mimo_corr_topo}" 9.71 1.5 15200
 
 mimo_iid_topo="$(mktemp --suffix=.yaml)"
-sed -e 's|:172|:153|g' "${project_root}/examples/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml" \
+sed -e 's|:172|:153|g' "${project_root}/use_cases/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml" \
   | awk '/^    spatial_correlation:/{skip=1} /^    chain:/{skip=0} !skip' > "${mimo_iid_topo}"
 run_mimo_correlated_check "2x2 iid (control)" "${mimo_iid_topo}" 6.94 1.5 15300
 
 echo "== [9/9] live control plane -- correlation_swap against a running broker =="
 control_topo="$(mktemp --suffix=.yaml)"
-sed -e 's|:172|:154|g' "${project_root}/examples/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml" \
+sed -e 's|:172|:154|g' "${project_root}/use_cases/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml" \
   | awk '/^      kind: kronecker/{print "      kind: iid"; skip=1; next} /^    chain:/{skip=0} !skip' \
   > "${control_topo}"
 run_control_swap_check "live correlation_swap" "${control_topo}" 15400 15599

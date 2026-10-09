@@ -1,0 +1,267 @@
+{
+  "name": "sionna_SUTD_test_2x2",
+  "description": "Two cells on the SUTD campus: gnb0 on SUTD Building 2 serving the car at the drop-off, gnb1 on Building 1 covering the far side of the pedestrian ring around Building 2. The roofs were chosen by measurement, not by eye \u2014 over ue1's 440 s lap, sampled at 30 equal steps by scripts/sionna_rt/measure_cell_coverage.py, gnb0 puts a traced path on 9 of them and gnb1 on 6, with no sample reached by both, so the pedestrian link hands between them instead of sitting on one. The remaining 15 are in outage on both cells: the walk rounds a 24.5 m building and its far side is shadowed from either roof. Re-run that script after any change to the route or the roofs \u2014 these numbers are of the route as it stands, not of the campus. Both serving and intercell links are traced in each direction, which is the link set use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml declares. Four-port cells and single-port UEs, to match that topology's radio_nodes: per UE the downlink is a 1x4 row and the uplink a 4x1 column, still rank-1. UE-to-UE crosstalk is traced as well, so each receiver sums every edge that reaches it rather than only its cell's.",
+  "scene": "sionna_SUTD_test",
+  "simple_road": false,
+  "solver": {
+    "max_depth": 3,
+    "samples_per_source": 200000,
+    "seed": 42,
+    "path_polylines": 6,
+    "propagation": {
+      "los": true,
+      "specular_reflection": true,
+      "diffuse_reflection": false,
+      "refraction": false,
+      "diffraction": false
+    }
+  },
+  "nodes": {
+    "gnb0": {
+      "start_m": [
+        -151.28,
+        -57.99,
+        30.5
+      ],
+      "mobility": "fixed",
+      "tx_array": {
+        "rows": 1,
+        "cols": 4,
+        "pattern": "iso",
+        "polarization": "V"
+      },
+      "rx_array": {
+        "rows": 1,
+        "cols": 4,
+        "pattern": "iso",
+        "polarization": "V"
+      }
+    },
+    "gnb1": {
+      "start_m": [
+        -158.93,
+        -132.53,
+        30.5
+      ],
+      "mobility": "fixed",
+      "tx_array": {
+        "rows": 1,
+        "cols": 4,
+        "pattern": "iso",
+        "polarization": "V"
+      },
+      "rx_array": {
+        "rows": 1,
+        "cols": 4,
+        "pattern": "iso",
+        "polarization": "V"
+      }
+    },
+    "ue0": {
+      "mobility": "car",
+      "route_m": [
+        [
+          -150.229,
+          -48.078,
+          1.5
+        ],
+        [
+          -137.472,
+          -47.193,
+          1.5
+        ],
+        [
+          -75.0,
+          -36.07,
+          1.5
+        ]
+      ],
+      "route_mode": "pingpong",
+      "speed_mps": 8.33,
+      "array": {
+        "rows": 1,
+        "cols": 1,
+        "pattern": "iso",
+        "polarization": "V"
+      }
+    },
+    "ue1": {
+      "mobility": "pedestrian",
+      "route_m": [
+        [
+          -152.78,
+          -45.11,
+          1.5
+        ],
+        [
+          -216.59,
+          -58.8,
+          1.5
+        ],
+        [
+          -218.57,
+          -59.31,
+          1.5
+        ],
+        [
+          -220.35,
+          -60.41,
+          1.5
+        ],
+        [
+          -221.78,
+          -61.99,
+          1.5
+        ],
+        [
+          -222.68,
+          -63.9,
+          1.5
+        ],
+        [
+          -232.74,
+          -107.83,
+          1.5
+        ],
+        [
+          -235.16,
+          -152.07,
+          1.5
+        ],
+        [
+          -235.09,
+          -153.58,
+          1.5
+        ],
+        [
+          -221.18,
+          -197.11,
+          1.5
+        ],
+        [
+          -220.67,
+          -198.04,
+          1.5
+        ],
+        [
+          -219.92,
+          -198.8,
+          1.5
+        ],
+        [
+          -219.0,
+          -199.35,
+          1.5
+        ],
+        [
+          -218.0,
+          -199.63,
+          1.5
+        ],
+        [
+          -92.35,
+          -214.7,
+          1.5
+        ],
+        [
+          -90.34,
+          -214.02,
+          1.5
+        ],
+        [
+          -88.58,
+          -212.81,
+          1.5
+        ],
+        [
+          -87.07,
+          -210.94,
+          1.5
+        ],
+        [
+          -86.21,
+          -208.76,
+          1.5
+        ],
+        [
+          -55.63,
+          -50.05,
+          1.5
+        ],
+        [
+          -58.75,
+          -43.45,
+          1.5
+        ],
+        [
+          -69.06,
+          -35.9,
+          1.5
+        ],
+        [
+          -77.08,
+          -35.75,
+          1.5
+        ]
+      ],
+      "route_mode": "loop",
+      "speed_mps": 1.4,
+      "array": {
+        "rows": 1,
+        "cols": 1,
+        "pattern": "iso",
+        "polarization": "V"
+      }
+    }
+  },
+  "links": [
+    {
+      "from": "gnb0",
+      "to": "ue0",
+      "direction": "downlink",
+      "model": "serving"
+    },
+    {
+      "from": "gnb1",
+      "to": "ue1",
+      "direction": "downlink",
+      "model": "serving"
+    },
+    {
+      "from": "gnb0",
+      "to": "ue1",
+      "direction": "downlink",
+      "model": "intercell"
+    },
+    {
+      "from": "gnb1",
+      "to": "ue0",
+      "direction": "downlink",
+      "model": "intercell"
+    },
+    {
+      "from": "ue0",
+      "to": "gnb0",
+      "direction": "uplink",
+      "model": "serving"
+    },
+    {
+      "from": "ue1",
+      "to": "gnb1",
+      "direction": "uplink",
+      "model": "serving"
+    },
+    {
+      "from": "ue0",
+      "to": "gnb1",
+      "direction": "uplink",
+      "model": "intercell"
+    },
+    {
+      "from": "ue1",
+      "to": "gnb0",
+      "direction": "uplink",
+      "model": "intercell"
+    }
+  ]
+}

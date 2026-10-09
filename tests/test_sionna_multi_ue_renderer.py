@@ -10,8 +10,8 @@ import unittest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 RENDERER = PROJECT_ROOT / "scripts" / "native" / "render-sionna-multi-ue-configs.py"
-RING = PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring.json"
-SUTD = PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "sutd" / "sionna-multi-ue-sutd.json"
+RING = PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring.json"
+SUTD = PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "sutd" / "sionna-multi-ue-sutd.json"
 
 
 def load_renderer():

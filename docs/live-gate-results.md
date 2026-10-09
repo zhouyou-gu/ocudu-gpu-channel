@@ -45,8 +45,8 @@ to break.
 | `ocudu-rank1-2x1-quad-ue-smoke.sh` (2T2R) | 4 | **blocked** — 1 of 4 truly attaches; three share a C-RNTI |
 
 Control experiments used for the diagnosis below, not gates:
-`examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue-quad.cuda.yaml` (stock single-antenna
-cell, four UEs) and `examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_1t1r_mimo_settings_bisect.yaml`
+`use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue-quad.cuda.yaml` (stock single-antenna
+cell, four UEs) and `use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_1t1r_mimo_settings_bisect.yaml`
 (single antenna carrying the MIMO cell settings).
 
 The three- and four-UE gates are committed as reproducible investigations, not

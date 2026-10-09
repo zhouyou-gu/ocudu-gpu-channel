@@ -38,7 +38,7 @@ fail = multi_ue.fail
 replace_exact = multi_ue.replace_exact
 
 # One entry per cell. The ZMQ ports must agree with the port map below, which
-# rewrites examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml onto the native loopback plan.
+# rewrites use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml onto the native loopback plan.
 CELLS = (
     {"device_id": "gnb0", "tx_port": 2000, "rx_port": 2001, "pci": 1, "gnb_id": 411, "bind": "127.0.0.11",
      "prach_root": 1},
@@ -55,7 +55,7 @@ CELLS = (
 # This gate has two UEs; the multi-UE table grew to four with the 4-UE option,
 # so take the slice (the subscriber fixture is validated against it).
 UES = tuple(multi_ue.UES)[:2]
-# examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml port -> native port.
+# use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml port -> native port.
 PORT_MAP = {3000: 2000, 3001: 2001, 3002: 2010, 3003: 2011,
             3100: 2100, 3101: 2101, 3102: 2102, 3103: 2103}
 
@@ -158,7 +158,7 @@ def main() -> int:
     parser.add_argument("--native-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--log-dir", type=Path, required=True)
-    parser.add_argument("--topology", type=Path, default=Path("examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"),
+    parser.add_argument("--topology", type=Path, default=Path("use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"),
                         help="broker topology, relative to the repo root or absolute")
     parser.add_argument("--channel-mode", choices=("legacy", "sionna"), default="legacy")
     args = parser.parse_args()
@@ -169,7 +169,7 @@ def main() -> int:
     log_dir = multi_ue.safe_directory(args.log_dir, "log directory")
     read = multi_ue.read_regular
 
-    gnb_source = read(repo_root / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture")
+    gnb_source = read(repo_root / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture")
     stage = os.environ.get("OCUDU_NATIVE_GNB_ACCELERATION")
     outputs = {}
     for cell in CELLS:
@@ -186,9 +186,9 @@ def main() -> int:
     # validate_subscriber compares against a UE slice since the 4-UE commit;
     # this gate's two UEs are the multi-UE table's first two.
     outputs["subscriber.csv"] = multi_ue.validate_subscriber(
-        read(repo_root / "examples/configs/ran/open5gs/subscriber-multi-ue.csv", "subscriber fixture"), UES
+        read(repo_root / "use_cases/configs/ran/open5gs/subscriber-multi-ue.csv", "subscriber fixture"), UES
     )
-    srsue_source = read(repo_root / "examples/configs/ran/srsue/srsue_zmq_multi_ue.conf.in", "srsUE template")
+    srsue_source = read(repo_root / "use_cases/configs/ran/srsue/srsue_zmq_multi_ue.conf.in", "srsUE template")
     for ue in UES:
         outputs[f"srsue-{ue['device_id']}.conf"] = multi_ue.render_srsue(srsue_source, ue, log_dir)
 

@@ -1,7 +1,7 @@
 """Scheduler benchmark: reproducibility helpers, traffic, analyzer, renderer.
 
 Everything here runs without Sionna, a GPU or the radio stack. The live gate
-(examples/scheduler_benchmark/run-ocudu-scheduler-benchmark.sh) is the integration test;
+(use_cases/scheduler_benchmark/run-ocudu-scheduler-benchmark.sh) is the integration test;
 these tests pin the pieces whose arithmetic the report depends on, against
 synthetic logs whose correct answers are known by construction.
 """
@@ -23,7 +23,7 @@ import unittest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "sionna_rt"))
-sys.path.insert(0, str(PROJECT_ROOT / "examples" / "scheduler_benchmark"))
+sys.path.insert(0, str(PROJECT_ROOT / "use_cases" / "scheduler_benchmark"))
 
 import analyze  # noqa: E402
 import campaign  # noqa: E402
@@ -414,7 +414,7 @@ class AnalyzerOnSyntheticRun(unittest.TestCase):
         self.assertEqual(live["segments_complete"], 4, "a past run is complete even when asked live")
 
     def test_renderer_self_test(self) -> None:
-        result = subprocess.run([sys.executable, str(PROJECT_ROOT / "examples/scheduler_benchmark/render-scheduler-benchmark-configs.py"),
+        result = subprocess.run([sys.executable, str(PROJECT_ROOT / "use_cases/scheduler_benchmark/render-scheduler-benchmark-configs.py"),
                                  "--self-test"], capture_output=True, text=True, env={"PYTHONDONTWRITEBYTECODE": "1"})
         self.assertEqual(result.returncode, 0, result.stderr)
 

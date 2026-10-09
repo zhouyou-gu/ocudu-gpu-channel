@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "examples" / "robot_fight"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "use_cases" / "robot_fight"))
 
 import protocol  # noqa: E402
 

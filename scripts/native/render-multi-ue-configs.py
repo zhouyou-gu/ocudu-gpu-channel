@@ -56,8 +56,8 @@ LOWER_PHY_PROFILES = ("single", "dual", "triple")
 MAIN_POOL_THREADS_ENV = "OCUDU_NATIVE_GNB_MAIN_POOL_THREADS"
 
 # One entry per UE. The ZMQ port pairs and the broker device ids must agree with
-# examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml; the IPv4 addresses must
-# agree with examples/configs/ran/open5gs/subscriber-multi-ue.csv. Each UE gets its
+# use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml; the IPv4 addresses must
+# agree with use_cases/configs/ran/open5gs/subscriber-multi-ue.csv. Each UE gets its
 # own network namespace because srsUE moves its TUN device into the namespace
 # named in [gw], and two UEs sharing one namespace would collide on
 # ip_devname.
@@ -104,10 +104,10 @@ UES = (
 # models the gate asserts (each UE on its own channel, so a per-UE regression
 # cannot hide behind a shared one).
 LAYOUTS = {
-    2: ("examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml",
-        "examples/configs/ran/open5gs/subscriber-multi-ue.csv", ("near", "far")),
-    4: ("examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue-quad.cuda.yaml",
-        "examples/configs/ran/open5gs/subscriber-multi-ue-quad.csv", ("near", "mid1", "mid2", "far")),
+    2: ("use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml",
+        "use_cases/configs/ran/open5gs/subscriber-multi-ue.csv", ("near", "far")),
+    4: ("use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue-quad.cuda.yaml",
+        "use_cases/configs/ran/open5gs/subscriber-multi-ue-quad.csv", ("near", "mid1", "mid2", "far")),
 }
 
 
@@ -360,7 +360,7 @@ def main() -> int:
     log_dir = safe_directory(args.log_dir, "log directory")
 
     gnb_source = read_regular(
-        repo_root / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture"
+        repo_root / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture"
     )
     topology_source = read_regular(
         repo_root / topology_path, "multi-UE topology"
@@ -369,7 +369,7 @@ def main() -> int:
         native_root / "src/ocudu/docker/open5gs/open5gs-5gc.yml", "pinned OCUDU Open5GS template"
     )
     srsue_source = read_regular(
-        repo_root / "examples/configs/ran/srsue/srsue_zmq_multi_ue.conf.in", "srsUE template"
+        repo_root / "use_cases/configs/ran/srsue/srsue_zmq_multi_ue.conf.in", "srsUE template"
     )
     subscriber_source = read_regular(
         repo_root / subscriber_path, "subscriber fixture"

@@ -12,11 +12,11 @@ import unittest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 RENDERER = PROJECT_ROOT / "scripts" / "native" / "render-oai-multi-ue-configs.py"
-GNB_FIXTURE = PROJECT_ROOT / "examples" / "configs" / "ran" / "ocudu" / "docker" / "gnb_zmq_b210_fdd_srsue.yaml"
-NRUE_TEMPLATE = PROJECT_ROOT / "examples" / "configs" / "ran" / "oai" / "nrue_zmq_multi_ue.conf.in"
-SUBSCRIBERS = PROJECT_ROOT / "examples" / "configs" / "ran" / "open5gs" / "subscriber-multi-ue.csv"
-WALK_TDD = PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring-walk-tdd.json"
-WALK_TDD_UE2UE = PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring-walk-tdd-ue2ue.json"
+GNB_FIXTURE = PROJECT_ROOT / "use_cases" / "configs" / "ran" / "ocudu" / "docker" / "gnb_zmq_b210_fdd_srsue.yaml"
+NRUE_TEMPLATE = PROJECT_ROOT / "use_cases" / "configs" / "ran" / "oai" / "nrue_zmq_multi_ue.conf.in"
+SUBSCRIBERS = PROJECT_ROOT / "use_cases" / "configs" / "ran" / "open5gs" / "subscriber-multi-ue.csv"
+WALK_TDD = PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring-walk-tdd.json"
+WALK_TDD_UE2UE = PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring-walk-tdd-ue2ue.json"
 
 
 def load_renderer():

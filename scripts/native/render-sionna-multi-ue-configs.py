@@ -546,14 +546,14 @@ def main() -> int:
     except ValueError as error:
         legacy.fail(str(error))
     gnb_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture"
+        repo_root / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture"
     )
     open5gs_source = legacy.read_regular(
         native_root / "src/ocudu/docker/open5gs/open5gs-5gc.yml",
         "pinned OCUDU Open5GS template",
     )
     srsue_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/srsue/srsue_zmq_multi_ue.conf.in",
+        repo_root / "use_cases/configs/ran/srsue/srsue_zmq_multi_ue.conf.in",
         "native srsUE template",
     )
     _, subscriber_path, _ = legacy.LAYOUTS[args.ue_count]

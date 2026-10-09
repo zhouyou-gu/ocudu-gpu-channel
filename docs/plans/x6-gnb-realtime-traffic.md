@@ -89,7 +89,7 @@ worker pool size (see Run 2): that is why the profile now exports
 
 ## Run (DGX Spark, xtree + these files, build `gpuch-xt-release`)
 
-Sionna multi-UE gate, `examples/configs/sionna/scenarios/robot_ring/robot-ring-walk.json`, 200 s, Track A's
+Sionna multi-UE gate, `use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk.json`, 200 s, Track A's
 iperf hooks (two iperf3 servers on 5201/5202; per UE 90 s UL at 20 Mbit/s then
 30 s DL), wire capture 4,000,000 samples after SKIP_SECONDS=20 (UL starts at
 run-second ~9-11, the old wedge came at ~42, so 20 s is inside the UL window),

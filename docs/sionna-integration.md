@@ -175,7 +175,7 @@ wall time when radio processing falls behind.
 | OCUDU | `2563975a74baf94db51b4a41d6ff48e945cbb8f7` |
 | UE image | `ocudu-gpu-channel/srsue-zmq:daa167ae3443b046ce560df646c7dc5f17e5c1dd` |
 | UE executable SHA256 | `eba570b596d251bc8b7acba6126640d40bb53251ce9f88fe6c59deddba45d3e7` |
-| Original moving scenario | `examples/configs/sionna/scenarios/sutd/multi-gnb-sutd.json`; SHA256 `9a67cd16d9aa7d06078598f7f5f48e74df0181bfdc0025448d8a241b02daf01c` |
+| Original moving scenario | `use_cases/configs/sionna/scenarios/sutd/multi-gnb-sutd.json`; SHA256 `9a67cd16d9aa7d06078598f7f5f48e74df0181bfdc0025448d8a241b02daf01c` |
 | Radio workload | Two real OCUDU gNBs, two real srsUEs, Open5GS and ten CUDA links; PCI1/2, n3, 20 MHz, 23.04 MS/s; four ports per gNB, one per UE |
 | Host | RTX 5090, Intel Core Ultra 9 285K, CUDA 12.8.1, driver 580.173.02 |
 
@@ -261,7 +261,7 @@ For a repeatable diagnostic without launching gNB, UE, or broker processes:
 ```bash
 python scripts/sionna_rt/profile_replay.py \
   --replay /path/to/sionna-status.jsonl \
-  --scenario examples/configs/sionna/scenarios/robot_ring/robot-ring-walk.json \
+  --scenario use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk.json \
   --out /path/to/profile.json --samples 40 --rounds 2 --pace-hz 10
 ```
 

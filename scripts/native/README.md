@@ -288,7 +288,7 @@ ran, it now takes the Sionna bridge the multi-UE gate uses:
 | `OCUDU_NATIVE_CHANNEL_MODE` | `legacy` | `sionna`: broker `--control-endpoint`/`--telemetry-endpoint` under the run directory, the bridge (`run_bridge.py --scenario-config …`) started after the broker and before the gNBs, first `sionna_rt_update` awaited (180 s). |
 | `OCUDU_NATIVE_SIONNA_SCENARIO` | required in sionna mode | Absolute scenario JSON naming `gnb0`, `gnb1`, `ue0`, `ue1`. Its `links` must be exactly the topology's (same `from>to:model` keys) and its gNB arrays one port, or the broker rejects the first profile swap (`unknown link_id`, `dimensions 1x4 do not match`). |
 | `OCUDU_NATIVE_SIONNA_PYTHON` / `_UPDATE_HZ` | required / `10` | As in the multi-UE gate. |
-| `OCUDU_NATIVE_MGNB_TOPOLOGY` | `examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml`; sionna: `examples/configs/topologies/sionna/topology.sionna-2gnb-2ue.cuda.yaml` | Broker topology (absolute path). The Sionna one carries the eight serving/intercell `sionna_rt` links, carrier labels, UE `tx_scale_db` and absolute noise floors. |
+| `OCUDU_NATIVE_MGNB_TOPOLOGY` | `use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml`; sionna: `use_cases/configs/topologies/sionna/topology.sionna-2gnb-2ue.cuda.yaml` | Broker topology (absolute path). The Sionna one carries the eight serving/intercell `sionna_rt` links, carrier labels, UE `tx_scale_db` and absolute noise floors. |
 | `OCUDU_NATIVE_MGNB_WIRE_CAPTURE_SAMPLES` / `_SKIP_SECONDS` | `0` / `60` | Broker wire capture, as in the multi-UE gate. |
 
 The renderer gives the two cells distinct PRACH root sequences
@@ -342,7 +342,7 @@ carrier, so UE<->UE edges are admitted), and the strict verdict applied to the
 nrUE log (`State = NR_RRC_CONNECTED`, `Received PDU Session Establishment
 Accept`, `SR not served!`, new RA procedures, `Timer T310 expired`, plus a late
 5-ping check 30 s before the broker stops). Knobs: `OCUDU_NATIVE_SIONNA_SCENARIO`
-(`examples/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd*.json`; the `-los` variants keep both
+(`use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd*.json`; the `-los` variants keep both
 robots on the line-of-sight side because the nrUE has no AGC and loses sync in
 the pillar shadow), `OCUDU_NATIVE_OAI_MUE_UE_CPUS="a;b"` (default `18,4;19,14`
 on the GB10), the multi-UE gate's duration / wire-capture / `UE_EXEC` knobs,
@@ -444,5 +444,5 @@ does not move the real-time factor, so the default module does not carry it.
 The two-cell demo gates live with their demos and reuse this directory's
 `env.sh`, `oai-gate-defaults.sh`, workspace lock and renderers:
 
-- robot fight (R5): [`examples/robot_fight/`](../../examples/robot_fight/README.md#native-gate-run-ocudu-robot-fightsh)
-- scheduler benchmark: [`examples/scheduler_benchmark/`](../../examples/scheduler_benchmark/README.md)
+- robot fight (R5): [`use_cases/robot_fight/`](../../use_cases/robot_fight/README.md#native-gate-run-ocudu-robot-fightsh)
+- scheduler benchmark: [`use_cases/scheduler_benchmark/`](../../use_cases/scheduler_benchmark/README.md)

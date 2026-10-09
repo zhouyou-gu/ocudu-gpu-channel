@@ -217,7 +217,7 @@ H_ℓ = sqrt(P_ℓ/(K+1))·H_NLOS,corr + sqrt(P_ℓ·K/(K+1))·H_LOS,coh
 
 ### 6.2 mixing 비용
 
-같은 2×2 TDL-A 토폴로지를 상관 선언만 넣고 빼서 비교했다(`examples/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml`, 링크당 4 lane).
+같은 2×2 TDL-A 토폴로지를 상관 선언만 넣고 빼서 비교했다(`use_cases/configs/topologies/channel_models/topology.mimo-2x2-correlated.cuda.yaml`, 링크당 4 lane).
 
 | | `kernel_us` p99 | `gpu_process_us` p99 |
 |---|---|---|

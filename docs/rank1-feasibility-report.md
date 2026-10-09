@@ -207,7 +207,7 @@ Feasibility 평가에서 가장 중요한 부분은 "되긴 되는데, **어떤 
 | 라이브 게이트 (**재실행 가능, 지원 경로**) | `scripts/remote/ocudu-rank1-2x1-smoke.sh`, `ocudu-rank1-4x1-smoke.sh`, `ocudu-attach-smoke.sh` — 컨테이너 하네스. 자체 Docker 네트워크·5GC를 띄우고 빈 서브넷을 스스로 고르며 필요한 Python을 자체 프로비저닝하므로, 이 저장소 + GPU 워크스테이션만으로 재현된다. |
 | 라이브 게이트 (원본, 재현 불가) | `scripts/native/run-ocudu-rank1-{2x1,4x1}.sh`, `run-ocudu-legacy-1x1.sh` — 최초 실행 경로의 기록. `bootstrap-workspace.sh`가 프로비저닝을 의도적으로 비활성화하고 있고 `/home/ubuntu`·`/opt/conda` 경로가 하드코딩되어 있어, 이 저장소만으로는 실행할 수 없다. |
 | 게이트 실행 산출물 (요약 JSON·행렬 리포트·로그·소스 핀) | `~/ocudu-native-workspace/results/{reports,logs}/rank1-2x1/20260817T091805Z`, `rank1-4x1/20260817T091856Z` |
-| 채널/게이트 fixture (제약 근거 주석 포함) | `examples/configs/ran/ocudu/native/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml`, `examples/configs/topologies/ocudu_native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml`, `topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml` |
+| 채널/게이트 fixture (제약 근거 주석 포함) | `use_cases/configs/ran/ocudu/native/gnb_zmq_b210_fdd_{2t2r,4t4r}_rank1_srsue.yaml`, `use_cases/configs/topologies/ocudu_native/topology.ocudu.rank1-{2x1,4x1}.cuda.yaml`, `topology.ocudu.rank1-2x1-oracle-mrt.cuda.yaml` |
 | 독립 행렬 checker | `scripts/native/verify-mimo-matrix-capture.py` (H는 토폴로지에서 읽고 브로커 출력은 신뢰하지 않음) |
 | 위상 스윕 단위테스트 (뮤테이션 검증) | `tests/test_processing.cpp` R1 절 |
 | 작업·규명 전체 서사 (원인 규명, 기각 가설 포함) | `AGENT_PROGRESS.md` "Rank-1 Workstream" 절 |

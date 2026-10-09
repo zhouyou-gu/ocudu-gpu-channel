@@ -8,7 +8,7 @@ import tarfile
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'examples/robot_fight/collect_r7_results.py'
+SCRIPT = Path(__file__).resolve().parents[1] / 'use_cases/robot_fight/collect_r7_results.py'
 spec = importlib.util.spec_from_file_location('collector', SCRIPT)
 collector = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(collector)

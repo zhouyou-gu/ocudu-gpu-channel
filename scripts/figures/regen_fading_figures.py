@@ -10,7 +10,7 @@ docs/figures/:
                                 for TDL-A at f_d_max = 100 Hz
 
 All numbers come from the same Sionna-derived TR 38.901 §7.7.2 profiles that
-ship as examples/configs/topologies/channel_models/topology.tdl-{a..e}.cuda.yaml (delay spread 100 ns, sample
+ship as use_cases/configs/topologies/channel_models/topology.tdl-{a..e}.cuda.yaml (delay spread 100 ns, sample
 rate 23.04 MS/s -> normalised_delay * 2.304 samples).
 
 Usage:

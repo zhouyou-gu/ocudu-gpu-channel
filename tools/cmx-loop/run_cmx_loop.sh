@@ -16,7 +16,7 @@
 L=/workspace/cmx-loop
 B=/workspace/ocudu-gpu-channel/build-sm121
 DUR=${DUR:-40}
-EX=${EX:-$(cd "$(dirname "$0")/../../examples/configs/topologies/cmx" && pwd)} # topologies live in examples/configs/topologies/cmx/
+EX=${EX:-$(cd "$(dirname "$0")/../../use_cases/configs/topologies/cmx" && pwd)} # topologies live in use_cases/configs/topologies/cmx/
 TOPO=${TOPO:-$EX/topology.cmx-bridge.live.yaml}
 R=$L/runs/$(date +%Y%m%d-%H%M%S)$([ "${DRY:-0}" = 1 ] && echo -dry)
 mkdir -p $R

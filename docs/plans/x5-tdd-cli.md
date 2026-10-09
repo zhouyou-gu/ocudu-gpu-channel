@@ -18,7 +18,7 @@ needs two OCUDU gNBs on the same n78 carrier, each with its own OAI nrUE.
 |---|---|
 | `scripts/native/render-oai-two-cell-tdd-configs.py` | two gNB yamls from X3's `render_gnb_tdd` + identity/pattern per cell, four-node TDD topology (`carrier: n78` on every port, UE `tx_scale_db` from the OAI constant 1.17e-5, absolute noise floors), nrUE confs / uecap / Open5GS / subscribers via the X3 and multi-UE helpers, `two-cell-tdd-shape.json`. `--self-test`. |
 | `scripts/native/run-ocudu-oai-two-cell-tdd.sh` / `-inner.sh` | the gate: X3's OAI multi-UE gate with the two-cell gate's second gNB (started together, camped-PCI check), gNB HARQ/CQI evidence, embedded per-slot numpy analysis of the wire capture. |
-| `examples/configs/sionna/scenarios/robot_ring/two-cell-tdd-8.json`, `-10.json`, `-12.json` | the scenario (below) with 8 links (control), + ue0<->ue1 (X5), + gnb0<->gnb1 (optional, not run). |
+| `use_cases/configs/sionna/scenarios/robot_ring/two-cell-tdd-8.json`, `-10.json`, `-12.json` | the scenario (below) with 8 links (control), + ue0<->ue1 (X5), + gnb0<->gnb1 (optional, not run). |
 | `tests/test_oai_two_cell_tdd_renderer.py` | 5 unit tests (self-test, pattern knob and CLI slots, the two cells differ only in identity/ports/pattern, topologies of the three scenarios, shape loader refusals). |
 
 Copied rather than imported, because the originals take exactly one gNB:

@@ -28,26 +28,26 @@ fi
 declare -a source_ports sink_ports
 case "${case_name}" in
   single)
-    topology="${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
-    scenario="${repo_root}/examples/configs/sionna/scenarios/simple_street/ocudu-docker.json"
+    topology="${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
+    scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-docker.json"
     source_ports=(2000 2101); sink_ports=(2001 2100) ;;
   multi-ue)
-    topology="${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml"
-    scenario="${repo_root}/examples/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json"
+    topology="${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml"
+    scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json"
     source_ports=(2000 2101 2103); sink_ports=(2001 2100 2102) ;;
   graph)
-    topology="${repo_root}/examples/configs/topologies/basic/topology.graph.cuda.yaml"
-    scenario="${repo_root}/examples/configs/sionna/scenarios/simple_street/graph.json"
+    topology="${repo_root}/use_cases/configs/topologies/basic/topology.graph.cuda.yaml"
+    scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/graph.json"
     source_ports=(16000 16002 16004); sink_ports=(16001 16003 16005) ;;
   multi-gnb)
-    topology="${repo_root}/examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"
-    scenario="${repo_root}/examples/configs/sionna/scenarios/simple_street/multi-gnb.json"
+    topology="${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml"
+    scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json"
     source_ports=(3000 3002 3101 3103); sink_ports=(3001 3003 3100 3102) ;;
   # Same two-cell topology, on the OpenStreetMap SUTD campus instead of the
   # built-in street canyon.
   multi-gnb-sutd)
-    topology="${repo_root}/examples/configs/topologies/sionna/topology.sionna-multi-gnb.cuda.yaml"
-    scenario="${repo_root}/examples/configs/sionna/scenarios/sutd/multi-gnb-sutd.json"
+    topology="${repo_root}/use_cases/configs/topologies/sionna/topology.sionna-multi-gnb.cuda.yaml"
+    scenario="${repo_root}/use_cases/configs/sionna/scenarios/sutd/multi-gnb-sutd.json"
     source_ports=(3000 3002 3004 3006 3010 3012 3014 3016 3101 3103)
     sink_ports=(3001 3003 3005 3007 3011 3013 3015 3017 3100 3102) ;;
   *) echo "unknown case: ${case_name}" >&2; exit 2 ;;

@@ -24,8 +24,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 OCUDU_ATTACH_GATE_NAME="${OCUDU_ATTACH_GATE_NAME:-rank1-2x1}" \
-OCUDU_ATTACH_GNB_CONFIG="${OCUDU_ATTACH_GNB_CONFIG:-examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_2t2r_rank1_srsue.yaml}" \
-OCUDU_ATTACH_TOPOLOGY="${OCUDU_ATTACH_TOPOLOGY:-examples/configs/topologies/ocudu_docker/topology.ocudu-docker.rank1-2x1.cuda.yaml}" \
+OCUDU_ATTACH_GNB_CONFIG="${OCUDU_ATTACH_GNB_CONFIG:-use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_2t2r_rank1_srsue.yaml}" \
+OCUDU_ATTACH_TOPOLOGY="${OCUDU_ATTACH_TOPOLOGY:-use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.rank1-2x1.cuda.yaml}" \
 OCUDU_ATTACH_GNB_TX_PORTS="${OCUDU_ATTACH_GNB_TX_PORTS:-2000,2002}" \
 OCUDU_ATTACH_MATRIX="${OCUDU_ATTACH_MATRIX:-1}" \
 OCUDU_ATTACH_MATRIX_ALLOW_SILENT="${OCUDU_ATTACH_MATRIX_ALLOW_SILENT:-gnb0->ue0:1}" \

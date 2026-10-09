@@ -84,8 +84,8 @@ for path in "${inner}" "${renderer}" "${verifier}" \
   "${native_root}/builds/oai-zmq-release/libdfts.so" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
-  "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
-  "${repo_root}/examples/configs/ran/oai/nrue_zmq_1x1.conf"; do
+  "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  "${repo_root}/use_cases/configs/ran/oai/nrue_zmq_1x1.conf"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done
 [[ -c /dev/net/tun ]] || usage_error "/dev/net/tun is absent"
@@ -106,8 +106,8 @@ fi
 # to change. Pinned by content, so a snapshot checkout without that commit in
 # its history (the Spark validation trees) is held to the same bytes.
 printf '%s  %s\n' \
-  7560250a7eff4ee125999a9eb15c386064a7a1de2cce276721b7ee866ab1cd67 "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
-  720fac823f216db74b8c17d8a6bc92242a462a9be50e9316aa0c7b103fd7699f "${repo_root}/examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml" | \
+  7560250a7eff4ee125999a9eb15c386064a7a1de2cce276721b7ee866ab1cd67 "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  720fac823f216db74b8c17d8a6bc92242a462a9be50e9316aa0c7b103fd7699f "${repo_root}/use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml" | \
   sha256sum --check --quiet --strict - >/dev/null 2>&1 || \
   usage_error "shared legacy fixture changed"
 grep -qx 'ENABLE_ZEROMQ:BOOL=ON' "${native_root}/builds/ocudu-zmq-release/CMakeCache.txt" || usage_error "gNB lacks ZMQ"
@@ -175,7 +175,7 @@ unshare --user --map-root-user --net --mount --fork --kill-child --propagation p
   --physical-gpu "${physical_gpu}" \
   --hardware-probe "${channel_build}/test_hardware_probe" \
   --probe-broker "${channel_build}/ocudu-gpu-channel" \
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
 cleanup_probe
 trap - EXIT
 
@@ -334,7 +334,7 @@ unshare --user --map-root-user --net --mount --fork --kill-child --propagation p
   --outer-uid "$(id -u)" --netns-dir "${postbuild_probe}/run-netns" \
   --physical-gpu "${physical_gpu}" --hardware-probe "${channel_build}/test_hardware_probe" \
   --probe-broker "${channel_build}/ocudu-gpu-channel" \
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
   >"${log_dir}/postbuild-primitive-probe.log" 2>&1
 rmdir "${postbuild_probe}/run-netns" "${postbuild_probe}"
 
@@ -344,7 +344,7 @@ unshare --user --map-root-user --net --mount --fork --kill-child --propagation p
   --outer-uid "$(id -u)" --netns-dir "${netns_dir}" --physical-gpu "${physical_gpu}" \
   --hardware-probe "${channel_build}/test_hardware_probe" \
   --probe-broker "${channel_build}/ocudu-gpu-channel" \
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" --native-root "${native_root}" \
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" --native-root "${native_root}" \
   --repo-root "${repo_root}" --config-dir "${config_dir}" --log-dir "${log_dir}" \
   --report-dir "${report_dir}" --timestamp "${timestamp}"
 run_status="$?"

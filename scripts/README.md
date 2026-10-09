@@ -1,13 +1,13 @@
 # `scripts/`
 
 Reproducible workflows around the broker. Application demos (robot fight,
-scheduler benchmark) live in `examples/`, and their input configs live in
-`examples/configs/`. This directory holds the workflows those demos and the
+scheduler benchmark) live in `use_cases/`, and their input configs live in
+`use_cases/configs/`. This directory holds the workflows those demos and the
 milestone gates build on.
 
 | Directory | What it is for | Start here |
 |---|---|---|
-| `native/` | Rootless, Docker-free live gates on this host: OCUDU gNB ⇄ broker ⇄ srsUE/OAI UE with Open5GS. Workspace bootstrap and locks, UE patches, config renderers (`render-*.py`), gate runners (`run-ocudu-*.sh`, each with an `-inner.sh` half that runs inside the namespace), and artifact checks (`verify-*.py`). `env.sh` and `oai-gate-defaults.sh` are shared with the `examples/` demo gates. | `native/README.md` |
+| `native/` | Rootless, Docker-free live gates on this host: OCUDU gNB ⇄ broker ⇄ srsUE/OAI UE with Open5GS. Workspace bootstrap and locks, UE patches, config renderers (`render-*.py`), gate runners (`run-ocudu-*.sh`, each with an `-inner.sh` half that runs inside the namespace), and artifact checks (`verify-*.py`). `env.sh` and `oai-gate-defaults.sh` are shared with the `use_cases/` demo gates. | `native/README.md` |
 | `cuda/` | The OCUDU CUDA-accelerated gNB: the current runners (`run-ocudu-cuda-*.sh`) and their helpers (`resolve-cuda-gnb.py`, `verify-*.py`, `summarize-*.py`, `with-cuda-mps.py`). Also the per-milestone scripts named after their milestone (`c0`–`c5`, `d5` in `CUDA_MILESTONES.md`), plus workspace locks and gNB patches. | `CUDA_MILESTONES.md` |
 | `cuda/jetson/` | Jetson AGX Orin counterparts (`j1`, `j2`) and the SCTP out-of-tree module prep. | `JETSON_MILESTONES.md` |
 | `cuda/spark/` | DGX Spark containers and the `s2`–`s15` milestone scripts. | `cuda/spark/README.md`, `SPARK_MILESTONES.md` |

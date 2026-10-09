@@ -263,7 +263,7 @@ tests/
 docs/
   index.html                — §13 + §19 + §21 updates per C6 above
   plans/runtime-mutable-channel.md  — this file, move to in-progress when started
-examples/
+use_cases/
   control-update-cli.py     — new, tiny REQ client for smoke testing
 ```
 

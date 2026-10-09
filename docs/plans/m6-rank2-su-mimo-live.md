@@ -188,7 +188,7 @@ RadioNode는 "ZMQ 엔드포인트 쌍 N개가 한 라디오"라고만 말하고,
 
 ### 8.2 M6.3 — 2포트 승격: 통과
 
-`scripts/native/run-ocudu-oai-2x2.sh`(+ `-inner.sh`, `render-oai-2x2-configs.py`, `summarize-oai-2x2-run.py`). gNB 설정은 OAI 1×1 게이트의 렌더에서 안테나 2/2, 포트 2쌍, `pdsch.max_rank`, MAC pcap off, TX back-off만 바꾼다. OAI는 `--ue-nb-ant-rx 2 --ue-nb-ant-tx 2`, `uecap_ports2.xml`, ZMQ 채널 2개씩이다. 토폴로지 `examples/configs/topologies/ocudu_native/topology.ocudu.oai-2x2*.cuda.yaml`에서 gNB와 UE는 모두 2포트 radio node다.
+`scripts/native/run-ocudu-oai-2x2.sh`(+ `-inner.sh`, `render-oai-2x2-configs.py`, `summarize-oai-2x2-run.py`). gNB 설정은 OAI 1×1 게이트의 렌더에서 안테나 2/2, 포트 2쌍, `pdsch.max_rank`, MAC pcap off, TX back-off만 바꾼다. OAI는 `--ue-nb-ant-rx 2 --ue-nb-ant-tx 2`, `uecap_ports2.xml`, ZMQ 채널 2개씩이다. 토폴로지 `use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2*.cuda.yaml`에서 gNB와 UE는 모두 2포트 radio node다.
 
 - 2포트 해석: `radio_node_resolved id=ue0 tx[0]=ue0_p0 tx[1]=ue0_p1 ... implicit=false`
 - gNB가 UE의 RI=2 CSI 보고(PUCCH F2 `csi1=1…`)를 따라 **ri=2를 스케줄**한다. 로그에서 CSI 보고가 바뀌는 슬롯에 맞춰 ri가 바뀌는 것을 확인했다.
@@ -241,7 +241,7 @@ RadioNode는 "ZMQ 엔드포인트 쌍 N개가 한 라디오"라고만 말하고,
 docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HOME=/root \
   OCUDU_NATIVE_ROOT=/home/user-a/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
   OAI2X2_PATH=broker OAI2X2_MAX_RANK=2 OAI2X2_TX_BACKOFF_DB=24 \
-  OAI2X2_TOPOLOGY=$PWD/examples/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
+  OAI2X2_TOPOLOGY=$PWD/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
   "OAI2X2_BROKER_EXTRA=--wire-capture-dir WIRECAP --wire-capture-samples 2304000 --wire-capture-skip 69120000" \
   bash scripts/native/run-ocudu-oai-2x2.sh'
 # 행렬 검증(호스트 /usr/bin/python3에 numpy·yaml 있음)
@@ -286,7 +286,7 @@ docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HO
   OCUDU_NATIVE_ROOT=/home/user-a/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
   OCUDU_NATIVE_OAI_SHLIBPATH=/home/user-a/ocudu-native-workspace/builds/oai-zmq-s9 \
   OAI2X2_PATH=broker OAI2X2_MAX_RANK=2 OAI2X2_TX_BACKOFF_DB=24 OAI2X2_IPERF_RATE=200M \
-  OAI2X2_TOPOLOGY=$PWD/examples/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
+  OAI2X2_TOPOLOGY=$PWD/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
   "OAI2X2_BROKER_EXTRA=--wire-capture-dir WIRECAP --wire-capture-samples 2304000 --wire-capture-skip 69120000" \
   bash scripts/native/run-ocudu-oai-2x2.sh'
 ```
@@ -457,7 +457,7 @@ docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-ulmimo && env HOME
   OCUDU_NATIVE_CHANNEL_BUILD=/home/user-a/ocudu-native-workspace/builds/ocudu-gpu-channel-ulmimo-cuda-release \
   OAI2X2_PATH=broker OAI2X2_MAX_RANK=2 OAI2X2_UL_MAX_RANK=2 OAI2X2_IPERF_DIR=both \
   OAI2X2_IPERF_RATE=200M OAI2X2_IPERF_UL_RATE=200M OAI2X2_IPERF_SECONDS=15 \
-  OAI2X2_TOPOLOGY=$PWD/examples/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
+  OAI2X2_TOPOLOGY=$PWD/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
   "OAI2X2_BROKER_EXTRA=--wire-capture-dir WIRECAP --wire-capture-samples 2304000 --wire-capture-skip 829440000" \
   bash scripts/native/run-ocudu-oai-2x2.sh'
 /usr/bin/python3 scripts/native/verify-mimo-matrix-capture.py --capture-dir <log>/wire-capture --topology <report>/topology.yaml
@@ -490,7 +490,7 @@ docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-ulmimo && env HOME
 
 **무엇을 하려 했나.** §8.10의 새 판정이 잡은 OAI 1x1 게이트의 DL NACK 약 60%(ping은 통과)를 없애는 것. 후보로 적어 둔 세 가지(CSI-RS/CQI, UE 바이너리, 수신 안테나 수)를 하나씩 가르기 전에, 1x1과 2x2 게이트가 **채널도 다르다**는 점을 먼저 봤다.
 
-**어디서 터졌나.** 1x1 게이트는 srsUE 게이트와 같은 legacy 토폴로지(`examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml`)를 쓴다. 이 채널에는 일부러 넣은 **CFO 125 Hz**가 있다(TDL 1탭 −3 dB, 위상 0.125 rad, CFO 125 Hz). 2x2 fixture(unitary/reference 행렬)에는 CFO가 없다. 증상(QPSK 첫 전송은 복호, 64QAM만 실패, SSB SINR 34.5 dB)은 심볼마다 위상이 도는 잔여 CFO와 맞는다: 15 kHz에서 125 Hz는 심볼당 약 0.056 rad, DMRS에서 10심볼 떨어지면 0.5 rad 넘게 돈다.
+**어디서 터졌나.** 1x1 게이트는 srsUE 게이트와 같은 legacy 토폴로지(`use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml`)를 쓴다. 이 채널에는 일부러 넣은 **CFO 125 Hz**가 있다(TDL 1탭 −3 dB, 위상 0.125 rad, CFO 125 Hz). 2x2 fixture(unitary/reference 행렬)에는 CFO가 없다. 증상(QPSK 첫 전송은 복호, 64QAM만 실패, SSB SINR 34.5 dB)은 심볼마다 위상이 도는 잔여 CFO와 맞는다: 15 kHz에서 125 Hz는 심볼당 약 0.056 rad, DMRS에서 10심볼 떨어지면 0.5 rad 넘게 돈다.
 
 **추적 (소스, 핀 `2b69bde6`).**
 - UE는 초기 동기에서 주파수 오프셋을 잰다. 로그: `Got synch: ... carrier off 250 Hz`(PSS 격자라 거칠다).

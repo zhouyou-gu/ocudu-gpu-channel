@@ -229,7 +229,7 @@ def insert_after_exact(text: str, anchor: str, insertion: str, label: str) -> st
 
 
 def self_test() -> None:
-    fixture = Path(__file__).resolve().parents[2] / "examples/configs/topologies/ocudu_native/topology.ocudu.oai-2x2.cuda.yaml"
+    fixture = Path(__file__).resolve().parents[2] / "use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2.cuda.yaml"
     source = fixture.read_text(encoding="utf-8")
     assert validate_topology(source) == source
     plain = render_topology_2x2(source)
@@ -304,16 +304,16 @@ def main() -> int:
     log_dir = legacy.safe_log_directory(args.log_dir)
 
     gnb_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "immutable legacy gNB fixture"
+        repo_root / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "immutable legacy gNB fixture"
     )
     open5gs_source = legacy.read_regular(
         native_root / "src/ocudu/docker/open5gs/open5gs-5gc.yml", "pinned OCUDU Open5GS template"
     )
     nrue_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/oai/nrue_zmq_1x1.conf", "native OAI nrUE fixture"
+        repo_root / "use_cases/configs/ran/oai/nrue_zmq_1x1.conf", "native OAI nrUE fixture"
     )
     subscriber_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/open5gs/subscriber-legacy-1x1.csv", "native subscriber template"
+        repo_root / "use_cases/configs/ran/open5gs/subscriber-legacy-1x1.csv", "native subscriber template"
     )
     topology_source = legacy.read_regular(args.topology.resolve(strict=True), "2x2 topology fixture")
     try:

@@ -11,10 +11,10 @@ import unittest
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 RENDERER = PROJECT_ROOT / "scripts" / "native" / "render-oai-two-cell-tdd-configs.py"
-GNB_FIXTURE = PROJECT_ROOT / "examples" / "configs" / "ran" / "ocudu" / "docker" / "gnb_zmq_b210_fdd_srsue.yaml"
-SCENARIOS = {8: PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "robot_ring" / "two-cell-tdd-8.json",
-             10: PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "robot_ring" / "two-cell-tdd-10.json",
-             12: PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "robot_ring" / "two-cell-tdd-12.json"}
+GNB_FIXTURE = PROJECT_ROOT / "use_cases" / "configs" / "ran" / "ocudu" / "docker" / "gnb_zmq_b210_fdd_srsue.yaml"
+SCENARIOS = {8: PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "robot_ring" / "two-cell-tdd-8.json",
+             10: PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "robot_ring" / "two-cell-tdd-10.json",
+             12: PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "robot_ring" / "two-cell-tdd-12.json"}
 
 
 def load_renderer():

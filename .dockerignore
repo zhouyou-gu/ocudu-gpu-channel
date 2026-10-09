@@ -1,5 +1,5 @@
 # Keep the build context small + fast. The image needs only the source tree
-# required by CMake: CMakeLists.txt, src/, include/, apps/, tests/, examples/.
+# required by CMake: CMakeLists.txt, src/, include/, apps/, tests/, use_cases/.
 
 # Version control
 .git

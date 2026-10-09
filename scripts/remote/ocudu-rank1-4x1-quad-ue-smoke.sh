@@ -28,8 +28,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 OCUDU_MUE_GATE_NAME="${OCUDU_MUE_GATE_NAME:-rank1-4x1-quad-ue}" \
-OCUDU_MUE_GNB_CONFIG="${OCUDU_MUE_GNB_CONFIG:-examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_4t4r_rank1_srsue.yaml}" \
-OCUDU_MUE_TOPOLOGY="${OCUDU_MUE_TOPOLOGY:-examples/configs/topologies/ocudu_docker/topology.ocudu-docker.rank1-4x1-quad-ue.cuda.yaml}" \
+OCUDU_MUE_GNB_CONFIG="${OCUDU_MUE_GNB_CONFIG:-use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_4t4r_rank1_srsue.yaml}" \
+OCUDU_MUE_TOPOLOGY="${OCUDU_MUE_TOPOLOGY:-use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.rank1-4x1-quad-ue.cuda.yaml}" \
 OCUDU_MUE_GNB_TX_PORTS="${OCUDU_MUE_GNB_TX_PORTS:-2000,2002,2004,2006}" \
 OCUDU_MUE_MATRIX="${OCUDU_MUE_MATRIX:-1}" \
 OCUDU_MUE_UE_COUNT="${OCUDU_MUE_UE_COUNT:-4}" \

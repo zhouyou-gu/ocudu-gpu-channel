@@ -20,7 +20,7 @@ from build_osm_scene import (  # noqa: E402
 )
 
 SUTD_MANIFEST = (
-    PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenes" / "sionna_SUTD_test" / "manifest.json"
+    PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenes" / "sionna_SUTD_test" / "manifest.json"
 )
 SUTD_SCENARIOS = (
     "multi-gnb-sutd.json",
@@ -91,7 +91,7 @@ class OutwardRingTests(unittest.TestCase):
         footprints = [
             [(x, y) for x, y in entry["footprint_m"]] for entry in manifest["buildings"]
         ]
-        scenarios = PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "sutd"
+        scenarios = PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "sutd"
         for name in SUTD_SCENARIOS:
             config = json.loads((scenarios / name).read_text())
             for node_id, node in config["nodes"].items():

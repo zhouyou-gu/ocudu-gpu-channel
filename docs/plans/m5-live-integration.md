@@ -26,8 +26,8 @@
 | 필요한 것 | 현재 위치 |
 |---|---|
 | `apps/ocudu_mimo_transport_peer.cpp` (989행, 2포트 peer) | audit 트리 |
-| `examples/configs/ran/ocudu/native/gnb_zmq_b210_fdd_2port_no_core.yaml` | audit 트리 |
-| `examples/configs/topologies/ocudu_native/topology.ocudu.mimo-2port-transport.cuda.yaml` | audit 트리 |
+| `use_cases/configs/ran/ocudu/native/gnb_zmq_b210_fdd_2port_no_core.yaml` | audit 트리 |
+| `use_cases/configs/topologies/ocudu_native/topology.ocudu.mimo-2port-transport.cuda.yaml` | audit 트리 |
 
 세 가지 모두 [MIMO_MILESTONES.md](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/5ffd73ea4afa2295b9a588b0b03a411329e81d9b/MIMO_MILESTONES.md) §3이 **"살림"**으로 지정한 자산이다(버릴 것은 `RadioNodeCoordinator`, 평행 API, 전용 커널 쪽이었다).
 

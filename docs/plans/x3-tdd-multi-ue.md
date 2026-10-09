@@ -20,9 +20,9 @@ this needs the OAI nrUE and a new gate.
 |---|---|
 | `scripts/native/render-oai-multi-ue-configs.py` | gNB yaml (TDD n78 20 MHz), two nrUE confs, Open5GS/subscriber via the multi-UE helpers, broker topology via the Sionna renderer's `render_topology` + TDD labels + veth endpoints, uecap, radio args, `oai-multi-ue-shape.json` metadata. `--self-test`. |
 | `scripts/native/run-ocudu-oai-multi-ue.sh` / `-inner.sh` | The gate (clone of the srsUE multi-UE gate's structure with the OAI 1x1 gate's UE launch, once per UE). |
-| `examples/configs/ran/oai/nrue_zmq_multi_ue.conf.in` | nrUE template, `@UE_IMSI@` per UE. |
-| `examples/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd.json` | robot-ring-walk with 4 `sionna_rt` links (X3 baseline). |
-| `examples/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd-ue2ue.json` | + `ue0->ue1`, `ue1->ue0` `crosstalk` (X4). |
+| `use_cases/configs/ran/oai/nrue_zmq_multi_ue.conf.in` | nrUE template, `@UE_IMSI@` per UE. |
+| `use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd.json` | robot-ring-walk with 4 `sionna_rt` links (X3 baseline). |
+| `use_cases/configs/sionna/scenarios/robot_ring/robot-ring-walk-tdd-ue2ue.json` | + `ue0->ue1`, `ue1->ue0` `crosstalk` (X4). |
 | `scripts/native/wire-capture-tdd-slots.py` | per-TDD-slot power of a broker wire capture (phase from the gNB TX). |
 | `tests/test_oai_multi_ue_renderer.py` | 6 unit tests (self-test, cell, labels/endpoints/scale, UL power override, IMSIs, uecap). |
 

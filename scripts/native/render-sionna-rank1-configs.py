@@ -560,7 +560,7 @@ def _shape_self_test() -> None:
         assert "tx_endpoint: tcp://127.0.0.1:2103\n" in topology
         source = (
             Path(__file__).resolve().parents[2]
-            / "examples/configs/ran/srsue/srsue_zmq_legacy_1x1.conf.in"
+            / "use_cases/configs/ran/srsue/srsue_zmq_legacy_1x1.conf.in"
         ).read_text(encoding="utf-8")
         conf = render_srsue(source, Path("/tmp"), shape)
         assert "nof_antennas = 2\n" in conf, conf
@@ -630,7 +630,7 @@ def self_test() -> None:
     # own value, so it exercises the no-op replacement path.
     gnb_source = (
         Path(__file__).resolve().parents[2]
-        / "examples/configs/ran/ocudu/native/gnb_zmq_b210_fdd_4t4r_rank1_srsue.yaml"
+        / "use_cases/configs/ran/ocudu/native/gnb_zmq_b210_fdd_4t4r_rank1_srsue.yaml"
     ).read_text(encoding="utf-8")
     for ports in sorted(SUPPORTED_GNB_PORTS):
         rendered = render_gnb(
@@ -707,7 +707,7 @@ def main() -> int:
         legacy.fail("repo, native, and scenario paths must already be canonical")
     shape = load_live_shape(scenario)
     gnb_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/ocudu/native/gnb_zmq_b210_fdd_4t4r_rank1_srsue.yaml",
+        repo_root / "use_cases/configs/ran/ocudu/native/gnb_zmq_b210_fdd_4t4r_rank1_srsue.yaml",
         "rank-1 4T4R gNB fixture",
     )
     open5gs_source = legacy.read_regular(
@@ -715,11 +715,11 @@ def main() -> int:
         "pinned OCUDU Open5GS template",
     )
     srsue_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/srsue/srsue_zmq_legacy_1x1.conf.in",
+        repo_root / "use_cases/configs/ran/srsue/srsue_zmq_legacy_1x1.conf.in",
         "native srsUE template",
     )
     subscriber_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/open5gs/subscriber-legacy-1x1.csv",
+        repo_root / "use_cases/configs/ran/open5gs/subscriber-legacy-1x1.csv",
         "native subscriber template",
     )
     rendered = {

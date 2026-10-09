@@ -15,7 +15,7 @@ pytest.importorskip("mujoco")
 pytest.importorskip("zmq")
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-FIGHT = ROOT / "examples" / "robot_fight" / "fight.py"
+FIGHT = ROOT / "use_cases" / "robot_fight" / "fight.py"
 
 
 def test_one_short_fight(tmp_path):

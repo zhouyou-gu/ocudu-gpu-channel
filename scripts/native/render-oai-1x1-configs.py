@@ -325,11 +325,11 @@ def main() -> int:
     ue_scale_db = resolve_ue_tx_scale_db(args)
 
     gnb_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml",
+        repo_root / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml",
         "immutable legacy gNB fixture",
     )
     topology_source = legacy.read_regular(
-        repo_root / "examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml",
+        repo_root / "use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml",
         "immutable legacy topology",
     )
     open5gs_source = legacy.read_regular(
@@ -337,11 +337,11 @@ def main() -> int:
         "pinned OCUDU Open5GS template",
     )
     nrue_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/oai/nrue_zmq_1x1.conf",
+        repo_root / "use_cases/configs/ran/oai/nrue_zmq_1x1.conf",
         "native OAI nrUE fixture",
     )
     subscriber_source = legacy.read_regular(
-        repo_root / "examples/configs/ran/open5gs/subscriber-legacy-1x1.csv",
+        repo_root / "use_cases/configs/ran/open5gs/subscriber-legacy-1x1.csv",
         "native subscriber template",
     )
 

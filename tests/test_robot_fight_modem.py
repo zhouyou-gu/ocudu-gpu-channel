@@ -22,8 +22,8 @@ import time
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODEM = ROOT / "examples" / "robot_fight" / "modem.py"
-sys.path.insert(0, str(ROOT / "examples" / "robot_fight"))
+MODEM = ROOT / "use_cases" / "robot_fight" / "modem.py"
+sys.path.insert(0, str(ROOT / "use_cases" / "robot_fight"))
 
 import protocol  # noqa: E402
 
@@ -146,7 +146,7 @@ def test_relay_crosses_network_namespace():
         arena.settimeout(10.0)
         inner = f"""
 import json, socket, subprocess, sys, time
-sys.path.insert(0, {str(ROOT / 'examples' / 'robot_fight')!r})
+sys.path.insert(0, {str(ROOT / 'use_cases' / 'robot_fight')!r})
 import protocol
 subprocess.run(['ip', 'link', 'set', 'lo', 'up'], check=True)
 modem = subprocess.Popen([sys.executable, {str(MODEM)!r}, '--robot', 'ue1', '--bind', '127.0.0.1:6001',

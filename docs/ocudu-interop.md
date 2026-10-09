@@ -22,8 +22,8 @@ OCUDU Docker gNB <-> host CUDA broker <-> synthetic UE or srsUE proof-of-concept
 
 ## Tracked Assets
 
-- `examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml`: OCUDU gNB config derived from OCUDU's B210 FDD srsUE example with the `ru_sdr` section changed to ZMQ for Docker bridge interop.
-- `examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml`: CUDA broker topology for `gnb0 <-> ue0` using gNB ports `2000/2001` and UE ports `2101/2100`.
+- `use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml`: OCUDU gNB config derived from OCUDU's B210 FDD srsUE example with the `ru_sdr` section changed to ZMQ for Docker bridge interop.
+- `use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml`: CUDA broker topology for `gnb0 <-> ue0` using gNB ports `2000/2001` and UE ports `2101/2100`.
 - `scripts/remote/ocudu-interop-smoke.sh`: sample-flow proof with OCUDU gNB, Open5GS, CUDA broker, and synthetic UE ZMQ tools.
 - `scripts/remote/ocudu-attach-smoke.sh`: attach/ping proof attempt with OCUDU gNB, Open5GS, CUDA broker, and a Docker-built srsUE proof-of-concept.
 
@@ -39,7 +39,7 @@ Runtime outputs stay outside the tracked repo:
 └── results/reports/ocudu-interop/<timestamp>/
 ```
 
-Promote only curated summaries back into `docs/` or `examples/`.
+Promote only curated summaries back into `docs/` or `use_cases/`.
 
 ## Endpoint Map
 
@@ -124,10 +124,10 @@ The four tracked scenario/topology pairs are:
 
 | Validation | Broker topology | Sionna scenario |
 |---|---|---|
-| single cell / UE | `examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml` | `examples/configs/sionna/scenarios/simple_street/ocudu-docker.json` |
-| one cell / multiple UEs | `examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml` | `examples/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json` |
-| interference + crosstalk graph | `examples/configs/topologies/basic/topology.graph.cuda.yaml` | `examples/configs/sionna/scenarios/simple_street/graph.json` |
-| two cells / eight directed links | `examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml` | `examples/configs/sionna/scenarios/simple_street/multi-gnb.json` |
+| single cell / UE | `use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/ocudu-docker.json` |
+| one cell / multiple UEs | `use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json` |
+| interference + crosstalk graph | `use_cases/configs/topologies/basic/topology.graph.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/graph.json` |
+| two cells / eight directed links | `use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json` |
 
 The existing post-TDL chain remains active. For example, the near/far path
 loss and AWGN settings still apply after Sionna's instantaneous CIR. Models
@@ -183,7 +183,7 @@ cd /home/ubuntu/OCUDU/ocudu-gpu-channel
 ```
 
 The launcher drives the same validated eight-link multi-gNB topology from
-`examples/configs/sionna/scenarios/simple_street/multi-gnb.json`, serves `http://127.0.0.1:8080`, and verifies both gNB
+`use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json`, serves `http://127.0.0.1:8080`, and verifies both gNB
 cells, both UE RRC connections, both PDU sessions, both data-plane pings, live
 Sionna profile updates, and the broker telemetry feed. Override detected paths
 when needed with `OCUDU_MGNB_OCUDU_ROOT`, `OCUDU_MGNB_SIONNA_PYTHON`, or

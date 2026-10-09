@@ -23,8 +23,8 @@ from run_bridge import (  # noqa: E402
     scene_geometry,
 )
 
-SCENARIO = PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring.json"
-SCENE_DIR = PROJECT_ROOT / "examples" / "configs" / "sionna" / "scenes" / "robot_ring"
+SCENARIO = PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenarios" / "robot_ring" / "robot-ring.json"
+SCENE_DIR = PROJECT_ROOT / "use_cases" / "configs" / "sionna" / "scenes" / "robot_ring"
 RENDERER = PROJECT_ROOT / "scripts" / "native" / "render-sionna-multi-ue-configs.py"
 
 

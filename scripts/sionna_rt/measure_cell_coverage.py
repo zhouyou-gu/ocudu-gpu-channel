@@ -13,7 +13,7 @@ strongest downlink tap each cell delivers there. A cell covers a sample when
 that gain is at or above `--floor-db`; the summary is the per-cell count, how
 many samples both reach, and how many neither does.
 
-    python measure_cell_coverage.py --scenario-config examples/configs/sionna/scenarios/sutd/multi-gnb-sutd.json
+    python measure_cell_coverage.py --scenario-config use_cases/configs/sionna/scenarios/sutd/multi-gnb-sutd.json
 """
 
 from __future__ import annotations

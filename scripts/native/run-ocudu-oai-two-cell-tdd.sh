@@ -22,7 +22,7 @@
 #       the Sionna bridge and the gate itself). Empty on other profiles.
 #   OCUDU_NATIVE_TDD_STDOUT_METRICS=1     per-UE gNB stdout metrics table
 #       (DL/UL HARQ ok/nok, CQI, PUSCH SNR once a second) on the console log.
-#   OCUDU_NATIVE_SIONNA_SCENARIO          default examples/configs/sionna/scenarios/robot_ring/two-cell-tdd-8.json
+#   OCUDU_NATIVE_SIONNA_SCENARIO          default use_cases/configs/sionna/scenarios/robot_ring/two-cell-tdd-8.json
 # Every other knob is the X3 gate's, same names, same meaning
 # (OCUDU_NATIVE_MUE_*, OCUDU_NATIVE_SIONNA_*, OCUDU_NATIVE_OAI_MUE_*).
 set -euo pipefail
@@ -39,7 +39,7 @@ cuda_arch="${OCUDU_NATIVE_CUDA_ARCH:-120}"
 inner="${script_dir}/run-ocudu-oai-two-cell-tdd-inner.sh"
 renderer="${script_dir}/render-oai-two-cell-tdd-configs.py"
 gnb_binary="${OCUDU_NATIVE_GNB_BINARY:-${native_root}/builds/ocudu-zmq-release/apps/gnb/gnb}"
-sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/examples/configs/sionna/scenarios/robot_ring/two-cell-tdd-8.json}"
+sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/use_cases/configs/sionna/scenarios/robot_ring/two-cell-tdd-8.json}"
 sionna_python="${OCUDU_NATIVE_SIONNA_PYTHON:-}"
 sionna_update_hz="${OCUDU_NATIVE_SIONNA_UPDATE_HZ:-10}"
 web_port="${OCUDU_NATIVE_WEB_PORT:-0}"
@@ -100,8 +100,8 @@ for path in "${inner}" "${renderer}" "${gnb_binary}" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
   "${native_root}/src/oai/targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml" \
-  "${repo_root}/examples/configs/ran/oai/nrue_zmq_multi_ue.conf.in" \
-  "${repo_root}/examples/configs/ran/open5gs/subscriber-multi-ue.csv" \
+  "${repo_root}/use_cases/configs/ran/oai/nrue_zmq_multi_ue.conf.in" \
+  "${repo_root}/use_cases/configs/ran/open5gs/subscriber-multi-ue.csv" \
   "${repo_root}/scripts/sionna_rt/run_bridge.py"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done

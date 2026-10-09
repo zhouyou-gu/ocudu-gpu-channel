@@ -703,7 +703,7 @@ class AdapterTests(unittest.TestCase):
         # not inherit whatever the caller happened to type.
         path = (
             pathlib.Path(__file__).resolve().parents[1]
-            / "examples" / "configs" / "sionna" / "scenarios" / "sutd" / "ocudu-rank1-sutd.json"
+            / "use_cases" / "configs" / "sionna" / "scenarios" / "sutd" / "ocudu-rank1-sutd.json"
         )
         definition = load_scenario_config(path)
         self.assertEqual(sorted(definition.nodes), ["gnb0", "ue0"])

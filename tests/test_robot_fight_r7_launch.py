@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 
-LAUNCH = pathlib.Path(__file__).resolve().parents[1] / "examples/robot_fight/launch/run_r7_spark.sh"
+LAUNCH = pathlib.Path(__file__).resolve().parents[1] / "use_cases/robot_fight/launch/run_r7_spark.sh"
 
 
 class R7LaunchTests(unittest.TestCase):

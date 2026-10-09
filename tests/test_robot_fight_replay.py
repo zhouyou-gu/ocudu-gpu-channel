@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "examples" / "robot_fight"))
+sys.path.insert(0, str(HERE.parent / "use_cases" / "robot_fight"))
 
 try:
     import matplotlib  # noqa: F401

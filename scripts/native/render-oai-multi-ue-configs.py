@@ -8,7 +8,7 @@ physical (both UEs transmit and receive on the one carrier).
 
 What is reused and what is new:
 
-  gNB        the srsUE fixture `examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml`
+  gNB        the srsUE fixture `use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml`
              with the multi-UE renderer's loopback/log edits, the OAI 1x1
              gate's dedicated-PDCCH override removal, and the bandwidth
              renderer's band-3 -> n78 edits at 20 MHz: band 78, dl_arfcn
@@ -20,7 +20,7 @@ What is reused and what is new:
              and the sample rate 23.04 MS/s (51 PRB at 30 kHz; OCUDU's own
              du_rf_b200_tdd_n78_20mhz example runs this cell at that rate), so
              the broker batch stays 23040.
-  nrUE       `examples/configs/ran/oai/nrue_zmq_multi_ue.conf.in` once per UE with
+  nrUE       `use_cases/configs/ran/oai/nrue_zmq_multi_ue.conf.in` once per UE with
              the IMSI of the shared UE table; radio args
              `-E -r 51 --numerology 1 --band 78 -C 3489420000 --ssb 0`
              (-E: 768-point FFT = 23.04 MS/s; --ssb 0: the gNB derives SSB
@@ -253,7 +253,7 @@ def metadata(shape, ue_scale: float, rx_noise: dict[str, float], args) -> dict:
 def self_test() -> None:
     import tempfile
 
-    fixture = Path(__file__).resolve().parents[2] / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml"
+    fixture = Path(__file__).resolve().parents[2] / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml"
     gnb = render_gnb_tdd(fixture.read_text(encoding="utf-8"), Path("/tmp/x"))
     for token in ("  band: 78\n", "  dl_arfcn: 632628\n", "  common_scs: 30\n", "  channel_bandwidth_MHz: 20\n",
                   "    prach_config_index: 159\n", "  tdd_ul_dl_cfg:\n    dl_ul_tx_period: 10\n    nof_dl_slots: 7\n"
@@ -356,10 +356,10 @@ def main() -> int:
         rx_noise = sionna.rx_noise_powers(shape, args.awgn_snr_db, args.tx_power_dl, args.tx_power_ul, ue_scale)
     except ValueError as error:
         legacy.fail(str(error))
-    gnb_source = legacy.read_regular(repo_root / "examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture")
+    gnb_source = legacy.read_regular(repo_root / "use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml", "gNB fixture")
     open5gs_source = legacy.read_regular(native_root / "src/ocudu/docker/open5gs/open5gs-5gc.yml",
                                          "pinned OCUDU Open5GS template")
-    nrue_source = legacy.read_regular(repo_root / "examples/configs/ran/oai/nrue_zmq_multi_ue.conf.in",
+    nrue_source = legacy.read_regular(repo_root / "use_cases/configs/ran/oai/nrue_zmq_multi_ue.conf.in",
                                       "native OAI nrUE multi-UE template")
     _, subscriber_path, _ = legacy.LAYOUTS[UE_COUNT]
     subscriber_source = legacy.read_regular(repo_root / subscriber_path, "native subscriber template")

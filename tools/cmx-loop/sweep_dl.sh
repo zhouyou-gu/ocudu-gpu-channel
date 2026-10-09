@@ -20,7 +20,7 @@ echo "[$(date +%T)] load average $(cut -d' ' -f1-3 /proc/loadavg) (timing suffer
 LOG=$L/runs/.sweep-console.txt
 # srsUE gives up after one failed random access, so a failed attach is retried with a fresh run
 for attempt in $(seq ${ATTEMPTS:-3}); do
-  PHY_LOG=${PHY_LOG:-warning} TOPO=${TOPO:-${EX:-$(cd "$(dirname "$0")/../../examples/configs/topologies/cmx" && pwd)}/topology.cmx-bridge.sweep-dl.yaml} DUR=$((NSTEPS * STEP_S + 30)) \
+  PHY_LOG=${PHY_LOG:-warning} TOPO=${TOPO:-${EX:-$(cd "$(dirname "$0")/../../use_cases/configs/topologies/cmx" && pwd)}/topology.cmx-bridge.sweep-dl.yaml} DUR=$((NSTEPS * STEP_S + 30)) \
     BROKER_ARGS="--control-endpoint tcp://127.0.0.1:5559" ./run_cmx_loop.sh > $LOG 2>&1 &
   RUN=$!
   sleep 2

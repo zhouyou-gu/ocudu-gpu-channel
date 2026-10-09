@@ -69,9 +69,9 @@ for path in "${inner}" "${renderer}" "${verifier}" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
   "${channel_build}/test_hardware_probe" \
   "${channel_build}/ocudu-gpu-channel" \
-  "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
-  "${repo_root}/examples/configs/topologies/ocudu_native/topology.ocudu.rank1-2x1.cuda.yaml" \
-  "${repo_root}/examples/configs/ran/ocudu/native/gnb_zmq_b210_fdd_2t2r_rank1_srsue.yaml"; do
+  "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  "${repo_root}/use_cases/configs/topologies/ocudu_native/topology.ocudu.rank1-2x1.cuda.yaml" \
+  "${repo_root}/use_cases/configs/ran/ocudu/native/gnb_zmq_b210_fdd_2t2r_rank1_srsue.yaml"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done
 [[ -c /dev/net/tun ]] || usage_error "/dev/net/tun is absent"
@@ -87,12 +87,12 @@ else
     --root "${native_root}" --repo-root "${repo_root}" \
     --lock "${script_dir}/native-workspace.lock.json"
 fi
-# Pin the f93386b fixture/driver contents after the examples/ relocation.
+# Pin the f93386b fixture/driver contents after the use_cases/ relocation.
 # Only paths changed; content hashes also work in exported validation trees.
 printf '%s  %s\n' \
-  7560250a7eff4ee125999a9eb15c386064a7a1de2cce276721b7ee866ab1cd67 "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
-  720fac823f216db74b8c17d8a6bc92242a462a9be50e9316aa0c7b103fd7699f "${repo_root}/examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml" \
-  84a3f95392931e7a68641dbd57a5e6ad296e93985d633ea52d732a0417abb6c2 "${repo_root}/scripts/remote/ocudu-attach-smoke.sh" \
+  7560250a7eff4ee125999a9eb15c386064a7a1de2cce276721b7ee866ab1cd67 "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  720fac823f216db74b8c17d8a6bc92242a462a9be50e9316aa0c7b103fd7699f "${repo_root}/use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml" \
+  1079929193e4bd23f97edc3735c37e964e43f5c5d20693a9bc98afad72d5ad60 "${repo_root}/scripts/remote/ocudu-attach-smoke.sh" \
   de4c7500a9747c989b7028853999f81341760fa7f47ff1cb0d0431b3236c1b87 "${repo_root}/scripts/remote/common.sh" | \
   sha256sum --check --quiet --strict - >/dev/null 2>&1 || \
   usage_error "pre-MIMO legacy fixture or driver changed"
@@ -142,7 +142,7 @@ unshare --user --map-root-user --net --mount --fork --kill-child --propagation p
   --physical-gpu "${physical_gpu}" \
   --hardware-probe "${channel_build}/test_hardware_probe" \
   --probe-broker "${channel_build}/ocudu-gpu-channel" \
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
 cleanup_probe
 trap - EXIT
 
@@ -260,7 +260,7 @@ unshare --user --map-root-user --net --mount --fork --kill-child --propagation p
   --outer-uid "$(id -u)" --netns-dir "${postbuild_probe}/run-netns" \
   --physical-gpu "${physical_gpu}" --hardware-probe "${channel_build}/test_hardware_probe" \
   --probe-broker "${channel_build}/ocudu-gpu-channel" \
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
   >"${log_dir}/postbuild-primitive-probe.log" 2>&1
 rmdir "${postbuild_probe}/run-netns" "${postbuild_probe}"
 
@@ -270,7 +270,7 @@ unshare --user --map-root-user --net --mount --fork --kill-child --propagation p
   --outer-uid "$(id -u)" --netns-dir "${netns_dir}" --physical-gpu "${physical_gpu}" \
   --hardware-probe "${channel_build}/test_hardware_probe" \
   --probe-broker "${channel_build}/ocudu-gpu-channel" \
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" --native-root "${native_root}" \
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" --native-root "${native_root}" \
   --repo-root "${repo_root}" --config-dir "${config_dir}" --log-dir "${log_dir}" \
   --report-dir "${report_dir}" --timestamp "${timestamp}"
 run_status="$?"

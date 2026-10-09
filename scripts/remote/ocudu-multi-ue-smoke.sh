@@ -38,10 +38,10 @@ ue_count="${OCUDU_MUE_UE_COUNT:-2}"
 # Multi-port knobs. Defaults reproduce the original single-antenna gate, so an
 # unset environment behaves exactly as before. Values crossing the ssh hop must
 # be whitespace-free: ssh flattens the remote argument vector into one string.
-gnb_config_rel="${OCUDU_MUE_GNB_CONFIG:-examples/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml}"
+gnb_config_rel="${OCUDU_MUE_GNB_CONFIG:-use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml}"
 gnb_tx_ports="${OCUDU_MUE_GNB_TX_PORTS:-2000}"
 gnb_tx_ports="${gnb_tx_ports// /,}"
-topology_rel="${OCUDU_MUE_TOPOLOGY:-examples/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml}"
+topology_rel="${OCUDU_MUE_TOPOLOGY:-use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml}"
 matrix_enabled="${OCUDU_MUE_MATRIX:-0}"
 matrix_args="${OCUDU_MUE_MATRIX_ARGS:-}"
 gate_name="${OCUDU_MUE_GATE_NAME:-ocudu-multi-ue}"
@@ -510,7 +510,7 @@ if [[ "${channel_mode}" == "sionna" ]]; then
     write_summary "control_server_not_ready" 1
   "${project_root}/scripts/sionna_rt/run_web_ui.sh" \
     --python "${sionna_python}" \
-    --scenario "${project_root}/examples/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json" \
+    --scenario "${project_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json" \
     --control-endpoint tcp://127.0.0.1:5559 \
     --telemetry-endpoint tcp://127.0.0.1:5560 \
     --status-jsonl "${log_dir}/sionna-status.jsonl" \

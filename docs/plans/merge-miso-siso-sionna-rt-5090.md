@@ -125,7 +125,7 @@ compute-sanitizer --tool memcheck --error-exitcode 99 ./build-cuda-5090/test_pro
 compute-sanitizer --tool memcheck --error-exitcode 99 ./build-cuda-5090/test_runtime_update_parity
 
 "$SIONNA_PYTHON" scripts/sionna_rt/run_bridge.py \
-  --scenario-config examples/configs/sionna/scenarios/simple_street/ocudu-rank1.json \
+  --scenario-config use_cases/configs/sionna/scenarios/simple_street/ocudu-rank1.json \
   --dry-run --iterations 3 --update-hz 2
 ```
 

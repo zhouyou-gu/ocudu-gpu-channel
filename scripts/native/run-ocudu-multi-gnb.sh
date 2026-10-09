@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Native multi-gNB attach gate: two OCUDU gNB processes (two co-channel cells),
 # two srsUEs, Open5GS, and this tree's broker on
-# examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml, with no container runtime anywhere.
+# use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml, with no container runtime anywhere.
 #
 # The Docker-free counterpart of scripts/remote/ocudu-multi-gnb-smoke.sh, built
 # on the native multi-UE gate's namespace layout and supervision. Each UE camps
@@ -41,9 +41,9 @@ sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-}"
 sionna_python="${OCUDU_NATIVE_SIONNA_PYTHON:-}"
 sionna_update_hz="${OCUDU_NATIVE_SIONNA_UPDATE_HZ:-10}"
 if [[ "${channel_mode}" == "sionna" ]]; then
-  topology="${OCUDU_NATIVE_MGNB_TOPOLOGY:-${repo_root}/examples/configs/topologies/sionna/topology.sionna-2gnb-2ue.cuda.yaml}"
+  topology="${OCUDU_NATIVE_MGNB_TOPOLOGY:-${repo_root}/use_cases/configs/topologies/sionna/topology.sionna-2gnb-2ue.cuda.yaml}"
 else
-  topology="${OCUDU_NATIVE_MGNB_TOPOLOGY:-${repo_root}/examples/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml}"
+  topology="${OCUDU_NATIVE_MGNB_TOPOLOGY:-${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml}"
 fi
 audited_ocudu="a1916edcdbcd70ba6e0af47ee87be061dad5a4e4"
 audited_srsran="eea87b1d893ae58e0b08bc381730c502024ae71f"

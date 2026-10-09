@@ -2,7 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-SPEC = importlib.util.spec_from_file_location('analyze_r7', Path(__file__).resolve().parents[1] / 'examples/robot_fight/analyze_r7_battle.py')
+SPEC = importlib.util.spec_from_file_location('analyze_r7', Path(__file__).resolve().parents[1] / 'use_cases/robot_fight/analyze_r7_battle.py')
 mod = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(mod)
 

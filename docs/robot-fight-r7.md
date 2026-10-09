@@ -147,7 +147,7 @@ enabled by changing upstream limits.
 - [Radio comparisons and run parameters](robot-fight-r7-results.json)
 - [Local impairment results and exposure](robot-fight-r7-robustness.json)
 - [Condition and session audit](robot-fight-r7-audit.json)
-- [Launch, collection and side-swap instructions](../examples/robot_fight/launch/README.md)
+- [Launch, collection and side-swap instructions](../use_cases/robot_fight/launch/README.md)
 
 Raw logs remain in the Spark native result directories and local ignored
 `results/robot-fight/`. `collect_r7_results.py` exports small artifacts, including

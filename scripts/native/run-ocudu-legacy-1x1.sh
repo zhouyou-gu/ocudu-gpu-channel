@@ -21,7 +21,7 @@ renderer_uses_scenario="${OCUDU_NATIVE_RENDERER_USES_SCENARIO:-0}"
 verifier="${script_dir}/verify-legacy-1x1-artifacts.py"
 sionna_python="${OCUDU_NATIVE_SIONNA_PYTHON:-${repo_root}/../venvs/sionna/bin/python}"
 sionna_bridge="${repo_root}/scripts/sionna_rt/run_bridge.py"
-sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/examples/configs/sionna/scenarios/simple_street/ocudu-docker.json}"
+sionna_scenario="${OCUDU_NATIVE_SIONNA_SCENARIO:-${repo_root}/use_cases/configs/sionna/scenarios/simple_street/ocudu-docker.json}"
 web_server="${repo_root}/scripts/web_ui/server.py"
 web_index="${repo_root}/scripts/web_ui/index.html"
 sionna_update_hz="${OCUDU_NATIVE_SIONNA_UPDATE_HZ:-10}"
@@ -146,7 +146,7 @@ for path in "${inner}" "${renderer}" "${verifier}" \
   "${native_root}/builds/srsran4g-zmq-release/srsue/src/srsue" \
   "${native_root}/builds/open5gs-v2.7.6/tests/app/5gc" \
   "${native_root}/install/mongodb-6.0.29/bin/mongod" \
-  "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"; do
+  "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"; do
   [[ -e "${path}" ]] || usage_error "missing required path: ${path}"
 done
 if [[ "${channel_mode}" != "legacy" ]]; then
@@ -377,7 +377,7 @@ if ! unshare --user --map-root-user --net --mount --fork --kill-child=TERM --pro
   --outer-uid "$(id -u)" --netns-dir "${postbuild_probe}/run-netns" \
   --physical-gpu "${physical_gpu}" --hardware-probe "${channel_build}/test_hardware_probe" \
   --probe-broker "${channel_build}/ocudu-gpu-channel" \
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
   >"${log_dir}/postbuild-primitive-probe.log" 2>&1 9<&-; then
   rmdir "${postbuild_probe}/run-netns" "${postbuild_probe}" >/dev/null 2>&1 || true
   usage_error "fresh broker rootless/CUDA primitive probe failed; see ${log_dir}/postbuild-primitive-probe.log"
@@ -391,7 +391,7 @@ common_inner_args=(
   --hardware-probe "${channel_build}/test_hardware_probe"
   --probe-broker "${channel_build}/ocudu-gpu-channel"
   --broker "${channel_build}/ocudu-gpu-channel"
-  --probe-config "${repo_root}/examples/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
+  --probe-config "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
   --native-root "${native_root}" --repo-root "${repo_root}"
   --config-dir "${config_dir}" --log-dir "${log_dir}"
   --report-dir "${report_dir}" --timestamp "${timestamp}"

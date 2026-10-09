@@ -5,7 +5,7 @@ import json
 import tempfile
 import unittest
 
-PATH = pathlib.Path(__file__).resolve().parents[1] / 'examples/robot_fight/audit-r7-artifacts.py'
+PATH = pathlib.Path(__file__).resolve().parents[1] / 'use_cases/robot_fight/audit-r7-artifacts.py'
 SPEC = importlib.util.spec_from_file_location('r7_audit', PATH)
 audit = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(audit)
