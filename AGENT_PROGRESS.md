@@ -4,7 +4,7 @@
 
 ## Current Objective
 
-Commit the validation records and push the validated changes to `origin/main`. Strict real-time qualification remains failed.
+None; validated changes and migration commits are published to `origin/main`. Strict real-time qualification remains failed.
 
 ## Repository State
 
@@ -16,9 +16,9 @@ Commit the validation records and push the validated changes to `origin/main`. S
 
 - Root milestone cleanup is validated and committed: six forwarding files removed, current links updated, and full historical records retained.
 
-- Documentation migration is complete in five local stages: Markdown site, current guidance, reports/history, compatibility routing and RTX validation. The structure and documentation commits remain unpublished.
+- Documentation migration is complete in five stages: Markdown site, current guidance, reports/history, compatibility routing and RTX validation. The structure and documentation commits are published on `origin/main`.
 
-- Approved structure migration is committed locally: `use_cases/`, runtime apps, grouped integrations/tests, Python packaging and documentation navigation. Validation evidence is in `validation/structure-20261009/`; these commits have not been pushed.
+- Approved structure migration is published: `use_cases/`, runtime apps, grouped integrations/tests, Python packaging and documentation navigation. Validation evidence is in `validation/structure-20261009/`.
 
 - Checkout: `main` in `${HOME}/Documents/GitHub/ocudu-gpu-channel`. PRs #2–#6 are integrated through normal merges; Git records the current commit and publication state.
 - Integration and cleanup were published on 2026-09-14. Normal merges `22a51ba` and `e59e095` retain contributor tips `066a702` and `e31fe51`; no history rewrite or release tag.
@@ -62,7 +62,7 @@ Reports: [integration guide](docs/history/milestones/sionna-integration-20260914
 
 ### Publication — 2026-10-09
 
-- Committed cleanup, launcher corrections and mobile dashboard fixes separately, preserving all twelve migration commits. Validation records and the authorized push are pending.
+- Published cleanup, launcher/dashboard fixes and validation records through `370e26e` to `origin/main`, preserving all twelve migration commits. RTX publication checks passed; no history rewrite or manual deployment.
 
 ### Full validation and launcher corrections — 2026-10-09
 
@@ -225,4 +225,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-Commit validation records and push `main`; retain existing commits and the documented timing limits. No manual deployment is required.
+No queued work remains. Source and validation records are published on `origin/main`; the configured Pages workflow handles documentation deployment. Strict timing and hardware qualification limits remain documented.
