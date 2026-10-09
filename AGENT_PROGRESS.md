@@ -4,7 +4,7 @@
 
 ## Current Objective
 
-None; validated changes and migration commits are published to `origin/main`. Strict real-time qualification remains failed.
+None; the project logo, documentation GitHub links and local docs preview are published to `origin/main`. Strict real-time qualification remains failed.
 
 ## Repository State
 
@@ -61,6 +61,11 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Project logo and docs preview — 2026-10-09
+
+- Published the radio icon as `docs/assets/branding/logo.svg` for the README title, docs sidebar and favicon (`09a1b9f`); retired the old favicon and routed `/favicon.svg` to the logo. Strict Sphinx build, site check and Pages deploy passed.
+- Added GitHub repository links to the docs sidebar and footer, and `scripts/docs/serve.sh` to build and serve the docs locally with Python 3.12 (`0faae43`). Fresh and repeat runs, strict build and Pages deploy passed.
 
 ### Contributor credits — 2026-10-09
 
