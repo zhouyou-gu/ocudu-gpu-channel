@@ -42,3 +42,7 @@ __pycache__/
 # Python package build outputs
 *.egg-info/
 dist/
+
+# Documentation environments and generated publication artifacts.
+/.build/
+/.venv-docs/

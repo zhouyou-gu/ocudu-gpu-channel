@@ -1,39 +1,48 @@
-name: Deploy docs to GitHub Pages
-
-# Pages is enabled on the repo with Source: GitHub Actions, so this fires on
-# every push that touches the published docs. Before that it was manual-only,
-# which meant docs/ changes shipped to main without the site ever rebuilding --
-# the published page sat months behind the repo.
-#
-# workflow_dispatch is kept for forcing a redeploy without a docs change.
+name: Build and deploy documentation
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/**'
-      - '.github/workflows/pages.yml'
+    paths: ['docs/**', 'scripts/docs/**', '.github/workflows/pages.yml']
+  pull_request:
+    paths: ['docs/**', 'scripts/docs/**', '.github/workflows/pages.yml']
   workflow_dispatch:
-
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/setup-python@v5
         with:
-          path: ./docs
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+      - run: python -m pip install -r docs/requirements.txt
+      - run: python -m sphinx -b html -n -W docs .build/docs/html
+      - run: python scripts/docs/check_site.py .build/docs/html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documentation-preview
+          path: .build/docs/html
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: .build/docs/html
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
       - id: deployment
         uses: actions/deploy-pages@v4

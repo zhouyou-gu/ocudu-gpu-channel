@@ -37,3 +37,20 @@ Run the strict build and compatibility checker on the RTX workstation. Review th
 - Label historical records and open proposals; do not promote old measurements into current qualification.
 - Resolve internal links and legacy fragments; review diagrams, tables and code on narrow screens.
 - Update current status when qualification changes, and add a concise progress entry linking the detailed report.
+
+## Build and verify
+
+From the repository root on the RTX workstation:
+
+```sh
+python3.12 -m venv .venv-docs
+.venv-docs/bin/python -m pip install -r docs/requirements.txt
+.venv-docs/bin/python -m sphinx -b html -n -W docs .build/docs/html
+.venv-docs/bin/python scripts/docs/check_site.py .build/docs/html
+```
+
+The checker walks built links and fragments, verifies legacy routing and evidence hashes, and counts the preserved technical-reference diagrams. It does not establish runtime behavior. Rewritten operational instructions need a separate recorded walkthrough.
+
+For a project-prefix preview, serve a parent directory containing an `ocudu-gpu-channel` link to the build artifact. Check both `/ocudu-gpu-channel/` and `/ocudu-gpu-channel/index.html#topology`. Unknown fragments must offer navigation rather than redirect to an unrelated section.
+
+To roll back publication, restore the preceding documentation revision through a normal revert and rerun the Pages workflow. The workflow uploads and deploys one complete artifact; a failed build never deploys a partial site.

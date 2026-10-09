@@ -1,0 +1,12 @@
+/* Keep scientific figures and wide tables readable without page overflow. */
+.content { max-width: 58rem; }
+article img { height: auto; max-width: 100%; }
+.table-wrapper, div.highlight { overflow-x: auto; }
+article table { width: 100%; }
+article td, article th { overflow-wrap: anywhere; }
+.legacy-diagram { padding: 1rem; border-radius: .5rem; background: #0f1420; color: #e7ecf5; overflow-x: auto; }
+.legacy-diagram .tier-stack, .legacy-diagram .gantt { display: grid; gap: .6rem; }
+.legacy-diagram .tier, .legacy-diagram .tier-cell { border: 1px solid #5db1ff; border-radius: .4rem; padding: .6rem; }
+.legacy-diagram .tier-cells { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: .5rem; }
+.legacy-diagram .flow-arrow { text-align: center; color: #5db1ff; }
+@media (max-width: 600px) { .legacy-diagram .tier-cells { grid-template-columns: 1fr; } }
