@@ -4,9 +4,11 @@
 
 ## Current Objective
 
-Implement the approved documentation structure and publishing plan in five commits; validate the site and rewritten commands on RTX before handoff.
+None; the approved project and documentation migrations are complete locally.
 
 ## Repository State
+
+- Documentation migration is complete in five local stages: Markdown site, current guidance, reports/history, compatibility routing and RTX validation. The structure and documentation commits remain unpublished.
 
 - Approved structure migration is committed locally: `use_cases/`, runtime apps, grouped integrations/tests, Python packaging and documentation navigation. Validation evidence is in `validation/structure-20261009/`; these commits have not been pushed.
 
@@ -33,6 +35,7 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 
 | Scope / revision | Recorded result | Limit |
 |---|---|---|
+| Documentation migration, 2026-10-09 | Strict build, 114 fragment routes, 71 evidence hashes, desktop/mobile review; CPU/CUDA CTest 12/12 each, Python 211 passed/3 skipped, frontend and synthetic walkthroughs passed | Documentation and exercised synthetic commands only; live qualification unchanged |
 | Structure migration, 2026-10-09 | CPU/CUDA CTest 12/12 each; GPU 9/9; Python 209 + 2 focused passed, 3 skipped; frontend, package, Docker and path checks; live rank-1 250/250 pings and matrix capture passed | Two live receive starvations; prebuilt radio images; native OAI/CMX/platform trials not repeated |
 | PRs #2–#6 integration, 2026-10-08 | CPU/CUDA CTest 12/12 each; GPU sequence 9/9; Python 208 passed + one new focused test, 3 skipped; both frontend checks; 98 shell scripts | No new live-radio, CMX, GB10 or Orin qualification |
 | Channel fixes `16af288` | CTest 12/12, Python 75/75, nine GPU stages, Node disconnect and shell checks passed; earlier extended CUDA sanitizer runs clean | Does not establish strict real-time operation |
@@ -47,6 +50,8 @@ Reports: [integration guide](docs/history/milestones/sionna-integration-20260914
 ## Completed Changes
 
 ### Documentation migration — 2026-10-09
+
+- Completed documentation validation on RTX: strict build, legacy routes, evidence hashes, responsive preview, CPU/CUDA tests and synthetic walkthroughs passed. [Report](docs/reports/validation/documentation-migration-20261009.md) records skips and unchanged live limits; commits remain local.
 
 - Organized reports, evidence bundles, historical designs, milestone ledgers and Korean originals; retained published source pointers and updated figure destinations. Original evidence bytes are preserved; strict build, compatibility and operational walkthrough checks are next.
 
@@ -148,6 +153,8 @@ Reports: [integration guide](docs/history/milestones/sionna-integration-20260914
 
 Remote evidence roots below are under `~/ocudu-gpu-channel-workspace/`:
 
+- `validation/docs-20261009/`: documentation artifact, compatibility checks, browser screenshots, CPU/CUDA and Python/frontend results, tutorial and Sionna/dashboard walkthroughs.
+
 - `validation/sionna-history-20260913/fix-validation/`: integration, channel and dashboard evidence.
 - `validation/ue-sa-recovery-20260914/`: UE builds, controlled outages, moving runs and final `sync-loss-live/` results.
 - `validation/main-merge-20260914/`, `validation/docs-contributors-20260914/`, `validation/readme-cleanup-20260914/` and `validation/release-cleanup-20260914/`: merge and documentation checks.
@@ -161,4 +168,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-Documentation migration is active: inventory complete; implement the Sphinx publishing foundation, current pages and historical bundles, then validate on RTX. Existing structure-migration commits remain local and unchanged.
+No implementation remains for the approved migrations; source and publishing configuration are committed locally, with no push or deployment. See the documentation validation report for evidence and unchanged qualification limits.

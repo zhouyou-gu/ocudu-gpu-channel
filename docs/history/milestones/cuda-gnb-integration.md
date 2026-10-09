@@ -108,7 +108,7 @@ report-c5-envelope.py</td>
 
 Two layers of the gNB YAML carry acceleration keys, and the resource grids have their own memory-mode selectors. The launcher exposes a single ordered stage name that expands into a cumulative set of them.
 
-#### gNB configuration keys
+### gNB configuration keys
 
 | Key | Section | Selects |
 |----|----|----|
@@ -126,7 +126,7 @@ auto is not "on"
 
 Every selector defaults to `auto`, and on a discrete device `auto` prefers the host for PDSCH and selects `pinned` for the uplink grid. Turning a path on requires `enabled` explicitly, and forced lower-PHY acceleration needs the managed grid's device mapping — which is why the stage expansion raises the grid modes with the rungs.
 
-#### Stage expansion — `OCUDU_NATIVE_GNB_ACCELERATION`
+### Stage expansion — `OCUDU_NATIVE_GNB_ACCELERATION`
 
 | Stage | Adds | UL grid | DL grid |
 |----|----|----|----|
@@ -138,7 +138,7 @@ Every selector defaults to `auto`, and on a discrete device `auto` prefers the h
 | prach | \+ PRACH and lower-PHY PRACH demodulation | managed | managed |
 | all | \+ SRS | managed | managed |
 
-#### Gate environment overrides
+### Gate environment overrides
 
 | Variable | Default | Effect |
 |----|----|----|
@@ -220,7 +220,7 @@ Performance-claim boundary
 
 At this fixture — 20 MHz, one layer — the working group's own figures put the GPU at `0.86×` on PUSCH and `0.37×` on PDSCH. **The GPU being slower here is expected and is not a failure.** The figures below are recorded as an envelope and a regression check; no speed claim is made before C7, where bandwidth and layer count rise.
 
-#### Link quality against the CPU build
+### Link quality against the CPU build
 
 | Arm             | PUSCH tx | BLER  | Resolution | SINR mean | Δ SINR |
 |-----------------|----------|-------|------------|-----------|--------|
@@ -229,7 +229,7 @@ At this fixture — 20 MHz, one layer — the working group's own figures put th
 
 Tolerances are 1 pp and 0.5 dB. Across the staged ladder the worst SINR deviation is `+0.200 dB`. The BLER result shows the accelerated path does not *introduce* errors over roughly a thousand transmissions; it does not discriminate between the paths under stress, because legacy channel mode relays IQ close to cleanly and both arms read 0 %.
 
-#### Timing envelope — paired arms, MPS, P-core pinned
+### Timing envelope — paired arms, MPS, P-core pinned
 
 <table>
 <thead>

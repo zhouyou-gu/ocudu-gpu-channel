@@ -6,7 +6,7 @@
 
 ## The staged buffer — packing N edges for one H2D
 
-"Staged" is the word for what the broker hands to the GPU each serve. By the time the broker reaches this stage, [§9](../concepts/timing.md#alignment) has already guaranteed that the `N` per-edge sample arrays are **time-aligned** — every edge's sample at index `idx` represents the same source-time instant, and every array has the same length `serve`. (If a per-edge leading `tdl` step applies, either `apply_channel_kernel` on device or `stage_link()` on host has already run that step's multi-tap convolution + optional Jakes fading using the per-edge `delay_line` ring for cross-slot history — see [§11 Diagram S](device-pipeline.md#kernels) for which path runs when.) **Staging is purely a packing step** — it takes those `N` aligned, delay-applied arrays and concatenates them back-to-back into one pinned buffer (`host_staged`) so a **single** `cudaMemcpyAsync` ships the whole block. The kernel then addresses any edge's any sample with one formula: `staged[k·count + idx]` = edge `k`'s sample `idx`.
+"Staged" is the word for what the broker hands to the GPU each serve. By the time the broker reaches this stage, [Signal alignment and time discipline](../concepts/timing.md#alignment) has already guaranteed that the `N` per-edge sample arrays are **time-aligned** — every edge's sample at index `idx` represents the same source-time instant, and every array has the same length `serve`. (If a per-edge leading `tdl` step applies, either `apply_channel_kernel` on device or `stage_link()` on host has already run that step's multi-tap convolution + optional Jakes fading using the per-edge `delay_line` ring for cross-slot history — see [The channel — applied per edge (device kernel by default, host fallback)](device-pipeline.md#kernels) for which path runs when.) **Staging is purely a packing step** — it takes those `N` aligned, delay-applied arrays and concatenates them back-to-back into one pinned buffer (`host_staged`) so a **single** `cudaMemcpyAsync` ships the whole block. The kernel then addresses any edge's any sample with one formula: `staged[k·count + idx]` = edge `k`'s sample `idx`.
 
 ```{raw} html
 <div class="legacy-diagram"><div class="stage-fig">
@@ -74,12 +74,14 @@ Bit-exactness contract: for any single edge, `process_superposition` on CPU and 
 
 ## Signal memory — pinned host buffers paired with device buffers
 
-The per-slot pipeline that [§11.0](device-pipeline.md#pipeline) describes moves data between two halves of a memory map: a **pinned host side** (allocated with `cudaHostAlloc` so cudaMemcpyAsync is truly asynchronous over PCIe DMA) and a matching **device side** (`cudaMalloc` in GPU global memory). Each state owns its own `cudaStream_t` (non-blocking) plus a quartet of `cudaEvent_t`s that bracket H2D / kernel / D2H for the `event=gpu_timings` log line.
+The per-slot pipeline that [Pipeline op order — what each stream actually launches](device-pipeline.md#pipeline) describes moves data between two halves of a memory map: a **pinned host side** (allocated with `cudaHostAlloc` so cudaMemcpyAsync is truly asynchronous over PCIe DMA) and a matching **device side** (`cudaMalloc` in GPU global memory). Each state owns its own `cudaStream_t` (non-blocking) plus a quartet of `cudaEvent_t`s that bracket H2D / kernel / D2H for the `event=gpu_timings` log line.
 
 Two state structs hold the broker's signal memory: `CudaSuperposeState` (one per destination node — the broker's only hot-path state) and `CudaLinkSlot` (one per emulator edge, holding the per-edge chain phase / AWGN counter / delay_line ring). The `process_superposition` call walks every incoming edge's `CudaLinkSlot` to pack the staged buffer, then does one fused H2D + kernel + D2H against the per-destination superpose state.
 
 (ard)=
  ![Diagram D — signal memory map for the broker's superposition hot path. Pinned host buffers pair with device global buffers; the small heap-resident chain metadata gets its H2D piggy-backed on the staged buffer's transfer. CudaLinkSlot holds only the per-edge chain-running state (phase / AWGN counter / delay_line) — no scratch.](../assets/diagrams/reference-16.svg)
+
+<a href="../assets/diagrams/reference-16.svg">Open this diagram at full size</a>
 
 Diagram D — signal memory map for the broker's superposition hot path. Pinned host buffers pair with device global buffers; the small heap-resident chain metadata gets its H2D piggy-backed on the staged buffer's transfer. `CudaLinkSlot` holds only the per-edge chain-running state (phase / AWGN counter / delay_line) — no scratch.
 
@@ -90,7 +92,7 @@ Diagram D — signal memory map for the broker's superposition hot path. Pinned 
 - **Steps buffer** — `sizeof(GpuStep) · N · max_steps` bytes per side. At `sizeof(GpuStep) = 24`, `max_steps = 5`: ~960 B per N=8 node — tiny.
 - **delay_line ring** — per edge, `8 · (d + 2)` bytes host-only, where `d` is the chain-leading delay in samples. Negligible unless `d` is huge.
 
-Total device footprint for an 8-incoming-edge node at 23.04 MS/s fits comfortably in any GPU's L2 (50 MB on H100, 128 MB on B200), and even the full 16-edge stress topology stays in L2. Bandwidth, not capacity, is the working constraint — quantified in [§20.6](../reports/performance/measured-boundaries.md#perf-pcie).
+Total device footprint for an 8-incoming-edge node at 23.04 MS/s fits comfortably in any GPU's L2 (50 MB on H100, 128 MB on B200), and even the full 16-edge stress topology stays in L2. Bandwidth, not capacity, is the working constraint — quantified in [The PCIe bottleneck — host↔device link is the wall](../reports/performance/measured-boundaries.md#perf-pcie).
 
 (section-16)=
 

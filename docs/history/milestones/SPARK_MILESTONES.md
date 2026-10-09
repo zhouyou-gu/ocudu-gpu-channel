@@ -705,7 +705,7 @@ S8에서 원인을 확인하지 않은 세 가지를 Spark(GB10)에서 풀었다
 ### 3. zero-copy에서 ring read/push가 길어지는 이유 — GPU가 만진 버퍼의 CPU 복사
 
 - zero-copy(`direct_in`, `direct`)에서는 GPU가 브로커의 입력 창을 직접 읽고 출력 행에 직접 쓴다. 다음 슬롯에 CPU가 ring → 입력 창(쓰기), 출력 행 → RX ring(읽기)을 `memcpy`하는데, 그 캐시 라인이 GPU 쪽에 있다.
-- **마이크로벤치** `scripts/cuda/spark/s9-coherence-bench.cu`(pageable 버퍼, 2,000회, 코어 5 고정, GPU 유휴): 
+- **마이크로벤치** `scripts/cuda/spark/s9-coherence-bench.cu`(pageable 버퍼, 2,000회, 코어 5 고정, GPU 유휴):
 
 | 크기 | CPU만 쓴 버퍼 | GPU가 읽은 창에 CPU 쓰기 | GPU가 쓴 행을 CPU 읽기 |
 |---|---|---|---|

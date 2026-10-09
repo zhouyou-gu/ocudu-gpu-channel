@@ -49,8 +49,26 @@ python3.12 -m venv .venv-docs
 .venv-docs/bin/python scripts/docs/check_site.py .build/docs/html
 ```
 
-The checker walks built links and fragments, verifies legacy routing and evidence hashes, and counts the preserved technical-reference diagrams. It does not establish runtime behavior. Rewritten operational instructions need a separate recorded walkthrough.
+The checker walks built links and fragments, verifies legacy routing and evidence hashes, and validates the preserved technical-reference SVG drawings, XML and dimensions. It does not establish runtime behavior. Rewritten operational instructions need a separate recorded walkthrough.
 
-For a project-prefix preview, serve a parent directory containing an `ocudu-gpu-channel` link to the build artifact. Check both `/ocudu-gpu-channel/` and `/ocudu-gpu-channel/index.html#topology`. Unknown fragments must offer navigation rather than redirect to an unrelated section.
+For a project-prefix preview, run this from the repository root and leave the server running during review:
+
+```sh
+mkdir -p .build/docs/preview
+ln -sfn "$PWD/.build/docs/html" .build/docs/preview/ocudu-gpu-channel
+python -m http.server 19492 --bind 127.0.0.1 --directory .build/docs/preview
+```
+
+Check both `/ocudu-gpu-channel/` and `/ocudu-gpu-channel/index.html#topology`. Unknown fragments must offer navigation rather than redirect to an unrelated section. Stop the server with Ctrl-C. For a browser on another computer, use an SSH local-forward tunnel to this loopback port.
+
+Optional browser review uses Playwright and a Chromium installation, kept outside the pinned build dependencies. In a separate review environment, install `playwright==1.63.0` and its Chromium browser, then serve a preview directory as described above. In a second terminal, against that running server:
+
+```sh
+python scripts/docs/check_browser.py \
+  --base-url http://127.0.0.1:19492/ocudu-gpu-channel/ \
+  --output /tmp/ocudu-docs-browser-review
+```
+
+Use `--chromium /path/to/chrome` to reuse an existing browser. The check covers legacy navigation, no-JavaScript fallback, mobile navigation, image loading, horizontal overflow, search exclusions and evidence downloads; screenshots still need visual review. Stop the preview server after review.
 
 To roll back publication, restore the preceding documentation revision through a normal revert and rerun the Pages workflow. The workflow uploads and deploys one complete artifact; a failed build never deploys a partial site.

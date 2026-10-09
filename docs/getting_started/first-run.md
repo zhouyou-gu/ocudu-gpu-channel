@@ -19,7 +19,9 @@ cleanup() {
   for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
   printf 'Logs: %s\n' "$run_dir"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 for port in 2000 2101; do
   "$build_dir/ocudu-zmq-source" --endpoint "tcp://*:$port" \
     --batch-samples 23040 --duration 15s >"$run_dir/source-$port.log" 2>&1 &

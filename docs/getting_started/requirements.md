@@ -8,6 +8,7 @@ The primary operating path is a Linux host with an NVIDIA GPU, CUDA and ZeroMQ. 
 | CUDA toolkit and compatible NVIDIA driver | CUDA backend; configure the architecture for the actual GPU |
 | Python 3.10+ and the `dashboard` package extra | Dashboard only |
 | Python environment with the `sionna` extra and its GPU requirements | Sionna ray tracing and bridge |
+| Node.js (tested with 22.20.0) | Dashboard JavaScript regression checks |
 | Python 3.12 with `docs/requirements.txt` | Documentation publishing only |
 | Docker with NVIDIA Container Toolkit, or the provisioned native workspace | Corresponding live-stack workflow |
 

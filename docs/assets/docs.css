@@ -10,3 +10,13 @@ article td, article th { overflow-wrap: anywhere; }
 .legacy-diagram .tier-cells { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: .5rem; }
 .legacy-diagram .flow-arrow { text-align: center; color: #5db1ff; }
 @media (max-width: 600px) { .legacy-diagram .tier-cells { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .table-wrapper:has(th:nth-child(4)) table { min-width: 44rem; }
+  .table-wrapper:has(th:nth-child(4))::before {
+    content: "Scroll horizontally to read the full table.";
+    display: block;
+    margin-bottom: .5rem;
+    color: var(--color-foreground-secondary);
+    font-size: .85rem;
+  }
+}

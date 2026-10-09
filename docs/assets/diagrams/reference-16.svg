@@ -1,55 +1,55 @@
-<svg font-family="SF Mono,Menlo,monospace" font-size="12" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 320" xmlns="http://www.w3.org/2000/svg">
-<defs>
-<marker id="ard" markerheight="9" markerwidth="9" orient="auto" refx="8" refy="4.5">
-<path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"></path>
-</marker>
-</defs>
-<text fill="#9aa7bd" text-anchor="middle" x="200" y="20">HOST</text>
-<text fill="#9aa7bd" text-anchor="middle" x="500" y="20">PCIe · cudaMemcpyAsync</text>
-<text fill="#5db1ff" text-anchor="middle" x="800" y="20">DEVICE · global (cudaMalloc)</text>
-<text fill="#ffb454" font-size="13" x="20" y="44">CudaSuperposeState — one per RX node · preallocated in prepare() · reused every serve</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#6fd08c" width="360" x="20" y="58"></rect>
-<text fill="#e7ecf5" x="30" y="75">host_staged <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
-<text fill="#9aa7bd" font-size="10.5" x="30" y="89">N × 23 040 IQ   (180 KiB per edge)</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#5db1ff" width="360" x="620" y="58"></rect>
-<text fill="#e7ecf5" x="630" y="75">device_staged</text>
-<text fill="#9aa7bd" font-size="10.5" x="630" y="89">N × 23 040 IQ   (kernel reads staged[k·count + idx])</text>
-<line marker-end="url(#ard)" stroke="#5db1ff" x1="384" x2="614" y1="77" y2="77"></line>
-<text fill="#5db1ff" font-size="11" text-anchor="middle" x="499" y="73">H2D · samples</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#6fd08c" width="360" x="20" y="104"></rect>
-<text fill="#e7ecf5" x="30" y="121">host_steps <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
-<text fill="#9aa7bd" font-size="10.5" x="30" y="135">Σ steps × GpuStep   (flattened per-edge chains)</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#5db1ff" width="360" x="620" y="104"></rect>
-<text fill="#e7ecf5" x="630" y="121">device_steps</text>
-<text fill="#9aa7bd" font-size="10.5" x="630" y="135">Σ steps × GpuStep</text>
-<line marker-end="url(#ard)" stroke="#5db1ff" x1="384" x2="614" y1="123" y2="123"></line>
-<text fill="#5db1ff" font-size="11" text-anchor="middle" x="499" y="119">H2D · chain</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#6fd08c" width="360" x="20" y="150"></rect>
-<text fill="#e7ecf5" x="30" y="167">host_step_meta <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
-<text fill="#9aa7bd" font-size="10.5" x="30" y="181">2N × int   (first N: offsets · next N: counts)</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#5db1ff" width="360" x="620" y="150"></rect>
-<text fill="#e7ecf5" x="630" y="167">device_step_meta</text>
-<text fill="#9aa7bd" font-size="10.5" x="630" y="181">2N × int</text>
-<line marker-end="url(#ard)" stroke="#5db1ff" x1="384" x2="614" y1="169" y2="169"></line>
-<text fill="#5db1ff" font-size="11" text-anchor="middle" x="499" y="165">H2D · meta</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#6fd08c" stroke-dasharray="4 3" width="360" x="20" y="196"></rect>
-<text fill="#cdd6e6" x="30" y="213">rx_model.host_steps <tspan fill="#9aa7bd" font-size="10.5">· optional</tspan></text>
-<text fill="#9aa7bd" font-size="10.5" x="30" y="227">noise-floor chain · only when node has rx_model</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#5db1ff" stroke-dasharray="4 3" width="360" x="620" y="196"></rect>
-<text fill="#cdd6e6" x="630" y="213">device_rx_steps</text>
-<text fill="#9aa7bd" font-size="10.5" x="630" y="227">consumed by the in-place apply_steps_kernel pass</text>
-<line marker-end="url(#ard)" stroke="#5db1ff" stroke-dasharray="4 3" x1="384" x2="614" y1="215" y2="215"></line>
-<text fill="#5db1ff" font-size="11" text-anchor="middle" x="499" y="211">H2D · rx (opt)</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#6fd08c" width="360" x="20" y="242"></rect>
-<text fill="#e7ecf5" x="30" y="259">host_output <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
-<text fill="#9aa7bd" font-size="10.5" x="30" y="273">23 040 IQ · the served signal</text>
-<rect fill="#0b101a" height="38" rx="4" stroke="#5db1ff" width="360" x="620" y="242"></rect>
-<text fill="#e7ecf5" x="630" y="259">device_output</text>
-<text fill="#9aa7bd" font-size="10.5" x="630" y="273">23 040 IQ · kernel write target</text>
-<line marker-end="url(#ard)" stroke="#5db1ff" x1="614" x2="384" y1="261" y2="261"></line>
-<text fill="#5db1ff" font-size="11" text-anchor="middle" x="499" y="257">D2H · result</text>
-<text fill="#9aa7bd" font-size="11" x="20" y="295">
-<tspan dy="0" x="20">pinned buffers (cudaHostAlloc) let cudaMemcpyAsync DMA run truly asynchronously</tspan>
-<tspan dy="14" x="20">heap vectors (chain + meta) are tiny — the sync vs async distinction does not matter for them</tspan>
-</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" style="background:#0f1420;color:#e7ecf5;--bg:#0f1420;--panel:#1a2233;--ink:#e7ecf5;--muted:#9aa7bd;--edge:#2c3850;--accent:#5db1ff;--warm:#ffb454;--good:#6fd08c;--cell:#0b101a" viewBox="0 0 1000 320" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="ard" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+    <text x="200" y="20" fill="#9aa7bd" text-anchor="middle">HOST</text>
+    <text x="500" y="20" fill="#9aa7bd" text-anchor="middle">PCIe · cudaMemcpyAsync</text>
+    <text x="800" y="20" fill="#5db1ff" text-anchor="middle">DEVICE · global (cudaMalloc)</text>
+    <text x="20" y="44" fill="#ffb454" font-size="13">CudaSuperposeState — one per RX node · preallocated in prepare() · reused every serve</text>
+    <rect x="20" y="58" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="30" y="75" fill="#e7ecf5">host_staged <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
+    <text x="30" y="89" fill="#9aa7bd" font-size="10.5">N × 23 040 IQ &#160; (180 KiB per edge)</text>
+    <rect x="620" y="58" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="630" y="75" fill="#e7ecf5">device_staged</text>
+    <text x="630" y="89" fill="#9aa7bd" font-size="10.5">N × 23 040 IQ &#160; (kernel reads staged[k·count + idx])</text>
+    <line x1="384" y1="77" x2="614" y2="77" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="73" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · samples</text>
+    <rect x="20" y="104" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="30" y="121" fill="#e7ecf5">host_steps <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
+    <text x="30" y="135" fill="#9aa7bd" font-size="10.5">Σ steps × GpuStep &#160; (flattened per-edge chains)</text>
+    <rect x="620" y="104" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="630" y="121" fill="#e7ecf5">device_steps</text>
+    <text x="630" y="135" fill="#9aa7bd" font-size="10.5">Σ steps × GpuStep</text>
+    <line x1="384" y1="123" x2="614" y2="123" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="119" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · chain</text>
+    <rect x="20" y="150" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="30" y="167" fill="#e7ecf5">host_step_meta <tspan fill="#9aa7bd" font-size="10.5">· std::vector (heap)</tspan></text>
+    <text x="30" y="181" fill="#9aa7bd" font-size="10.5">2N × int &#160; (first N: offsets · next N: counts)</text>
+    <rect x="620" y="150" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="630" y="167" fill="#e7ecf5">device_step_meta</text>
+    <text x="630" y="181" fill="#9aa7bd" font-size="10.5">2N × int</text>
+    <line x1="384" y1="169" x2="614" y2="169" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="165" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · meta</text>
+    <rect x="20" y="196" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c" stroke-dasharray="4 3"/>
+    <text x="30" y="213" fill="#cdd6e6">rx_model.host_steps <tspan fill="#9aa7bd" font-size="10.5">· optional</tspan></text>
+    <text x="30" y="227" fill="#9aa7bd" font-size="10.5">noise-floor chain · only when node has rx_model</text>
+    <rect x="620" y="196" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff" stroke-dasharray="4 3"/>
+    <text x="630" y="213" fill="#cdd6e6">device_rx_steps</text>
+    <text x="630" y="227" fill="#9aa7bd" font-size="10.5">consumed by the in-place apply_steps_kernel pass</text>
+    <line x1="384" y1="215" x2="614" y2="215" stroke="#5db1ff" stroke-dasharray="4 3" marker-end="url(#ard)"/>
+    <text x="499" y="211" fill="#5db1ff" text-anchor="middle" font-size="11">H2D · rx (opt)</text>
+    <rect x="20" y="242" width="360" height="38" rx="4" fill="#0b101a" stroke="#6fd08c"/>
+    <text x="30" y="259" fill="#e7ecf5">host_output <tspan fill="#5db1ff" font-size="10.5">· pinned</tspan></text>
+    <text x="30" y="273" fill="#9aa7bd" font-size="10.5">23 040 IQ · the served signal</text>
+    <rect x="620" y="242" width="360" height="38" rx="4" fill="#0b101a" stroke="#5db1ff"/>
+    <text x="630" y="259" fill="#e7ecf5">device_output</text>
+    <text x="630" y="273" fill="#9aa7bd" font-size="10.5">23 040 IQ · kernel write target</text>
+    <line x1="614" y1="261" x2="384" y2="261" stroke="#5db1ff" marker-end="url(#ard)"/>
+    <text x="499" y="257" fill="#5db1ff" text-anchor="middle" font-size="11">D2H · result</text>
+    <text x="20" y="295" fill="#9aa7bd" font-size="11">
+      <tspan x="20" dy="0">pinned buffers (cudaHostAlloc) let cudaMemcpyAsync DMA run truly asynchronously</tspan>
+      <tspan x="20" dy="14">heap vectors (chain + meta) are tiny — the sync vs async distinction does not matter for them</tspan>
+    </text>
+  </svg>

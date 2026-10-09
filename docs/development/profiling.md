@@ -10,35 +10,37 @@ The broker is instrumented end-to-end so a real-time relay can be diagnosed from
 
 The architecture has **two producers** emitting onto **one stdout event stream**, plus a parallel **microbenchmark CLI** that drives the same processor without ZMQ I/O:
 
-1.  **Host-side `chrono::steady_clock` brackets in the broker server loop** — measure each per-serve stage (wait_req · align · read · process · throttle · send) and publish as `event=cpu_stage_timings`. See Diagram K (§8) for the stage definitions.
+1.  **Host-side `chrono::steady_clock` brackets in the broker server loop** — measure each per-serve stage (wait_req · align · read · process · throttle · send) and publish as `event=cpu_stage_timings`. See Diagram K ([The broker — per-slot loop](../concepts/broker-loop.md#broker-loop)) for the stage definitions.
 2.  **CUDA event brackets around the processor's GPU work** — `cudaEventRecord` wraps H2D, kernel, D2H; the host reads the µs deltas after `cudaStreamSynchronize` and publishes them as `event=gpu_timings`. The only layer that sees *inside* the GPU.
-3.  **Microbenchmark CLI** (`ocudu-gpu-channel-bench`) — drives the channel processor in a tight loop with no ZMQ I/O and no broker scheduling, emitting per-percentile latency CSV. Shares the same `cudaEvent` instrumentation with the broker — just a different driving cadence. Numbers populate [§20](../reports/performance/measured-boundaries.md#perf).
+3.  **Microbenchmark CLI** (`ocudu-gpu-channel-bench`) — drives the channel processor in a tight loop with no ZMQ I/O and no broker scheduling, emitting per-percentile latency CSV. Shares the same `cudaEvent` instrumentation with the broker — just a different driving cadence. Numbers populate [Performance — measured boundaries](../reports/performance/measured-boundaries.md#perf).
 
-Both producers' events plus ring-pressure heartbeats, lifetime data-integrity counters, and fatals share one stdout stream — see [§19.1](profiling.md#profiling-events) for the full vocabulary. Memory footprint is analytical (computed at `prepare()` time, not measured) — see [§15](../reference/backends.md#signal-memory).
+Both producers' events plus ring-pressure heartbeats, lifetime data-integrity counters, and fatals share one stdout stream — see [Event vocabulary](profiling.md#profiling-events) for the full vocabulary. Memory footprint is analytical (computed at `prepare()` time, not measured) — see [Signal memory — pinned host buffers paired with device buffers](../reference/backends.md#signal-memory).
 
 (arr_on)=
- 
+
 (arr_od)=
- 
+
 (arr_on_b)=
- 
+
 (arr_grey)=
  ![Diagram N — instrumentation pipeline, 4 columns. Two drivers (broker = always-on, bench CLI = on-demand) push work through the same processor. Two timing sources wrap that work: chrono::steady_clock for host stages (align / read / pack / throttle) and cudaEvent for the GPU phases (H2D / kernel / D2H). Both µs streams emit as key=value lines on stdout in the broker's vocabulary ( §19.1 ). The harness captures stdout to results/reports/ as CSV + JSON; perf-sweep scripts aggregate per-config p50 / p95 / p99 and populate the measurements in §20 + Diagram W. The bench reuses the same processor + same cudaEvent primitives, so its numbers and the live broker's numbers measure the same underlying work — only the driving cadence differs.](../assets/diagrams/reference-18.svg)
 
-Diagram N — instrumentation pipeline, 4 columns. Two **drivers** (broker = always-on, bench CLI = on-demand) push work through the same processor. Two **timing sources** wrap that work: `chrono::steady_clock` for host stages (align / read / pack / throttle) and `cudaEvent` for the GPU phases (H2D / kernel / D2H). Both µs streams emit as `key=value` lines on stdout in the broker's vocabulary ([§19.1](profiling.md#profiling-events)). The harness captures stdout to `results/reports/` as CSV + JSON; perf-sweep scripts aggregate per-config p50 / p95 / p99 and populate the measurements in §20 + Diagram W. The bench reuses the same processor + same `cudaEvent` primitives, so its numbers and the live broker's numbers measure the same underlying work — only the driving cadence differs.
+<a href="../assets/diagrams/reference-18.svg">Open this diagram at full size</a>
+
+Diagram N — instrumentation pipeline, 4 columns. Two **drivers** (broker = always-on, bench CLI = on-demand) push work through the same processor. Two **timing sources** wrap that work: `chrono::steady_clock` for host stages (align / read / pack / throttle) and `cudaEvent` for the GPU phases (H2D / kernel / D2H). Both µs streams emit as `key=value` lines on stdout in the broker's vocabulary ([Event vocabulary](profiling.md#profiling-events)). The harness captures stdout to `results/reports/` as CSV + JSON; perf-sweep scripts aggregate per-config p50 / p95 / p99 and populate the measurements in [Performance — measured boundaries](../reports/performance/measured-boundaries.md#perf) + Diagram W. The bench reuses the same processor + same `cudaEvent` primitives, so its numbers and the live broker's numbers measure the same underlying work — only the driving cadence differs.
 
 (profiling-events)=
 
 ### Event vocabulary
 
-The broker emits six event kinds. Anyone reading `broker.log` can watch in real time with `grep -E 'event=(stop|fatal|gpu_timings|cpu_stage_timings)' broker.log`; the heartbeats are usually noise unless something has wedged.
+The broker emits the following event kinds. Anyone reading `broker.log` can watch in real time with `grep -E 'event=(stop|fatal|gpu_timings|cpu_stage_timings)' broker.log`; the heartbeats are usually noise unless something has wedged.
 
 | Event | Fields | Cadence | What it tells you |
 |----|----|----|----|
 | `event=cpu_stage_timings` | `t, dev, wait_req_us, align_us, read_us, process_us, throttle_us, send_us` | 1 Hz (last-serve snapshot) | Per-stage CPU latency of the broker's per-serve pipeline. `process_us` is the entire processor call (its h2d/kernel/d2h subset is in `gpu_timings` below). `throttle_us` is mostly idle wall-clock pacing. `wait_req_us` is idle waiting for the next REP request. |
 | `event=gpu_timings` | `t, h2d_us, kernel_us, d2h_us` | 1 Hz (last-serve snapshot) | Per-phase GPU timings from `cudaEventElapsedTime`. Zero on the CPU backend. `t` is monotonic seconds since broker start. |
 | `event=heartbeat` | `t, dev, ring=size/cap, puller[state, pulls, idle, room_stall, last], server[state, serves, idle, data_spin, last]` | 1 Hz, per device | Liveness probe and ring-pressure snapshot. `room_stall` climbing means the puller is blocked on a full ring; `data_spin` climbing means the server is starved. |
-| `event=stats` | `rx_requests, rx_starvations, tx_queue_overflows, tx_sequence_gaps, zmq_errors` | at `--strict-realtime` checkpoints | Lifetime data-integrity counters. See [§19.2](profiling.md#counter-taxonomy) for what each surfaces. |
+| `event=stats` | `rx_requests, rx_starvations, tx_queue_overflows, tx_sequence_gaps, zmq_errors` | at `--strict-realtime` checkpoints | Lifetime data-integrity counters. See [Counter taxonomy](profiling.md#counter-taxonomy) for what each surfaces. |
 | `event=stop` | same fields as `stats` plus `tx_pulls` | once, at shutdown | The final reckoning — what every smoke test greps for to verify the run. |
 | `event=fatal` | `error="…"` | at most once | Hard failure; broker exits non-zero. |
 | `event=control_start` | `endpoint="tcp://*:5559"` | once at startup, if `--control-endpoint` is set | Confirms the runtime-control ZMQ REP socket is bound. Absent on runs without the flag. |

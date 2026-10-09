@@ -6,7 +6,7 @@ Engineering assessment · research snapshot 16 August 2026
 
 What OCUDU’s four-port gNB can do with one-port srsUE 5G, and how buffered Sionna RT channel state can drive validated 2×1/4×1 downlink MISO and 1×2/1×4 uplink SIMO in the GPU emulator.
 
-Source-backed Local project: `a801155` CUDA fork: `nvcuda_accel_02 @ b708b13` srsRAN_4G: `release_25_10` Sionna RT: `2.0.1` 
+Source-backed Local project: `a801155` CUDA fork: `nvcuda_accel_02 @ b708b13` srsRAN_4G: `release_25_10` Sionna RT: `2.0.1`
 (mimo-integration-assessment-brief)=
  00 · User-owned scope
 
@@ -16,7 +16,7 @@ This is the controlling brief for the report. Later recommendations, diagrams, r
 
 Goal
 
-#### Demonstrate useful rank-1 multi-antenna operation
+### Demonstrate useful rank-1 multi-antenna operation
 
 - Use an OCUDU gNB and srsUE 5G through the real-time GPU ZMQ channel emulator.
 - Keep srsUE as a one-transmit-stream, one-receive-stream, one-layer NR UE.
@@ -26,7 +26,7 @@ Goal
 
 Intended experiments
 
-#### Start with two gNB ports, then gate four
+### Start with two gNB ports, then gate four
 
 - Downlink: first validate 2×1 rank-1 MISO, then extend to 4×1.
 - Uplink: first validate 1×2 rank-1 SIMO receive diversity, then extend to 1×4.
@@ -36,7 +36,7 @@ Intended experiments
 
 Technical requirements
 
-#### Preserve the existing radio contract
+### Preserve the existing radio contract
 
 - Keep srsUE at `nof_antennas = 1`; start OCUDU at `nof_antennas_dl: 2` and `nof_antennas_ul: 2`.
 - Preserve the current 1×1 OCUDU↔srsUE attach and traffic path as a regression test.
@@ -47,7 +47,7 @@ Technical requirements
 
 Writing and claim requirements
 
-#### Say exactly what is—and is not—proved
+### Say exactly what is—and is not—proved
 
 - Separate current implementation, approved design, unverified integration target and measured result.
 - Describe the live topology as 2×1/4×1 DL MISO and 1×2/1×4 UL SIMO; never shorten it to end-to-end 4×4 MIMO.
@@ -58,7 +58,7 @@ Writing and claim requirements
 
 Sionna channel export
 
-#### Export buffered channel state into the GPU IQ processor
+### Export buffered channel state into the GPU IQ processor
 
 - Run Sionna RT out of process as a channel-state producer; do not stream Sionna-generated IQ samples into OCUDU or srsUE.
 - Use `Paths.cir()` as the canonical sparse, antenna-indexed channel representation and select one UE RX antenna for the DL row vector and one UE TX antenna for the UL column vector.
@@ -70,7 +70,7 @@ Sionna channel export
 - Activate every coefficient in a directional vector atomically, define an explicit underrun policy and never substitute missing channel state with silent zero-filled IQ.
 - Validate exported CIRs against `Paths.taps()`, record normalization/path-reduction metadata, and label Sionna integration as planned until these gates pass.
 
-**Scope-change rule:** a new antenna count, UE, rank, beam-control method, channel-source contract or MU-MIMO objective is not an editorial detail. Record the user’s revised intent here first, then update the decision, architecture, roadmap, validation gates and limitations together. 
+**Scope-change rule:** a new antenna count, UE, rank, beam-control method, channel-source contract or MU-MIMO objective is not an editorial detail. Record the user’s revised intent here first, then update the decision, architecture, roadmap, validation gates and limitations together.
 (mimo-integration-assessment-verdict)=
  01 · Direct answers
 
@@ -94,7 +94,7 @@ Does OCUDU CUDA implement a UE? No
 
 OCUDU is a CU/DU/gNB RAN implementation. The CUDA fork accelerates gNB PHY, lower-PHY and fronthaul paths; it does not add a UE stack.
 
-**Approved scope:** implement **2×1 downlink rank-1 MISO** and **1×2 uplink rank-1 SIMO** with one ZMQ endpoint per gNB antenna stream and one srsUE stream per direction. In parallel, export buffered Sionna RT CIR state into the GPU emulator through record/replay and then live look-ahead. Extend to 4×1 and 1×4 only after two-port timing and correctness pass. Do not include rank\>1 SU-MIMO or same-PRB MU-MIMO in this workstream. 
+**Approved scope:** implement **2×1 downlink rank-1 MISO** and **1×2 uplink rank-1 SIMO** with one ZMQ endpoint per gNB antenna stream and one srsUE stream per direction. In parallel, export buffered Sionna RT CIR state into the GPU emulator through record/replay and then live look-ahead. Extend to 4×1 and 1×4 only after two-port timing and correctness pass. Do not include rank\>1 SU-MIMO or same-PRB MU-MIMO in this workstream.
 (mimo-integration-assessment-capabilities)=
  02 · System boundary
 
@@ -122,19 +122,19 @@ The fork is a gNB compute-acceleration project. It is useful to this work becaus
 
 Upper PHY
 
-#### PUSCH, PDSCH, SRS, PRACH
+### PUSCH, PDSCH, SRS, PRACH
 
 Resident PUSCH demodulation/equalization/LDPC integration, CUDA PDSCH block processing and direct-grid encoding, SRS estimation, and PRACH detection.
 
 Lower PHY
 
-#### Split-8 baseband
+### Split-8 baseband
 
 CUDA TX baseband processing, PUxCH RX OFDM demodulation, and PRACH OFDM demodulation. This sits adjacent to this project’s ZMQ IQ boundary.
 
 Fronthaul
 
-#### Split-7.2 Open Fronthaul
+### Split-7.2 Open Fronthaul
 
 CUDA BFP/no-compression TX and RX, batched symbol modes, and device-visible grids that reduce intermediate host copies.
 
@@ -153,7 +153,7 @@ CUDA BFP/no-compression TX and RX, batched symbol modes, and device-visible grid
 
 <span class="small">These are fork-author measurements on DGX Spark / GB10, not measurements from this project. The same report shows CUDA losing on small 20 MHz single-layer workloads, which is why acceleration defaults to `auto`. See the [fork’s acceleration guide](https://gitlab.com/ocudu/work_groups/wg1_hw_accel/cuda_accelerated_ocudu/-/raw/nvcuda_accel_02/docs/phy_cuda_acceleration.md) and [OCUDU MR !1180](https://gitlab.com/ocudu/ocudu/-/merge_requests/1180).</span>
 
-**Upstream status:** the full CUDA contribution is still an open, large merge request. OCUDU requested a six-MR split; as of this snapshot, [!1238](https://gitlab.com/ocudu/ocudu/-/merge_requests/1238) contributes build/ADT plumbing only and [!1262](https://gitlab.com/ocudu/ocudu/-/merge_requests/1262) contributes a PRACH detector without application-level selection. Pin the fork commit for experiments and do not treat CUDA support as part of baseline OCUDU `dev` yet. 
+**Upstream status:** the full CUDA contribution is still an open, large merge request. OCUDU requested a six-MR split; as of this snapshot, [!1238](https://gitlab.com/ocudu/ocudu/-/merge_requests/1238) contributes build/ADT plumbing only and [!1262](https://gitlab.com/ocudu/ocudu/-/merge_requests/1262) contributes a PRACH detector without application-level selection. Pin the fork commit for experiments and do not treat CUDA support as part of baseline OCUDU `dev` yet.
 (mimo-integration-assessment-ue)=
  04 · UE reality check
 
@@ -180,19 +180,19 @@ srsUE LTE path TM1 / TM2 / TM3 / TM4
 
 Downlink
 
-#### 2×1 or 4×1 MISO
+### 2×1 or 4×1 MISO
 
 OCUDU transmits one PDSCH layer through two or four gNB ports; the channel produces one effective stream for srsUE RX0. Fixed or externally selected precoding can provide beam or array gain, but srsUE does not provide a credible multi-port PMI feedback loop.
 
 Uplink
 
-#### 1×2 or 1×4 SIMO
+### 1×2 or 1×4 SIMO
 
 srsUE transmits one PUSCH layer from TX0; the channel produces independently faded copies at two or four OCUDU receive ports. OCUDU performs the receive combining, so this is the strongest end-to-end diversity target.
 
 Explicit boundary
 
-#### One UE layer throughout
+### One UE layer throughout
 
 The UE cannot steer a receive beam with one physical antenna. The scope also excludes rank-2 decoding, standardized transmit-diversity claims without a supported gNB/UE mode, and two UEs sharing PRBs through MU-MIMO.
 
@@ -282,23 +282,23 @@ Approved target boundary. The two-port MVP is DL 2×1 MISO plus UL 1×2 SIMO; th
 
 Launch index
 
-#### (direction, destination RX port, sample)
+### (direction, destination RX port, sample)
 
 The DL destination count is one and accumulates gNB TX ports × taps. Each UL output owns one gNB receive-port sample and accumulates its tap set.
 
 Memory layout
 
-#### Port-major contiguous slots
+### Port-major contiguous slots
 
 Pack DL as `[gNB_tx_port][sample]` and UL as `[gNB_rx_port][sample]`; coalesce samples and retain exact 1×1 compatibility.
 
 Reference contract
 
-#### CPU ↔ CUDA parity
+### CPU ↔ CUDA parity
 
 Use the CPU path as the oracle for branch isolation, coherent DL sums, UL receive vectors, delay history, fading continuity and runtime updates.
 
-**Do not call sample duplication “diversity.”** A fixed DL weight vector provides guaranteed array gain only when its phases match the channel; closed-loop weight selection is outside srsUE’s credible CSI capability. First prove deterministic MISO/SIMO coefficient vectors, synchronization and ZMQ transport. Add spatial correlation or CDL only when a source-backed beam/diversity experiment requires it. 
+**Do not call sample duplication “diversity.”** A fixed DL weight vector provides guaranteed array gain only when its phases match the channel; closed-loop weight selection is outside srsUE’s credible CSI capability. First prove deterministic MISO/SIMO coefficient vectors, synchronization and ZMQ transport. Add spatial correlation or CDL only when a source-backed beam/diversity experiment requires it.
 (mimo-integration-assessment-sionna)=
  08 · External channel source
 
@@ -324,13 +324,13 @@ Sionna produces channel coefficients out of process. The broker consumes only va
 
 **Do not obtain FDD uplink by merely reversing the downlink tensor.** Sionna’s `reverse_direction` changes tensor roles; it does not change a downlink-frequency ray trace into an uplink-frequency channel. Build separate directional records at the configured DL and UL carriers. Any reciprocity shortcut must be a separately measured and labelled approximation. Geometry epoch · infrequent
 
-#### Path layout and delays
+### Path layout and delays
 
 A retrace publishes port order, path-validity mask, fractional delays, carrier/sample rates, scene hash and an activation sample. Because the tap layout changed, this event may rebuild polyphase state and invoke the existing warmup contract.
 
 Coefficient horizon · continuous
 
-#### Complex a<sub>k</sub>(t) grid
+### Complex a<sub>k</sub>(t) grid
 
 Future complex path weights arrive in chunks and activate by absolute IQ sample index. They update weights only: the IQ delay line is preserved and the CUDA kernel interpolates between coefficient-grid points.
 
@@ -338,7 +338,7 @@ Future complex path weights arrive in chunks and activate by absolute IQ sample 
 
 Sionna sidecar
 
-#### Trace, extract, validate, reduce, serialize
+### Trace, extract, validate, reduce, serialize
 
 1.  Set direction-specific radio roles, carrier, array geometry, patterns, polarization, positions, orientations and velocities.
 2.  Run `PathSolver` with recorded mechanisms, seed and `synthetic_array` choice.
@@ -348,7 +348,7 @@ Sionna sidecar
 
 Reference call
 
-#### Make every default explicit
+### Make every default explicit
 
     a, tau = paths.cir(
         sampling_frequency=iq_rate_hz / period_samples,
@@ -376,19 +376,19 @@ Reference call
 
 Timing
 
-#### Preserve physical delay
+### Preserve physical delay
 
 Call `cir(normalize_delays=False)` when time of flight matters, then convert seconds to fractional IQ samples. Relative-delay mode is allowed only as named metadata.
 
 Amplitude
 
-#### Keep linear path gain
+### Keep linear path gain
 
 `cir()` has no energy-normalization switch in Sionna RT 2.0.1. Preserve its linear complex gain, mask invalid paths and reject NaN/Inf values before the frame reaches the broker.
 
 Bounds
 
-#### Cluster and report
+### Cluster and report
 
 Within each RX/TX antenna pair, cluster nearby delays, sum complex voltage, retain at most 32 taps whose maximum delay fits the 128-sample device ring, and report retained-energy ratio. Never silently truncate a rich scene.
 
@@ -396,19 +396,19 @@ Within each RX/TX antenna pair, cluster nearby delays, sum complex voltage, reta
 
 Port manifest
 
-#### Names—not array positions by accident
+### Names—not array positions by accident
 
 Bind every Sionna antenna index to a direction, OCUDU ZMQ endpoint/port, element position, orientation, polarization and antenna pattern. Include this ordered manifest in the topology hash.
 
 Synthetic array · default
 
-#### Fast plane-wave approximation
+### Fast plane-wave approximation
 
 Sionna traces between array centers and applies element phase shifts synthetically. Use it when array aperture is small relative to device/scatterer distances, and record the approximation in every epoch.
 
 Explicit array
 
-#### Trace every antenna pair
+### Trace every antenna pair
 
 Use `synthetic_array=False` when element-specific blockage, near-field behavior or aperture delay differences matter. Benchmark it separately; never mix synthetic and explicit epochs in one trace.
 
@@ -433,13 +433,13 @@ The coefficient period is selected by sweeping the maximum `Paths.doppler` and m
 
 Independent reference
 
-#### Lock every numerical choice
+### Lock every numerical choice
 
 Set `bandwidth`, `sampling_frequency`, `l_min`, `l_max`, `num_time_steps`, `normalize=False` and the same delay-normalization mode. Compare impulse response, energy, peak delay and frequency response.
 
 Known model difference
 
-#### Ideal sinc versus bounded filter
+### Ideal sinc versus bounded filter
 
 Sionna’s discrete taps use an ideal sinc over the requested lag range; the project uses an 8-tap Hamming-windowed sinc for fractional delay. Integer-delay fixtures can match closely. Fractional-delay gates need declared tolerances plus the project’s bounded-filter reference.
 
@@ -454,41 +454,41 @@ Full message shapes, continuity rules, failure policy, telemetry and validation 
 
 The dependency path deliberately proves two gNB ports before four. The scalar Sionna exporter and record/replay format can proceed in parallel, but live multi-port CIR ingestion merges only after deterministic 2×1/1×2 channel vectors pass.
 
-#### Port-bundle transport spike
+### Port-bundle transport spike
 
 Pin a known OCUDU baseline. Configure two gNB DL TX addresses and two gNB UL RX addresses while retaining one srsUE endpoint in each direction. Use synthetic peers first to prove slot alignment, teardown and backpressure.
 
 Exit: every configured gNB port remains aligned with the one-port UE side and all data-integrity counters remain zero.
 
-#### Deterministic 2×1 / 1×2 channel
+### Deterministic 2×1 / 1×2 channel
 
 Add port-aware configuration, a CPU reference and CUDA processing for a DL row vector and UL column vector. Start with fixed complex gains and directional TDL taps; retain exact 1×1 backward compatibility.
 
 Exit: branch isolation, coherent/cancelling DL sums, independent UL branches and delayed/faded vectors match the CPU oracle.
 
-#### Merge the Sionna record/replay bridge
+### Merge the Sionna record/replay bridge
 
 Bring in sparse antenna-indexed CIR epochs, a durable trace and buffered coefficient horizons indexed by absolute IQ sample. Extract separate FDD DL rows and UL columns with hashed port manifests; add live path solving only after replay is deterministic.
 
 Exit: integer-delay and bounded fractional-delay oracle gates pass; all directional coefficients activate together with no coefficient-update delay-line reset or underrun.
 
-#### Live OCUDU + srsUE integration
+### Live OCUDU + srsUE integration
 
 Run srsUE with one antenna and OCUDU with two DL and two UL ports. Begin with static Sionna geometry plus Doppler, then verify rank-1 PDSCH/PUSCH attach, PDU session and traffic through controlled 2×1 DL and 1×2 UL channels. Keep precoding in OCUDU/RU; an emulator-supplied weight is labelled an oracle experiment.
 
 Exit: stable attach and traffic with the expected per-branch power/SNR behavior, measured look-ahead and zero channel underrun, broker overflow, gap or ZMQ errors.
 
-#### Extend the gNB side to four ports
+### Extend the gNB side to four ports
 
 Raise OCUDU to four DL TX and four UL RX ports without changing the one-port srsUE contract. Reuse the directional-vector implementation and repeat correctness, timing and real-time measurements.
 
 Exit: validated 4×1 DL and 1×4 UL behavior; the report continues to claim one layer, not 4×4 UE spatial multiplexing.
 
-#### Spatial channel fidelity
+### Spatial channel fidelity
 
 If fixed-beam or diversity research requires it, add spatial correlation or CDL with array geometry, angles and polarization. Activate vector updates through the port-bundle sample barrier rather than independent per-link snapshots.
 
-Exit: statistical validation against a trusted TR 38.901 reference plus explicit precoder/beam metadata. 
+Exit: statistical validation against a trusted TR 38.901 reference plus explicit precoder/beam metadata.
 (mimo-integration-assessment-validation)=
  10 · Evidence gates
 
@@ -542,25 +542,25 @@ System behavior
 
 **Approve a rank-1 asymmetric multi-antenna MVP and a Sionna RT channel-state export path.** The live radio target is OCUDU 2×1 downlink MISO plus 1×2 uplink SIMO with one-port srsUE 5G; expand the gNB side to four ports only after the two-port gate. Sionna supplies buffered sparse CIR geometry and coefficient horizons, while the GPU emulator owns timed IQ processing. Keep precoding in the gNB/RU, propagation in this project, and rank\>1 SU-MIMO and same-PRB MU-MIMO deferred. Use srsUE for
 
-#### Live rank-1 proof
+### Live rank-1 proof
 
 1×1 regression, 2×1/4×1 DL effective-channel reception, 1×2/1×4 UL diversity, SA attach, PDU session and traffic.
 
 Use synthetic peers for
 
-#### Coefficient proof
+### Coefficient proof
 
 Branch isolation, DL phase/weight sweeps, UL independent branches, cross-port timing, delay/fading continuity and performance.
 
 Use Sionna RT for
 
-#### Channel-state export
+### Channel-state export
 
 Recorded and live buffered CIR geometry, delays and complex coefficient horizons; the GPU emulator applies them to real-time IQ.
 
 Do not claim
 
-#### Rank greater than one
+### Rank greater than one
 
 No multi-layer UE decode, UE receive beam steering, automatic PMI-driven beam control or two-user same-PRB MU-MIMO is part of this decision.
 

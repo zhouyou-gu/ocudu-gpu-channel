@@ -1164,5 +1164,183 @@
     }
   ],
   "inline_svg_count": 22,
-  "legacy_id_count": 82
+  "legacy_id_count": 82,
+  "technical_reference_diagrams": [
+    {
+      "source": "docs/index.html SVG 1",
+      "destination": "docs/assets/diagrams/reference-01.svg",
+      "viewBox": "0 0 1000 220",
+      "original_body_sha256": "88d2366208643282e2fca11595baa47586b91ca81bdc4c77ecc94657e741fd1e",
+      "xml_body_sha256": "88d2366208643282e2fca11595baa47586b91ca81bdc4c77ecc94657e741fd1e",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 2",
+      "destination": "docs/assets/diagrams/reference-02.svg",
+      "viewBox": "0 0 700 380",
+      "original_body_sha256": "9467655a3516bcf6988db9690e3d3c58388589bcf038926f185c7e387a628904",
+      "xml_body_sha256": "9467655a3516bcf6988db9690e3d3c58388589bcf038926f185c7e387a628904",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 3",
+      "destination": "docs/assets/diagrams/reference-03.svg",
+      "viewBox": "0 0 1000 220",
+      "original_body_sha256": "302bbd49dfc3a136a28460de973531614839e96e9f465730383abdd8e5526621",
+      "xml_body_sha256": "302bbd49dfc3a136a28460de973531614839e96e9f465730383abdd8e5526621",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 4",
+      "destination": "docs/assets/diagrams/reference-04.svg",
+      "viewBox": "0 0 1000 470",
+      "original_body_sha256": "dd15bc6d8d70f8b8ada93e71ffe08058117b9325b8092c512547766231adee92",
+      "xml_body_sha256": "dd15bc6d8d70f8b8ada93e71ffe08058117b9325b8092c512547766231adee92",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 5",
+      "destination": "docs/assets/diagrams/reference-05.svg",
+      "viewBox": "0 0 1000 250",
+      "original_body_sha256": "1036070f3b0509e5529d9f5dbc5e47e00ecb35eca6772f0dcc4245b7eb2c6b49",
+      "xml_body_sha256": "1036070f3b0509e5529d9f5dbc5e47e00ecb35eca6772f0dcc4245b7eb2c6b49",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 6",
+      "destination": "docs/assets/diagrams/reference-06.svg",
+      "viewBox": "0 0 1000 295",
+      "original_body_sha256": "ea90342eb654c8f234bbe5ebfadcdfbd0e2607d1efc6122ef3e29626ecbb52b5",
+      "xml_body_sha256": "ea90342eb654c8f234bbe5ebfadcdfbd0e2607d1efc6122ef3e29626ecbb52b5",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 7",
+      "destination": "docs/assets/diagrams/reference-07.svg",
+      "viewBox": "0 0 1000 330",
+      "original_body_sha256": "506133d5e7fdda54489a1109ba5ba6907d5431b3adc32097456dedecdfac2950",
+      "xml_body_sha256": "506133d5e7fdda54489a1109ba5ba6907d5431b3adc32097456dedecdfac2950",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 8",
+      "destination": "docs/assets/diagrams/reference-08.svg",
+      "viewBox": "0 0 1000 480",
+      "original_body_sha256": "f27815975b07022d55cff1f55b4f64502ab0d5130cac1daab792f0e2ac550e0e",
+      "xml_body_sha256": "f27815975b07022d55cff1f55b4f64502ab0d5130cac1daab792f0e2ac550e0e",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 9",
+      "destination": "docs/assets/diagrams/reference-09.svg",
+      "viewBox": "0 0 1000 240",
+      "original_body_sha256": "a1f0f838e137e07528f31a72f7ceefaefc95dba64aa61ece8e59b5b8acb9648c",
+      "xml_body_sha256": "a1f0f838e137e07528f31a72f7ceefaefc95dba64aa61ece8e59b5b8acb9648c",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 10",
+      "destination": "docs/assets/diagrams/reference-10.svg",
+      "viewBox": "0 0 1000 200",
+      "original_body_sha256": "c597619f824df1e69eb17e6bbe065f0aa4c9b2c54ee77d9217521b0e30b6cfaa",
+      "xml_body_sha256": "c597619f824df1e69eb17e6bbe065f0aa4c9b2c54ee77d9217521b0e30b6cfaa",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 11",
+      "destination": "docs/assets/diagrams/reference-11.svg",
+      "viewBox": "0 0 1000 380",
+      "original_body_sha256": "621a6bf9f5a3fb0e8db89cfc60428f1cbd448ae9e6f26405dc12eccebe44f8a0",
+      "xml_body_sha256": "621a6bf9f5a3fb0e8db89cfc60428f1cbd448ae9e6f26405dc12eccebe44f8a0",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 12",
+      "destination": "docs/assets/diagrams/reference-12.svg",
+      "viewBox": "0 0 1000 320",
+      "original_body_sha256": "ba25c5c13d4a2ddb1c3f2879b4ab80bcd223504c6f1b6a1a12f965db054e9ff7",
+      "xml_body_sha256": "ba25c5c13d4a2ddb1c3f2879b4ab80bcd223504c6f1b6a1a12f965db054e9ff7",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 13",
+      "destination": "docs/assets/diagrams/reference-13.svg",
+      "viewBox": "0 0 1000 260",
+      "original_body_sha256": "0cd5add39d46dd13cff6738c31089ebfe24068fc8b4ccf784888868c1b57577a",
+      "xml_body_sha256": "0cd5add39d46dd13cff6738c31089ebfe24068fc8b4ccf784888868c1b57577a",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 14",
+      "destination": "docs/assets/diagrams/reference-14.svg",
+      "viewBox": "0 0 1000 340",
+      "original_body_sha256": "f5360e29d09ec0de9cd925e890d528406555c0a88ea8c39608a3e5d2d0b3356f",
+      "xml_body_sha256": "f5360e29d09ec0de9cd925e890d528406555c0a88ea8c39608a3e5d2d0b3356f",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 15",
+      "destination": "docs/assets/diagrams/reference-15.svg",
+      "viewBox": "0 0 1000 410",
+      "original_body_sha256": "83e033150fb9400e67f67e0ebeaf366a7a66b043e8a9436f2a8fc8a1e5f1b7ec",
+      "xml_body_sha256": "83e033150fb9400e67f67e0ebeaf366a7a66b043e8a9436f2a8fc8a1e5f1b7ec",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 16",
+      "destination": "docs/assets/diagrams/reference-16.svg",
+      "viewBox": "0 0 1000 320",
+      "original_body_sha256": "b946503d2e2a492f855b9c11dbbf0f28eeec10526bc9bc461508355f3a27ce20",
+      "xml_body_sha256": "6ff1a4b4007ba658a359ec0f73b9dbe32675306a3e5eb1e262ec49e8668b1d33",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 17",
+      "destination": "docs/assets/diagrams/reference-17.svg",
+      "viewBox": "0 0 1000 180",
+      "original_body_sha256": "97c53cea441ece693dc3faf5108d42263bfe00885b06b66f11c8e2c11769f9c6",
+      "xml_body_sha256": "97c53cea441ece693dc3faf5108d42263bfe00885b06b66f11c8e2c11769f9c6",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 18",
+      "destination": "docs/assets/diagrams/reference-18.svg",
+      "viewBox": "0 0 1000 280",
+      "original_body_sha256": "0cfd59ca12beec6697a7b5649592c740804a0413dfbe87a4eab1ec995bb26226",
+      "xml_body_sha256": "0cfd59ca12beec6697a7b5649592c740804a0413dfbe87a4eab1ec995bb26226",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 19",
+      "destination": "docs/assets/diagrams/reference-19.svg",
+      "viewBox": "0 0 1000 470",
+      "original_body_sha256": "5512a33e0c3752e9dd8791abbad48a913dd43a21a8ddf9316da262c1b8f1f8a6",
+      "xml_body_sha256": "5512a33e0c3752e9dd8791abbad48a913dd43a21a8ddf9316da262c1b8f1f8a6",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 20",
+      "destination": "docs/assets/diagrams/reference-20.svg",
+      "viewBox": "0 0 1000 450",
+      "original_body_sha256": "d10baaaccda61c95bb127e77739edca48ba3b4b68b99284ad141523ed55eaf81",
+      "xml_body_sha256": "d10baaaccda61c95bb127e77739edca48ba3b4b68b99284ad141523ed55eaf81",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 21",
+      "destination": "docs/assets/diagrams/reference-21.svg",
+      "viewBox": "0 0 1000 380",
+      "original_body_sha256": "51bacab71c6f5568d291818b06ed53a891aa538802b41b81a131db68c9cf6575",
+      "xml_body_sha256": "51bacab71c6f5568d291818b06ed53a891aa538802b41b81a131db68c9cf6575",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    },
+    {
+      "source": "docs/index.html SVG 22",
+      "destination": "docs/assets/diagrams/reference-22.svg",
+      "viewBox": "0 0 1000 430",
+      "original_body_sha256": "052ad4c4958a5bfabfa6eef4e0dd95835e1b77160b830ef6668698cd94d3ded7",
+      "xml_body_sha256": "052ad4c4958a5bfabfa6eef4e0dd95835e1b77160b830ef6668698cd94d3ded7",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+    }
+  ]
 }

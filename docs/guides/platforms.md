@@ -16,7 +16,7 @@ milestone logs hold the measurements.
 | `cudaDevAttrIntegrated` / `ConcurrentManagedAccess` / `PageableMemoryAccessUsesHostPageTables` | 0 / 1 / 0 | 1 / 1 / 1 | 1 / 0 / 0 |
 | OS | Ubuntu 24.04 | DGX OS 7.5 (Ubuntu 24.04) host, Ubuntu 24.04 container | JetPack 6.x host, Ubuntu 22.04 container |
 | Role | reference and regression host, C track (CUDA gNB) | S and Z tracks, OAI MIMO gates, X track, S17 | J track, Z6 |
-| Milestone logs | `CUDA_MILESTONES.md`, `docs/plans/m*.md` | `SPARK_MILESTONES.md`, `ZERO_COPY_MILESTONES.md`, `CROSSTALK_MILESTONES.md` | `JETSON_MILESTONES.md` |
+| Milestone logs | `CUDA_MILESTONES.md`, [multi-port design history](../history/designs/README.md) | `SPARK_MILESTONES.md`, `ZERO_COPY_MILESTONES.md`, `CROSSTALK_MILESTONES.md` | `JETSON_MILESTONES.md` |
 
 ## What differs per platform
 
@@ -71,7 +71,7 @@ The CUDA architecture follows the lock (120 / 121 / 87); the broker's own
 build takes `OCUDU_NATIVE_CUDA_ARCH` (default 120, GB10 121, Orin 87). A CUDA
 gNB that shares the GPU with the broker runs under MPS by default
 (`OCUDU_NATIVE_MPS=auto`), and `runtime.cuda_stream_priority` can raise the
-broker's stream inside that shared context. `docs/cuda-ocudu-integration.html`
+broker's stream inside that shared context. [CUDA gNB guide](cuda-gnb.md)
 explains what the C1 patch changes and why.
 
 ### Local patches to the CPU stack (all platforms, build-time, pinned trees untouched)
@@ -123,7 +123,7 @@ host-wide privileges beyond that (`scripts/native/README.md`).
   `/home/ubuntu/ocudu-native-workspace`), provisioned without sudo or Docker.
 - The CUDA gNB tree and build live next to it; the default lock is the 5090
   one, so nothing has to be exported.
-- `docs/project-structure.md` describes the remote-workspace layout the
+- [Project structure](../development/project-structure.md) describes the remote-workspace layout the
   `scripts/remote/*` helpers assume (`.config`, kept out of Git).
 
 ### DGX Spark (GB10)
@@ -173,6 +173,6 @@ host-wide privileges beyond that (`scripts/native/README.md`).
 - `ZERO_COPY_MILESTONES.md`: Z0-Z8, zero-copy on both integrated GPUs.
 - `JETSON_MILESTONES.md`: J0-J9 on the Orin (container, vendor validation,
   D6/D7, live OAI 1x1 and 2x2, CPU placement, D10).
-- `CROSSTALK_MILESTONES.md` and `docs/plans/x3|x5|x6|x7`: UE-to-UE
+- `CROSSTALK_MILESTONES.md` and [X-track reports](../reports/experiments/README.md): UE-to-UE
   interference and gNB real time under load on the GB10.
-- `docs/plans/m6-rank2-su-mimo-live.md`: OAI 2x2 rank 2 on the 5090.
+- [M6 rank-2 evidence](../history/designs/m6-rank2-su-mimo-live.md): OAI 2x2 rank 2 on the 5090.

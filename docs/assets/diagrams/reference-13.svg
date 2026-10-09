@@ -1,61 +1,61 @@
-<svg font-family="SF Mono,Menlo,monospace" font-size="12" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 260" xmlns="http://www.w3.org/2000/svg">
-<defs>
-<marker id="ar" markerheight="9" markerwidth="9" orient="auto" refx="7" refy="4.5">
-<path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"></path>
-</marker>
-</defs>
-<text fill="#9aa7bd" x="20" y="34">one 1 ms slot — 23 040 IQ samples (device_staged · DEVICE class)</text>
-<g>
-<g fill="#0b101a" stroke="#5db1ff">
-<rect height="34" width="48" x="20" y="44"></rect>
-<rect height="34" width="48" x="68" y="44"></rect>
-<rect height="34" width="48" x="116" y="44"></rect>
-<rect height="34" width="48" x="164" y="44"></rect>
-<rect height="34" width="48" x="212" y="44"></rect>
-<rect height="34" width="60" x="800" y="44"></rect>
-</g>
-<g fill="#5db1ff" text-anchor="middle">
-<text x="44" y="65">s0</text>
-<text x="92" y="65">s1</text>
-<text x="140" y="65">s2</text>
-<text x="188" y="65">s3</text>
-<text x="236" y="65">s4</text>
-<text x="830" y="65">s23039</text>
-</g>
-<text fill="#9aa7bd" x="300" y="65">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
-</g>
-<g marker-end="url(#ar)" stroke="#5db1ff">
-<line x1="44" x2="44" y1="80" y2="156"></line>
-<line x1="92" x2="92" y1="80" y2="156"></line>
-<line x1="140" x2="140" y1="80" y2="156"></line>
-<line x1="188" x2="188" y1="80" y2="156"></line>
-<line x1="236" x2="236" y1="80" y2="156"></line>
-<line x1="830" x2="830" y1="80" y2="156"></line>
-</g>
-<text fill="#9aa7bd" font-size="11" x="20" y="118">GPU threads — one per sample, all running concurrently</text>
-<g fill="#0b101a" stroke="#5db1ff">
-<rect height="34" width="48" x="20" y="160"></rect>
-<rect height="34" width="48" x="68" y="160"></rect>
-<rect height="34" width="48" x="116" y="160"></rect>
-<rect height="34" width="48" x="164" y="160"></rect>
-<rect height="34" width="48" x="212" y="160"></rect>
-<rect height="34" width="60" x="800" y="160"></rect>
-</g>
-<g fill="#5db1ff" text-anchor="middle">
-<text x="44" y="181">t0</text>
-<text x="92" y="181">t1</text>
-<text x="140" y="181">t2</text>
-<text x="188" y="181">t3</text>
-<text x="236" y="181">t4</text>
-<text x="830" y="181">t23039</text>
-</g>
-<text fill="#9aa7bd" x="300" y="181">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
-<g fill="none" stroke="#ffb454">
-<rect height="42" rx="4" width="244" x="16" y="156"></rect>
-</g>
-<text fill="#ffb454" text-anchor="middle" x="138" y="216">block 0 — 256 threads</text>
-<text fill="#9aa7bd" x="290" y="216">block 1 · · · block 89</text>
-<text fill="#cdd6e6" x="20" y="248">
+<svg xmlns="http://www.w3.org/2000/svg" style="background:#0f1420;color:#e7ecf5;--bg:#0f1420;--panel:#1a2233;--ink:#e7ecf5;--muted:#9aa7bd;--edge:#2c3850;--accent:#5db1ff;--warm:#ffb454;--good:#6fd08c;--cell:#0b101a" viewBox="0 0 1000 260" font-family="SF Mono,Menlo,monospace" font-size="12">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#5db1ff"/>
+      </marker>
+    </defs>
+    <text x="20" y="34" fill="#9aa7bd">one 1 ms slot — 23 040 IQ samples (device_staged · DEVICE class)</text>
+    <g>
+      <g fill="#0b101a" stroke="#5db1ff">
+        <rect x="20"  y="44" width="48" height="34"/>
+        <rect x="68"  y="44" width="48" height="34"/>
+        <rect x="116" y="44" width="48" height="34"/>
+        <rect x="164" y="44" width="48" height="34"/>
+        <rect x="212" y="44" width="48" height="34"/>
+        <rect x="800" y="44" width="60" height="34"/>
+      </g>
+      <g fill="#5db1ff" text-anchor="middle">
+        <text x="44"  y="65">s0</text>
+        <text x="92"  y="65">s1</text>
+        <text x="140" y="65">s2</text>
+        <text x="188" y="65">s3</text>
+        <text x="236" y="65">s4</text>
+        <text x="830" y="65">s23039</text>
+      </g>
+      <text x="300" y="65" fill="#9aa7bd">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
+    </g>
+    <g stroke="#5db1ff" marker-end="url(#ar)">
+      <line x1="44"  y1="80" x2="44"  y2="156"/>
+      <line x1="92"  y1="80" x2="92"  y2="156"/>
+      <line x1="140" y1="80" x2="140" y2="156"/>
+      <line x1="188" y1="80" x2="188" y2="156"/>
+      <line x1="236" y1="80" x2="236" y2="156"/>
+      <line x1="830" y1="80" x2="830" y2="156"/>
+    </g>
+    <text x="20" y="118" fill="#9aa7bd" font-size="11">GPU threads — one per sample, all running concurrently</text>
+    <g fill="#0b101a" stroke="#5db1ff">
+      <rect x="20"  y="160" width="48" height="34"/>
+      <rect x="68"  y="160" width="48" height="34"/>
+      <rect x="116" y="160" width="48" height="34"/>
+      <rect x="164" y="160" width="48" height="34"/>
+      <rect x="212" y="160" width="48" height="34"/>
+      <rect x="800" y="160" width="60" height="34"/>
+    </g>
+    <g fill="#5db1ff" text-anchor="middle">
+      <text x="44"  y="181">t0</text>
+      <text x="92"  y="181">t1</text>
+      <text x="140" y="181">t2</text>
+      <text x="188" y="181">t3</text>
+      <text x="236" y="181">t4</text>
+      <text x="830" y="181">t23039</text>
+    </g>
+    <text x="300" y="181" fill="#9aa7bd">· · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</text>
+    <g stroke="#ffb454" fill="none">
+      <rect x="16" y="156" width="244" height="42" rx="4"/>
+    </g>
+    <text x="138" y="216" fill="#ffb454" text-anchor="middle">block 0 — 256 threads</text>
+    <text x="290" y="216" fill="#9aa7bd">block 1 · · · block 89</text>
+    <text x="20" y="248" fill="#cdd6e6">
       grid = ⌈23040 / 256⌉ = 90 blocks  ·  90 × 256 = 23 040 threads  ·  dispatched across the SMs as 32-thread warps
     </text>
-</svg>
+  </svg>

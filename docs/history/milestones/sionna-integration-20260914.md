@@ -243,7 +243,7 @@ RRC/PDU logs and restored traffic establish UE connectivity, not CUDA readiness.
 The root contributor explanation, handover and milestone notes were retired
 from the release checkout. Their original contents and authorship remain in
 Git. Historical design and measurement context is collected in the
-[rank-1 report supplement](../translations/ko/rank1-feasibility-report.md#historical-design-and-measurement-context).
+[rank-1 report supplement](../translations/ko/rank1-feasibility-report.md).
 
 ## Channel-generation profiling
 

@@ -62,6 +62,8 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 
 ## Documentation and Handoff
 
+- Maintain current English guidance in the Markdown site; link canonical glossary, status and interface pages. Preserve dated evidence and legacy routes, and validate the built artifact before publication.
+
 - Preserve wording that works and make the smallest scoped edit. Inspect user edits first and treat them as intentional unless context contradicts them.
 - Write concise, natural technical English for informed newcomers. Define concepts before using them; structure arguments as problem, limitation, method, contribution and evidence.
 - Support implementation claims with source/version/date or runtime evidence. Separate facts, design choices, inference and open questions; parser acceptance is not runtime proof.

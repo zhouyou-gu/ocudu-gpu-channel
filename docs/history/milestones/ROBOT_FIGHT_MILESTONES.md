@@ -138,7 +138,7 @@ R0–R2는 서로 독립(병렬 가능), R3부터 직렬.
 
 **인터페이스.** `scripts/sionna_rt/run_bridge.py`에 `--position-endpoint <zmq>`(SUB, connect), `--position-frame-offset x,y,z`(아레나 원점을 씬 미터로; 모든 라이브 위치에 더함), `--position-timeout-s`(기본 1.0) 추가. 플래그가 없으면 `update_positions`는 이전과 같은 코드 경로(스크립트 Motion)를 탄다. 메시지는 R2가 정한 그대로:
 
-```json
+```text
 {"event":"positions","t_unix_ms":1790000000000,"frame":"arena",
  "nodes":{"ue0":{"position_m":[x,y,z],"velocity_mps":[vx,vy,vz]},"ue1":{...}}}
 ```

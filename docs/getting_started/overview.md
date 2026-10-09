@@ -4,11 +4,13 @@
 
 ## Overview
 
-ocudu-gpu-channel is a real-time, in-the-loop channel emulator that sits between live SDR stacks (OCUDU runtime, srsRAN gNB/UE) over ZMQ and applies CUDA channel models with a 5G NR slot-time budget. Deadline compliance requires measured qualification. This doc is the implementation reference — it assumes you have already read the [`README`](https://github.com/zhouyou-gu/ocudu-gpu-channel#readme) for positioning and quick-start.
+The emulator sits between radio endpoints, transports complex IQ samples over ZMQ, and applies channel effects before each receiver consumes them. CUDA is the primary processing target; the CPU backend provides a reference route. Deadline compliance requires measured qualification for the actual workload.
 
-**Single-antenna radios and multi-port radios.** Parts I–VI describe the engine on a graph of single-antenna radios, where one radio is one ZMQ endpoint pair and one edge is one scalar channel. That is the whole system for a 1×1 deployment and it is where a first reading should start. [Part VII](../concepts/radio-topology.md#part-vii) adds the overlay for radios with several antenna ports: several ports are grouped into one radio node, a link between two such radios carries an `Nt × Nr` matrix, and every coefficient of that matrix belongs to one sample epoch. There is no second engine underneath — a multi-port link expands into ordinary per-edge lanes, and a single-port topology is the `Nt = Nr = 1` case of the same path, byte for byte.
+The [architecture](../concepts/architecture.md) explains the data path. A single-port topology is the simplest case. A [multi-port radio](../concepts/radio-topology.md) groups transport ports under one radio node; an edge between radios carries an `Nr × Nt` receive-by-transmit matrix, with all coefficients sharing a sample epoch. Both forms use the same engine.
 
-**Slot length and SCS.** The slot deadline depends on the subcarrier spacing: **1 ms at 15 kHz SCS**, **500 µs at 30 kHz SCS** (the bench default and the [§20](../reports/performance/measured-boundaries.md#perf) measurement frame), and 250 µs at 60 kHz SCS. Where this document says "1 ms slot" it refers to the 15 kHz case; the perf section and latency gate use the 30 kHz / 500 µs target. The bench is invoked with `--scs-khz N` and the green/yellow/red gate scales to the chosen N.
+**Slot length and subcarrier spacing (SCS).** A radio slot lasts 1 ms at 15 kHz SCS, 500 µs at 30 kHz, and 250 µs at 60 kHz. The benchmark defaults to 30 kHz and accepts `--scs-khz N`; its latency thresholds follow that choice. The broker's processing-call and nominal-batch accounting are described in [telemetry](../reference/telemetry.md). Consult the [measured performance report](../reports/performance/measured-boundaries.md) for the original benchmark setup and limits.
+
+Next, read [current status](status.md), [requirements](requirements.md), and [installation](installation.md), then follow the [first synthetic run](first-run.md).
 
 ## Where this fits
 

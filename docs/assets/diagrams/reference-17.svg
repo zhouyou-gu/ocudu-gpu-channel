@@ -1,18 +1,21 @@
-<svg font-family="SF Mono,Menlo,monospace" font-size="11" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 180" xmlns="http://www.w3.org/2000/svg">
-<text fill="#cdd6e6" font-size="12" text-anchor="middle" x="500" y="20">Diagram TA · three test layers, fast → slow, narrow → broad</text>
-<!-- Layer 1: HOST class (runs locally, host-only on CPU build) -->
-<rect fill="#13391f" height="36" rx="6" stroke="#6fd08c" stroke-width="1.6" width="880" x="60" y="40"></rect>
-<text fill="#6fd08c" font-size="11" x="80" y="62">Layer 1 · ctest 8/8</text>
-<text fill="#cdd6e6" font-size="11" text-anchor="middle" x="500" y="62">config · ring · processing (largest) · broker</text>
-<text fill="#9aa7bd" font-size="10" text-anchor="end" x="920" y="62">~3 s · per commit</text>
-<!-- Layer 2: DEVICE class (remote GPU + CUDA broker) -->
-<rect fill="#0b101a" height="36" rx="6" stroke="#5db1ff" stroke-width="1.6" width="880" x="60" y="86"></rect>
-<text fill="#5db1ff" font-size="11" x="80" y="108">Layer 2 · gpu-test-sequence.sh · 9 stages</text>
-<text fill="#cdd6e6" font-size="11" text-anchor="middle" x="500" y="108">build + CTest + 6 relay scenarios + live correlation control</text>
-<text fill="#9aa7bd" font-size="10" text-anchor="end" x="920" y="108">~2 min · pre-ship</text>
-<!-- Layer 3: EXTERNAL class (live real radio stacks outside this codebase) -->
-<rect fill="#181f2e" height="36" rx="6" stroke="#cdd6e6" stroke-width="1.6" width="880" x="60" y="132"></rect>
-<text fill="#cdd6e6" font-size="11" x="80" y="154">Layer 3 · OCUDU + srsRAN smoke</text>
-<text fill="#cdd6e6" font-size="11" text-anchor="middle" x="500" y="154">Milestone A / B / C — live Docker gNB + UE attach + ping</text>
-<text fill="#9aa7bd" font-size="10" text-anchor="end" x="920" y="154">~5–10 min · milestone</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" style="background:#0f1420;color:#e7ecf5;--bg:#0f1420;--panel:#1a2233;--ink:#e7ecf5;--muted:#9aa7bd;--edge:#2c3850;--accent:#5db1ff;--warm:#ffb454;--good:#6fd08c;--cell:#0b101a" viewBox="0 0 1000 180" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram TA · three test layers, fast → slow, narrow → broad</text>
+
+    <!-- Layer 1: HOST class (runs locally, host-only on CPU build) -->
+    <rect x="60" y="40" width="880" height="36" rx="6" fill="#13391f" stroke="#6fd08c" stroke-width="1.6"/>
+    <text x="80"  y="62" fill="#6fd08c" font-size="11">Layer 1 · ctest 8/8</text>
+    <text x="500" y="62" fill="#cdd6e6" text-anchor="middle" font-size="11">config · ring · processing (largest) · broker</text>
+    <text x="920" y="62" fill="#9aa7bd" text-anchor="end" font-size="10">~3 s · per commit</text>
+
+    <!-- Layer 2: DEVICE class (remote GPU + CUDA broker) -->
+    <rect x="60" y="86" width="880" height="36" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="80"  y="108" fill="#5db1ff" font-size="11">Layer 2 · gpu-test-sequence.sh · 9 stages</text>
+    <text x="500" y="108" fill="#cdd6e6" text-anchor="middle" font-size="11">build + CTest + 6 relay scenarios + live correlation control</text>
+    <text x="920" y="108" fill="#9aa7bd" text-anchor="end" font-size="10">~2 min · pre-ship</text>
+
+    <!-- Layer 3: EXTERNAL class (live real radio stacks outside this codebase) -->
+    <rect x="60" y="132" width="880" height="36" rx="6" fill="#181f2e" stroke="#cdd6e6" stroke-width="1.6"/>
+    <text x="80"  y="154" fill="#cdd6e6" font-size="11">Layer 3 · OCUDU + srsRAN smoke</text>
+    <text x="500" y="154" fill="#cdd6e6" text-anchor="middle" font-size="11">Milestone A / B / C — live Docker gNB + UE attach + ping</text>
+    <text x="920" y="154" fill="#9aa7bd" text-anchor="end" font-size="10">~5–10 min · milestone</text>
+  </svg>

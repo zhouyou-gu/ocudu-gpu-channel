@@ -16,7 +16,7 @@ OCUDU_CHANNEL_BUILD="$PWD/build" \
 bash scripts/local/run_synthetic_web_ui.sh single
 ```
 
-This starts sources, broker, sinks, bridge and dashboard. It prints the local HTTP URL after a Sionna update and HTTP readiness; logs are printed on exit. The default demo duration is 60 seconds. `OCUDU_SIONNA_DEMO_DURATION_SECONDS=0` keeps the scene running until interrupted. Stop with Ctrl-C; the launcher cleans up its children.
+This starts sources, broker, sinks, bridge and dashboard. It prints the local HTTP URL after a Sionna update and HTTP readiness; logs are printed on exit. The default demo duration is 60 seconds. `OCUDU_SIONNA_DEMO_DURATION_SECONDS=0` keeps the scene running until interrupted. Stop with Ctrl-C; the launcher cleans up its children. For a browser on another computer, follow the [dashboard SSH tunnel instructions](dashboard.md).
 
 For an existing broker, use:
 

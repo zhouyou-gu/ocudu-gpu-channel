@@ -5,6 +5,7 @@ Recorded correctness, integration and recovery checks; each report identifies it
 ```{toctree}
 :maxdepth: 1
 
+documentation-migration-20261009
 live-gate-results
 main-merge-validation
 metrics-recovery-validation

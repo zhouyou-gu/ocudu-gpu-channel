@@ -15,7 +15,7 @@ myst_heading_anchors = 6
 html_theme = 'furo'
 html_title = 'OCUDU GPU Channel'
 html_static_path = ['assets']
-html_css_files = ['docs.css', 'legacy-diagrams.css']
+html_css_files = ['legacy-diagrams.css', 'docs.css']
 html_favicon = 'assets/branding/favicon.svg'
 html_baseurl = 'https://zhouyou-gu.github.io/ocudu-gpu-channel/'
 html_theme_options = {'navigation_with_keys': True, 'sidebar_hide_name': False}
@@ -24,4 +24,4 @@ html_copy_source = False
 html_use_index = False
 
 # Published GitHub source entrypoints; canonical pages are included instead.
-exclude_patterns += ['distributed.md', 'ocudu-interop.md', 'plans/device-channel-pipeline.md', 'plans/runtime-mutable-channel-v2.md', 'plans/runtime-mutable-channel-v3.md', 'plans/runtime-mutable-channel.md']
+exclude_patterns += ['distributed.md', 'main-merge-validation.md', 'ocudu-interop.md', 'plans/device-channel-pipeline.md', 'plans/runtime-mutable-channel-v2.md', 'plans/runtime-mutable-channel-v3.md', 'plans/runtime-mutable-channel.md', 'platforms.md', 'project-structure.md', 'sionna-integration.md', 'sionna-merge-fixes-validation.md']

@@ -19,7 +19,17 @@ charts. The doc's inline SVGs remain the primary narrative figures.
 | `perf-W-pcie-h2d.svg` | H2D µs vs PCIe 5.0 x4 ceiling — companion to Diagram W | `scripts/figures/regen_perf_figures.py` |
 | `sweep-2026-05-22.json` | Snapshot of `perf-fanin-sweep.sh` output (21 configs, CUDA backend, RTX 5090) | `scripts/remote/perf-fanin-sweep.sh` |
 
-## Regenerating the perf figures
+## Reproduction after the documentation migration
+
+The original commands below describe the recorded workspace. For a new run, fetch its sweep file into an untracked results directory and pass an explicit output directory:
+
+```sh
+python3 scripts/figures/regen_perf_figures.py /path/to/new/sweep.json --out /path/to/new/figures
+```
+
+Keep this dated evidence bundle unchanged. The historical blueprint is now in [generated history](../../../history/generated/Project_Architecture_Blueprint.md).
+
+## Original generation procedure
 
 ```sh
 # 1. (Optional) Re-run the sweep on the RTX workstation

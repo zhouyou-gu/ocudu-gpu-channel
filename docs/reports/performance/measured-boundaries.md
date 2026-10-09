@@ -239,6 +239,8 @@ Topology generator (`scripts/tools/gen_topology.py one-to-n N`) built configs fr
 
 ![Diagram O — p99 model_mix latency per config, CPU vs CUDA on the unified process_superposition path. CPU crosses the 500 µs slot deadline at 4+ edges. CUDA stays in green through 8 edges and yellow at 16. The CPU/CUDA speedup widens with edge count — from 4.6× at the single-edge config to 9.9× at the 16-edge stress topology — because the CUDA path fuses all edges into one launch while CPU loops linearly.](../../assets/diagrams/reference-19.svg)
 
+<a href="../../assets/diagrams/reference-19.svg">Open this diagram at full size</a>
+
 Diagram O — p99 model_mix latency per config, CPU vs CUDA on the unified `process_superposition` path. CPU crosses the 500 µs slot deadline at 4+ edges. CUDA stays in green through 8 edges and yellow at 16. The CPU/CUDA speedup widens with edge count — from 4.6× at the single-edge config to 9.9× at the 16-edge stress topology — because the CUDA path fuses all edges into one launch while CPU loops linearly.
 
 (perf-bottleneck)=
@@ -255,6 +257,8 @@ The CUDA per-call cost decomposes into three components that scale differently w
 Diagram T quantifies all three phases against N out to 64. The N=4 config is the last **green** point (p99 = 135 µs); N=16 is the last **yellow** point (425 µs, just under the 500 µs slot); **N=32 is the first red** (810 µs).
 
 ![Diagram T — Set 1 fan-in scaling at one RX node. Total p99 is roughly linear in N: doubles for each doubling of N. H2D dominates (~55 % of total at every N); kernel grows but stays small (5 → 54 µs); D2H is flat at ~19 µs. The 1-to-N sweep confirms the bench-mode boundary exactly: N = 16 is the last yellow point (425 µs), N = 32 is the first red (810 µs) .](../../assets/diagrams/reference-20.svg)
+
+<a href="../../assets/diagrams/reference-20.svg">Open this diagram at full size</a>
 
 Diagram T — Set 1 fan-in scaling at one RX node. Total p99 is roughly linear in N: doubles for each doubling of N. H2D dominates (~55 % of total at every N); kernel grows but stays small (5 → 54 µs); D2H is flat at ~19 µs. The 1-to-N sweep confirms the bench-mode boundary exactly: **N = 16 is the last yellow point (425 µs), N = 32 is the first red (810 µs)**.
 
@@ -308,6 +312,8 @@ Both rows are `one-to-n_N8` from the post-D4 `perf-fanin-sweep` on commit `d3b1a
 
 ![Diagram W — achieved H2D bandwidth on the gNB's superposition call ( perf-fanin-sweep.sh , May 25 2026, on the d3b1a15 build). At N = 1 the per-call transfer is 180 KiB and the link is launch-latency-bound (51 Gbps achieved). As N grows the payload grows linearly (180 KiB × N) and from N = 8 onwards achieved bandwidth asymptotes at ~107 Gbps ≈ 85 % of the 126 Gbps PCIe 5.0 x4 effective ceiling . Per-byte cost flattens; doubling N doubles H2D µs almost exactly. A gen 5 x16 link would lift the ceiling to ~504 Gbps and unlock another ~2× of headroom; the current workstation is capped here. (See the §20.6 prose above for why D4 source-rebuffering doesn't shift this curve on the one-to-N topology.)](../../assets/diagrams/reference-21.svg)
 
+<a href="../../assets/diagrams/reference-21.svg">Open this diagram at full size</a>
+
 Diagram W — achieved H2D bandwidth on the gNB's superposition call (`perf-fanin-sweep.sh`, May 25 2026, on the `d3b1a15` build). At N = 1 the per-call transfer is 180 KiB and the link is launch-latency-bound (51 Gbps achieved). As N grows the payload grows linearly (180 KiB × N) and from N = 8 onwards achieved bandwidth asymptotes at **~107 Gbps ≈ 85 % of the 126 Gbps PCIe 5.0 x4 effective ceiling**. Per-byte cost flattens; doubling N doubles H2D µs almost exactly. A gen 5 x16 link would lift the ceiling to ~504 Gbps and unlock another ~2× of headroom; the current workstation is capped here. (See the §20.6 prose above for why D4 source-rebuffering doesn't shift this curve on the one-to-N topology.)
 
 (perf-fanin)=
@@ -317,6 +323,8 @@ Diagram W — achieved H2D bandwidth on the gNB's superposition call (`perf-fani
 §20.2 noted that the bench is single-threaded and runs each RX node's `process_superposition` call sequentially, so its `p99` is the cost of the *worst single call* rather than the per-slot wall-clock. The 21-config fan-in sweep proves this empirically: every (M, N) configuration collapses onto the `max(M, N)` curve.
 
 ![Diagram U — every (M, N) configuration's bench p99 latency collapses onto the 1-N curve when plotted against max(M, N). The bench is single-threaded sequential, so its p99 is the cost of the slowest single process_superposition call — which is the device with the largest fan-in (a gNB with N incoming UL, or a UE with M incoming DL). This is a property of the bench, not the broker. The live broker dispatches per-node calls on parallel CUDA streams (Diagram I) which overlaps the work across the GPU; the per-slot wall-clock cost is ≤ max(M, N) + small overlap residual, not (M + N).](../../assets/diagrams/reference-22.svg)
+
+<a href="../../assets/diagrams/reference-22.svg">Open this diagram at full size</a>
 
 Diagram U — every (M, N) configuration's bench p99 latency collapses onto the 1-N curve when plotted against max(M, N). The bench is single-threaded sequential, so its p99 is the cost of the slowest single `process_superposition` call — which is the device with the largest fan-in (a gNB with N incoming UL, or a UE with M incoming DL). **This is a property of the bench, not the broker.** The live broker dispatches per-node calls on parallel CUDA streams (Diagram I) which overlaps the work across the GPU; the per-slot wall-clock cost is ≤ max(M, N) + small overlap residual, not (M + N).
 

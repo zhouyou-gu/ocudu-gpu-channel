@@ -1,8 +1,8 @@
-# OCUDU Runtime Interop
+# Live radio stacks
 
 Use this guide after the [synthetic tutorial](../getting_started/first-run.md). Select the Docker or native workflow in the sections below, preserve its pinned revisions, and inspect actual UE registration, PDU sessions and traffic. Historical milestone outcomes are evidence for their recorded setup, not a qualification of every current configuration.
 
-For the current Sionna two-gNB/two-UE implementation, one-dashboard subscriptions and separately pinned UE recovery build, see the [integration guide](../history/milestones/sionna-integration-20260914.md). Its qualification limits apply to that moving setup; the smokes below are separate gates.
+For shipping channel updates and one-dashboard subscriptions, use the [Sionna](sionna.md) and [dashboard](dashboard.md) guides. The [September integration record](../history/milestones/sionna-integration-20260914.md) preserves the separately pinned UE recovery build and moving-run evidence; the smokes below are separate gates.
 
 For the Docker-free, ordinary-user 1×1 gNB–UE attach path, see
 [`scripts/native/README.md`](../../scripts/native/README.md). It uses an isolated
@@ -68,7 +68,7 @@ The interop topology uses `batch_samples: 23040` because OCUDU's ZMQ radio excha
 
 The remote helper generates a temporary OCUDU Dockerfile under `configs/ocudu/<timestamp>/` that installs `libzmq3-dev` in the build stage and `libzmq5` in the runtime stage. It also passes `ZEROMQ_INCLUDE_DIRS=/usr/include` and `ZEROMQ_LIBRARIES=/usr/lib/x86_64-linux-gnu/libzmq.so` into the OCUDU CMake build. This works around the current OCUDU CMake finder looking for pkg-config module `ZeroMQ` while Ubuntu's development package exposes `libzmq`.
 
-## Milestone A: Sample-Flow Proof
+## Synthetic sample-flow check
 
 Run from the local repo after pushing the branch that contains the interop assets:
 
@@ -92,7 +92,7 @@ Pass criteria:
 - Synthetic UE source and sink report nonzero sample counts.
 - OCUDU logs do not show recurring late, underflow, overflow, fatal, or ZMQ failures.
 
-## Milestone B: Attach/Ping Proof
+## Live attach and traffic gate
 
 Run from the local repo after Milestone A is healthy:
 
@@ -113,107 +113,13 @@ Pass criteria:
 
 If srsUE build/runtime fails before attach while the broker path is otherwise intact, record the result as a UE-stack blocker, not as a CUDA broker failure.
 
-## Sionna RT + Web UI validation
+## Sionna and dashboard
 
-The bridge now reads node positions, directed links, model IDs, and TX/RX
-arrays from a JSON scenario file. It sends one `matrix_profile_swap` for each
-physical link. The Broker validates `Nt` and `Nr` against the topology's
-startup port lists, requires every `(rx_port, tx_port)` lane exactly once, and
-snaps the complete matrix at one slot boundary. Array dimensions cannot change
-during a run.
+Follow the [Sionna guide](sionna.md) for matching scene/topology inputs and supported synthetic or existing-broker launches. Follow the [dashboard guide](dashboard.md) for multiple scheduler subscriptions. The [control](../reference/control-api.md) and [telemetry](../reference/telemetry.md) references define the live interfaces.
 
-The four tracked scenario/topology pairs are:
+For actual radio gates, the [native workflow index](../../scripts/native/README.md) and [remote workflow index](../../scripts/remote/README.md) own the stack-specific commands and environment variables. Use the selected gate's exact pinned binaries and record both UE traffic streams and serving PCIs for multi-gNB runs.
 
-| Validation | Broker topology | Sionna scenario |
-|---|---|---|
-| single cell / UE | `use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/ocudu-docker.json` |
-| one cell / multiple UEs | `use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.multi-ue.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/ocudu-docker-multi-ue.json` |
-| interference + crosstalk graph | `use_cases/configs/topologies/basic/topology.graph.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/graph.json` |
-| two cells / eight directed links | `use_cases/configs/topologies/ocudu_docker/topology.multi-gnb.cuda.yaml` | `use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json` |
-
-The existing post-TDL chain remains active. For example, the near/far path
-loss and AWGN settings still apply after Sionna's instantaneous CIR. Models
-that previously had no TDL now contain a neutral leading impulse, so the
-static test behaves the same while a live Sionna profile has a prepared device
-path to replace.
-
-For a quick synthetic radio-flow check and a live dashboard, choose any pair:
-
-```bash
-cd /home/ubuntu/OCUDU/ocudu-gpu-channel
-./scripts/local/run_synthetic_web_ui.sh single
-./scripts/local/run_synthetic_web_ui.sh multi-ue
-./scripts/local/run_synthetic_web_ui.sh graph
-./scripts/local/run_synthetic_web_ui.sh multi-gnb
-```
-
-Run one command at a time. The launcher prints its temporary log directory and
-serves `http://127.0.0.1:8080`. The page shows Sionna positions and per-link
-matrix dimensions, lane-(0,0) taps, aggregate matrix power, control ACK
-sequence numbers, Broker application/warm-up state, slot latency, integrity
-counters, and CPU/GPU usage. Set `OCUDU_SIONNA_DEMO_DURATION_SECONDS=0` only
-when intentionally running until interrupted; the normal default is 60 s.
-
-For the full Docker-free single-cell attach, PDU, and ping verdict plus the
-same Web UI:
-
-```bash
-./scripts/native/run-ocudu-sionna-1x1.sh
-```
-
-For the full multi-UE remote gate:
-
-```bash
-OCUDU_MUE_CHANNEL_MODE=sionna \
-  ./scripts/remote/ocudu-multi-ue-smoke.sh
-```
-
-The multi-UE dashboard is `http://127.0.0.1:8080` on the execution host and its
-JSONL evidence is `results/logs/ocudu-multi-ue/<timestamp>/sionna-status.jsonl`.
-Use an SSH tunnel such as `ssh -L 8080:127.0.0.1:8080 <host>` when the gate runs
-remotely.
-
-### Local 2-gNB / 2-UE Sionna gate
-
-On a GPU host containing sibling `ocudu`, `ocudu-gpu-channel`, and
-`venvs/sionna` directories, run the complete two-cell test without configuring
-an SSH validation mirror:
-
-```bash
-cd /home/ubuntu/OCUDU/ocudu-gpu-channel
-./scripts/local/ocudu-gnb-ue-sionna-smoke.sh
-```
-
-The launcher drives the same validated eight-link multi-gNB topology from
-`use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json`, serves `http://127.0.0.1:8080`, and verifies both gNB
-cells, both UE RRC connections, both PDU sessions, both data-plane pings, live
-Sionna profile updates, and the broker telemetry feed. Override detected paths
-when needed with `OCUDU_MGNB_OCUDU_ROOT`, `OCUDU_MGNB_SIONNA_PYTHON`, or
-`OCUDU_MGNB_CUDA_COMPILER`; use `OCUDU_MGNB_WEB_PORT` to change the Web UI
-port.
-
-### Config-driven arrays and the fixed-MIMO boundary
-
-`array`, `tx_array`, and `rx_array` in a scenario accept `rows`, `cols`,
-`pattern`, and `polarization`. Per-link `Nt` is the source node's TX antenna
-count and `Nr` is the destination node's RX antenna count. The order is the
-Broker's canonical row-major order, `lane = rx_port * Nt + tx_port`.
-
-Changing only the JSON from 1×1 to 1×2 or 1×4 is intentionally rejected: the
-matching Broker `radio_nodes.tx_ports`/`rx_ports` and radio transport endpoints
-must also be present at startup. Runtime resizing would invalidate prepared
-CUDA buffers. A topology model with `fixed_mimo` is also rejected for dynamic
-matrix updates because zero coefficients may have pruned lanes at load time;
-use a normal leading-TDL model when Sionna owns the full matrix. Static
-`fixed_mimo` tests and their atomic physical-link control behavior are
-otherwise unchanged.
-
-The host must allow Docker to create bridge-network namespaces. Recent `runc`
-security fixes can expose an LXC/LXD AppArmor incompatibility that fails with
-`open sysctl net.ipv4.ip_unprivileged_port_start ... permission denied`. This
-must be fixed in the outer LXC/LXD host profile and followed by a guest restart;
-weakening or downgrading `runc` inside the guest is not part of this test. See
-the upstream [`runc` analysis](https://github.com/opencontainers/runc/issues/4968).
+The [October migration report](../reports/validation/structure-migration-20261009.md) records successful targeted live checks using pinned prebuilt images, plus provisioning limitations and two receive starvations. Existing bootstrap/image prerequisites still apply; that report does not qualify a clean-host rebuild or strict real-time operation.
 
 ## Failure Gates
 
@@ -225,3 +131,7 @@ Treat any of these as a failed real-time interop run:
 - unbounded queue growth or hidden buffering used to mask timing drift.
 
 Wi-Fi is acceptable only for SSH/control. IQ transport in this phase stays on the RTX host and Docker bridge.
+
+## Cleanup and diagnostics
+
+Use the selected gate’s cleanup routine and retain its run directory. Do not kill unrelated radio services. For failed attachment, inspect gNB/UE/core logs and endpoint mappings; for timing failures, retain all strict counters alongside the traffic result. See [troubleshooting](troubleshooting.md).

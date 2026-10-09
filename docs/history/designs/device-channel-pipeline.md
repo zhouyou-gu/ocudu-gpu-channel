@@ -475,6 +475,8 @@ needed.
 Phase 2 is now complete. The hard kernel work landed in D3; D4 closed
 the PCIe-duplication loop without breaking the CPU↔GPU parity invariant.
 
+(d7-considered-not-pursued)=
+
 ## D7 (considered, not pursued) — source `tx_ring` on the GPU
 
 A more aggressive version of D4 surfaced in discussion: keep the source's

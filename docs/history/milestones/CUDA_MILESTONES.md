@@ -343,4 +343,4 @@ WG의 "AI-RAN tensors" 인터페이스가 나오면 자체 훅 대신 그것을 
 - WG 레포: `gitlab.com/ocudu/work_groups/wg1_hw_accel/cuda_accelerated_ocudu` (브랜치 `nvcuda_accel_02`) — OCUDU 공식 GitLab 네임스페이스의 하드웨어 가속 WG1(DeepSig 주도). **main 미병합 작업 브랜치이지 릴리스가 아니다.**
 - WG 문서: `docs/phy_cuda_acceleration.md`(550줄, 빌드·YAML·벤치·검증), `lib/phy/cuda/README.md`(커널 라이브러리·런타임 노트)
 - 라이선스: **BSD-3-Clause-Open-MPI** (DeepSig Inc + Software Radio Systems Limited). 본문이 "with or without modification"을 명시적으로 허용한다. 조건(저작권 고지 유지·바이너리 배포 시 문서 재현·이름 이용 보증 금지)은 **재배포 시** 발동한다.
-- 이 레포: [`AGENT_GOAL.md`](../../../AGENT_GOAL.md)(미션·제약), [`RANK1_MILESTONES.md`](../../../RANK1_MILESTONES.md)(rank-1 근거·srsUE 제약·MCS 캡), `docs/plans/sionna-live-channel.md`(GPU placement)
+- 이 레포: [`AGENT_GOAL.md`](../../../AGENT_GOAL.md)(미션·제약), [`RANK1_MILESTONES.md`](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/44bfdc328f2d8cebf2b2cff417d8c01b89e0900e/RANK1_MILESTONES.md)(rank-1 근거·srsUE 제약·MCS 캡), `docs/plans/sionna-live-channel.md`(GPU placement)

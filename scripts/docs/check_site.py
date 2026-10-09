@@ -3,9 +3,11 @@
 import argparse
 import hashlib
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from bs4 import BeautifulSoup
+from update_cli_reference import render as render_cli
 
 
 def check(site, repo):
@@ -13,6 +15,12 @@ def check(site, repo):
     routes = json.loads((docs / '_compat/routes.json').read_text())
     inventory = json.loads((docs / '_compat/inventory.json').read_text())
     errors, ids, documents = [], {}, {}
+    if (docs / 'reference/cli.md').read_text() != render_cli():
+        errors.append('CLI reference differs from current entrypoint declarations')
+    for pointer in routes['source_pointers']:
+        path = repo / pointer
+        if not path.is_file() or path.stat().st_size > 2048:
+            errors.append(f'published source pointer missing or no longer concise: {pointer}')
     for file in site.rglob('*.html'):
         soup = BeautifulSoup(file.read_text(encoding='utf-8'), 'html.parser')
         documents[file.resolve()] = soup
@@ -24,6 +32,13 @@ def check(site, repo):
 
     def target_exists(origin, url):
         parsed = urlsplit(url)
+        repository_url = 'https://github.com/zhouyou-gu/ocudu-gpu-channel/'
+        for prefix in (repository_url + 'blob/main/', repository_url + 'tree/main/'):
+            if url.startswith(prefix):
+                target = repo / unquote(urlsplit(url[len(prefix):]).path)
+                if not target.exists():
+                    errors.append(f'{origin.relative_to(site)}: missing repository target {url}')
+                return
         if parsed.scheme or parsed.netloc or not parsed.path and not parsed.fragment:
             return
         path = unquote(parsed.path)
@@ -80,6 +95,18 @@ def check(site, repo):
     diagrams = list((docs / 'assets/diagrams').glob('reference-*.svg'))
     if len(diagrams) != inventory['inline_svg_count']:
         errors.append(f'expected {inventory["inline_svg_count"]} technical-reference SVGs; found {len(diagrams)}')
+    for record in inventory['technical_reference_diagrams']:
+        path = repo / record['destination']
+        try:
+            svg = ET.parse(path).getroot()
+            if svg.get('viewBox') != record['viewBox']:
+                errors.append(f'SVG viewBox changed: {path.name}')
+            text = path.read_text()
+            body = text[text.index('>') + 1:text.rindex('</svg>')]
+            if hashlib.sha256(body.encode()).hexdigest() != record['xml_body_sha256']:
+                errors.append(f'SVG drawing changed: {path.name}')
+        except (OSError, ET.ParseError, ValueError) as error:
+            errors.append(f'invalid SVG {path.name}: {error}')
     print(json.dumps({'html_pages':len(documents),'links':links,'legacy_fragments':len(routes['fragments']),
                       'evidence_files':evidence,'reference_diagrams':len(diagrams),'errors':errors}, indent=2))
     return bool(errors)

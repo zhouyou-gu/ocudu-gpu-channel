@@ -4,7 +4,7 @@
 
 ## System architecture — three layers
 
-Zooming out before zooming in: every IQ sample makes a round-trip through three layers per slot. The external SDR layer is the user's existing software stack; the broker is this project; the GPU is where every per-sample math operation actually executes.
+Zooming out before zooming in: every IQ sample makes a round-trip through three layers per slot. The external SDR layer is the user's existing software stack; the broker is this project; the GPU executes channel math on the primary device path. Static mixed models can use host staging, and the CPU reference follows the separate backend path described in [backends](../reference/backends.md).
 
 ```{raw} html
 <div class="legacy-diagram"><div class="tier-stack">
@@ -45,11 +45,13 @@ Diagram F — three layers, one direction per slot. IQ arrives over ZMQ, stages 
 
 ## End-to-end serve flow — one slot at a glance
 
-Diagram F (§3) showed the three layers; this section is the single most-useful diagram in the doc — one destination node's serve, start-to-finish. Every later section is a deep-dive into one box of this picture.
+Diagram F ([System architecture — three layers](architecture.md#section-3)) showed the three layers; this section is the single most-useful diagram in the doc — one destination node's serve, start-to-finish. Every later section is a deep-dive into one box of this picture.
 
 (arwmf)=
  ![Diagram MF — the canonical four-step serve. Every destination node loops this independently on its own thread + CUDA stream ( §16 Diagram I ). Deep dives: step 2 (align/read/pack) in §9 + §10 ; step 3 GPU pipeline in §11 (Diagram S) + §11.0 (op order) + §15 (memory map); step 4 throttle in §9 .](../assets/diagrams/reference-03.svg)
 
-Diagram MF — the canonical four-step serve. Every destination node loops this independently on its own thread + CUDA stream ([§16 Diagram I](../reference/backends.md#stream-concurrency)). Deep dives: step 2 (align/read/pack) in [§9](timing.md#alignment) + [§10](../reference/backends.md#staged); step 3 GPU pipeline in [§11](../reference/device-pipeline.md#kernels) (Diagram S) + [§11.0](../reference/device-pipeline.md#pipeline) (op order) + [§15](../reference/backends.md#signal-memory) (memory map); step 4 throttle in [§9](timing.md#alignment).
+<a href="../assets/diagrams/reference-03.svg">Open this diagram at full size</a>
+
+Diagram MF — the canonical four-step serve. Every destination node loops this independently on its own thread + CUDA stream ([Multi-stream concurrency — overlapping serves](../reference/backends.md#stream-concurrency)). Deep dives: step 2 (align/read/pack) in [Signal alignment and time discipline](timing.md#alignment) + [The staged buffer — packing N edges for one H2D](../reference/backends.md#staged); step 3 GPU pipeline in [The channel — applied per edge (device kernel by default, host fallback)](../reference/device-pipeline.md#kernels) (Diagram S) + [Pipeline op order — what each stream actually launches](../reference/device-pipeline.md#pipeline) (op order) + [Signal memory — pinned host buffers paired with device buffers](../reference/backends.md#signal-memory) (memory map); step 4 throttle in [Signal alignment and time discipline](timing.md#alignment).
 
 (part-iii)=

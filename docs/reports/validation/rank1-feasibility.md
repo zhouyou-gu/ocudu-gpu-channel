@@ -6,7 +6,7 @@ Engineering results · feasibility evidence
 
 The approved target of the integration assessment (`mimo-integration-report.html`, 2026-08-16) — DL 2×1 (then 4×1) MISO plus UL 1×2 (then 1×4) SIMO with srsUE kept at one antenna — has been **implemented and verified live, end to end**, on a real OCUDU gNB ↔ GPU channel broker ↔ srsUE 5G path. **All Sionna RT items are excluded as instructed** (owned by another team member; merged later).
 
-Workspace **ocudu-gpu-channel-rank1** · branch **rank1-miso-simo** Reported **2026-08-17** Every number measured · reproducible from the evidence index (§08) 
+Workspace **ocudu-gpu-channel-rank1** · branch **rank1-miso-simo** Reported **2026-08-17** Every number measured · reproducible from the evidence index (§08)
 (rank1-feasibility-s0)=
  00 · SUMMARY
 
@@ -14,7 +14,13 @@ Workspace **ocudu-gpu-channel-rank1** · branch **rank1-miso-simo** Reported **2
 
 In both the two-port and the four-port configuration, a real srsUE completes attach + PDU session + user-plane ping (60 packets, 0% loss); **within the same gate run** a wire capture is recomputed as y = H·x and judged against the declared channel vectors; and GPU processing stays inside the 1 ms slot budget. The live multi-port proof the assessment listed as a "Not yet demonstrated" delivery gate is closed, and the four integration constraints discovered along the way are each root-caused with the fix baked into the fixtures.
 
-2 / 2 gates pass2×1 and 4×1 live gates (attach + PDU + ping + matrix judgement), reproduced on a second host and harness ≤ 4.6e-05worst live y=Hx error (all UL rows; tolerance 1e-04) 12.9 µs4×1 GPU kernel p50 (1 ms slot budget) 0.01 dBoracle-precoding measurement vs prediction (MRT / duplication / null sweep) 
+| Recorded summary | Meaning |
+|---|---|
+| 2 / 2 gates pass | 2×1 and 4×1 live gates (attach + PDU + ping + matrix judgement), reproduced on a second host and harness |
+| ≤ 4.6e-05 | worst live y=Hx error (all UL rows; tolerance 1e-04) |
+| 12.9 µs | 4×1 GPU kernel p50 (1 ms slot budget) |
+| 0.01 dB | oracle-precoding measurement vs prediction (MRT / duplication / null sweep) |
+
 (rank1-feasibility-s1)=
  01 · FEASIBILITY VERDICT
 
@@ -29,7 +35,7 @@ The assessment (§01) judged the public remote snapshot `a801155`. The work sinc
 | Does it extend to 4×1 / 1×4? | Planned (gated on the two-port pass) | UL 1×4 yes (all four branches) · DL 4×1 procedure only (single branch) — `ocudu-rank1-4x1-smoke.sh` **result=pass**, all four UL rows pass y=Hx. DL transmit ports 1, 2 and 3 are declared silent, so the live downlink judgement reduces to the scalar y = h0·x0. |
 | Does srsUE stay rank-1? | Requirement | Kept — `nof_antennas = 1` unchanged, the 1×1 regression gate stays green, and every result is described as rank-1 MISO/SIMO only |
 
-**Operational definition of feasibility** — "does the real OCUDU stack and the real srsUE complete the standard procedure chain (RA → RRC → NAS registration → PDU → user plane) through the multi-port channel vectors we declare?" By that definition the answer is **Yes for both two and four ports.** 
+**Operational definition of feasibility** — "does the real OCUDU stack and the real srsUE complete the standard procedure chain (RA → RRC → NAS registration → PDU → user plane) through the multi-port channel vectors we declare?" By that definition the answer is **Yes for both two and four ports.**
 (rank1-feasibility-s2)=
  02 · LINEAGE
 
@@ -37,14 +43,14 @@ The assessment (§01) judged the public remote snapshot `a801155`. The work sinc
 
 BASELINE — pre-MIMO (public snapshot line a801155)
 
-#### One stream per node, one scalar channel per directed edge
+### One stream per node, one scalar channel per directed edge
 
 - Live 1×1 OCUDU↔srsUE attach, TR 38.901 TDL-A..E, GPU kernel (183× speedup), runtime control plane
 - No antenna-port dimension — the point where the assessment's "No" verdict was earned
 
 ▼ M0–M5 — MIMO rebuild (parent tree)
 
-#### The RadioNode overlay: alignment as a structural invariant, not a protocol
+### The RadioNode overlay: alignment as a structural invariant, not a protocol
 
 - One producer thread per node exclusively owns the common sample window — no second actor exists that could pick a different window for a sibling port
 - Port declaration order in `radio_nodes` IS the matrix index · sparse `fixed_mimo` coefficients · spatial correlation / coherent LOS
@@ -53,12 +59,12 @@ BASELINE — pre-MIMO (public snapshot line a801155)
 
 ▼ R0–R3 — the rank1 fork (this tree, aligned to the assessment minus Sionna)
 
-#### Asymmetric (N×1 / 1×N) configurations and live srsUE integration
+### Asymmetric (N×1 / 1×N) configurations and live srsUE integration
 
 - R0 asymmetric topology → R1 deterministic-channel proofs (phase sweep, branch isolation) → R2 live 2×1/1×2 → R3 4×1/1×4 plus a root-cause investigation
 - Then: matrix judgement folded into the gates · labelled performance envelopes · the oracle-precoding study
 
-**Why this path favoured feasibility** — the data-model changes the assessment's §07 required (endpoint arrays per port, per-direction vector channels, a grouped slot barrier, atomic vector activation) are structurally the same things M0–M5 had already built. The rank1 work was therefore integration and verification, not redesign: **outside one phase-sweep unit test, zero emulator-core C++ changed.** 
+**Why this path favoured feasibility** — the data-model changes the assessment's §07 required (endpoint arrays per port, per-direction vector channels, a grouped slot barrier, atomic vector activation) are structurally the same things M0–M5 had already built. The rank1 work was therefore integration and verification, not redesign: **outside one phase-sweep unit test, zero emulator-core C++ changed.**
 (rank1-feasibility-s3)=
  03 · REQUIREMENTS
 
@@ -77,7 +83,7 @@ BASELINE — pre-MIMO (public snapshot line a801155)
 | One logical slot boundary across gNB ports; atomic channel updates | The producer's single window (structural) plus M4's atomic control — the live y=Hx pass is itself the measured proof of alignment |
 | Zero starvation-class integrity errors · CPU/CUDA correctness · fully labelled performance | All gates: 0 overflow / 0 gap / 0 ZMQ errors · ctest 8/8 on both trees · the fully labelled table in §05 |
 
-**What is NOT claimed (per the brief's writing rules)** — rank\>1 SU-MIMO (a separate workstream in the parent tree), UE receive diversity or beam steering, automatic closed-loop PMI beam control, same-PRB MU-MIMO, or the phrase "end-to-end 4×4 MIMO". Duplication is never called diversity — the oracle study in fact proves duplication is **1.24 dB worse than MRT** (§05). 
+**What is NOT claimed (per the brief's writing rules)** — rank\>1 SU-MIMO (a separate workstream in the parent tree), UE receive diversity or beam steering, automatic closed-loop PMI beam control, same-PRB MU-MIMO, or the phrase "end-to-end 4×4 MIMO". Duplication is never called diversity — the oracle study in fact proves duplication is **1.24 dB worse than MRT** (§05).
 (rank1-feasibility-s4)=
  04 · LIVE GATES
 
@@ -87,25 +93,25 @@ The primary evidence is "does the real stack actually complete". Both gates are 
 
 ① Procedure completion
 
-#### RA → RRC → NAS registration → PDU → ping
+### RA → RRC → NAS registration → PDU → ping
 
 User-plane ICMP: 60 packets, 0% loss required
 
 ② Transport integrity
 
-#### Strict counters = 0
+### Strict counters = 0
 
 Zero overflow / sequence gap / ZMQ errors · zero gNB "Real-time failure in RF"
 
 ③ Channel content
 
-#### y = H·x recomputation
+### y = H·x recomputation
 
 A 500 ms wire capture flushed by the broker at shutdown is recomputed by an independent checker against the DECLARED topology H — it grades the computation, not the traffic
 
 ④ Provenance
 
-#### Reproducibility
+### Reproducibility
 
 Source-commit pins, binary/config SHA-256, and the channel source manifest preserved as JSON
 
@@ -118,7 +124,7 @@ Source-commit pins, binary/config SHA-256, and the channel source manifest prese
 | 1×1 srsUE regression | same day | pass | legacy path unregressed |
 | Standing GPU sequence | same day | 9/9 pass | synthetic relay · AWGN · graph · two-cell · TDL-A, etc. |
 
-Per-row UL RMS matches each declared coefficient magnitude \|h<sub>r</sub>\| to a relative error of ~6×10⁻⁷ (the fp32 floor) — **each of the gNB's 2/4 receive ports receives its own independent branch exactly, and OCUDU genuinely combines them in decoding.** That is the live proof of what the assessment called "the strongest end-to-end diversity target". 
+Per-row UL RMS matches each declared coefficient magnitude \|h<sub>r</sub>\| to a relative error of ~6×10⁻⁷ (the fp32 floor) — **each of the gNB's 2/4 receive ports receives its own independent branch exactly, and OCUDU genuinely combines them in decoding.** That is the live proof of what the assessment called "the strongest end-to-end diversity target".
 (rank1-feasibility-s5)=
  05 · QUANTITATIVE EVIDENCE
 

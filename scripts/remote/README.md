@@ -70,19 +70,9 @@ Output of every sweep lives under `~/ocudu-gpu-channel-workspace/results/<sweep_
 
 `scripts/remote/` is the supported live-test path and the one every live claim
 should cite. It provisions its own Docker network and 5GC, selects a free
-subnet instead of assuming one, and self-provisions the Python it needs, so a
-clone plus this host is enough to reproduce every live gate.
+subnet instead of assuming one, and self-provisions the Python it needs, within each gate's pinned-image and host prerequisites.
 
-`scripts/native/` is a rootless, user-namespace harness inherited from the
-rank-1 workstream. It is retained because its verification tooling is shared --
-`verify-mimo-matrix-capture.py` is the checker the Docker gates call -- and
-because its fixtures document the gNB constraints. It is **not** reproducible
-from this repository: `bootstrap-workspace.sh` has build provisioning disabled
-by design, so the workspace it expects (OCUDU, srsRAN_4G, Open5GS and MongoDB
-at pinned revisions under `~/ocudu-native-workspace`) has to be produced by a
-process that is not committed here, and its scripts hard-code `/home/ubuntu`
-and `/opt/conda` paths. Treat the native gate scripts as a record of how the
-original runs were performed, not as a path a reader can execute.
+`scripts/native/` provides a rootless, user-namespace workflow and the matrix checker shared with the Docker gates. Its `bootstrap-workspace.sh` can download locked inputs, create a user-space dependency overlay and build the native stack; `--verify-only` audits an existing workspace and `--root` selects its location. This is an audited Ubuntu 24.04 host contract, not a hermetic clean-host build: the base compiler/runtime and 48 Debian dependency clauses are supplied by the host. See [native preparation](../native/README.md) and the [platform guide](../../docs/guides/platforms.md) before choosing this route.
 
 The rank-1 gates above are the Docker ports of `scripts/native/run-ocudu-rank1-*.sh`.
 They use the same channel matrices, the same gNB cell configuration and the same

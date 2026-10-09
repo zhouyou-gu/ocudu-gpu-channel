@@ -83,7 +83,7 @@ control client (ZMQ REQ)            broker
 
 ### Message envelope — grow a `type` field, stay JSON
 
-```json
+```text
 // SCALAR_UPDATE (v1-compatible, type defaults to "scalar" if omitted)
 {"type":"scalar","link_id":"ue0-gnb0","param":"path_loss_db","value":-12.5,"take_effect_at_slot":192833}
 

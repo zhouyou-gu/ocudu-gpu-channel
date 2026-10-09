@@ -188,7 +188,7 @@ The H2D that already ships `DeviceLinkState` to `device_link_state[]` carries th
 
 New event lines, all on the same stdout sink the existing instrumentation uses ([§19 of the reference](../../development/profiling.md#profiling)):
 
-```json
+```text
 {"event":"control_update","ts":"...","link_id":"ue0-gnb0","param":"path_loss_db","old":-10.0,"new":-12.5,"applied_at_slot":192833,"seqno":4711}
 {"event":"control_error","ts":"...","link_id":"unknown","error":"link_id not found"}
 {"event":"stats","ts":"...","control_msgs_received":4712,"control_updates_applied":4711,"control_updates_rejected":1,"control_updates_dropped_realtime":0,...}

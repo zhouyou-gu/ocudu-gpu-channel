@@ -1,6 +1,6 @@
 # ocudu-gpu-channel — Project Architecture Blueprint
 
-> Historical record; its claims apply to the original date, revision and setup. Migrated from `docs/blueprint-generated/Project_Architecture_Blueprint.md` at `58d3156` without changing recorded measurements.
+> **Historical generated material, not current architectural authority.** See [current architecture](../../concepts/architecture.md). Its claims apply to the original date, revision and setup. Migrated from `docs/blueprint-generated/Project_Architecture_Blueprint.md` at `58d3156` without changing recorded measurements.
 
 
 > Generated 2026-05-23 by the [`architecture-blueprint-generator`](https://skills.sh/github/awesome-copilot/architecture-blueprint-generator) skill against commit `52b52f3`.
@@ -85,7 +85,9 @@ Dependencies flow downward. There are no upward dependencies (the kernel helpers
 
 ### 4.1 Component dependency (Mermaid)
 
-```mermaid
+Mermaid diagram source (historical):
+
+```text
 flowchart TD
     CLI_broker["apps/ocudu_gpu_channel.cpp<br/>broker CLI"]
     CLI_bench["apps/ocudu_gpu_channel_bench.cpp<br/>bench CLI"]
@@ -120,7 +122,9 @@ flowchart TD
 
 ### 4.2 Per-slot data flow (C4-Level-2 sequence)
 
-```mermaid
+Mermaid diagram source (historical):
+
+```text
 sequenceDiagram
     participant Radio as ZMQ Radio (gNB / UE)
     participant RX as RX puller thread

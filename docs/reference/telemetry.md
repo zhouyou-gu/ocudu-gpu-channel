@@ -20,7 +20,7 @@ Enable the broker's `--control-endpoint` and `--telemetry-endpoint` together. `-
 
 `nominal` accumulates sample-proportional call-time estimates into nominal slots: slot size, pending samples/time, completed slots, latest/deadline/usage values, misses, maximum and percentiles. Its `estimation` is `sample_proportional_call_time`; it is not a separately measured wall-clock slot. `fragments` reports fragment calls, samples, min/max sizes and fragmented nominal-slot counts/percentages. Do not interchange call counts and nominal-slot counts.
 
-The publisher uses nonblocking sends and counts dropped frames. Sampling telemetry cannot recover every event; use whole-run counters and the report's recorded measurement method for qualification.
+The publisher uses nonblocking sends. `telemetry_drops` counts send-side `EAGAIN` results, not every subscriber loss; PUB high-water-mark loss can be silent. See the [ZeroMQ PUB contract](https://libzmq.readthedocs.io/en/latest/zmq_socket.html). Sampling telemetry cannot recover every event; use whole-run counters and the report's recorded measurement method for qualification.
 
 ## HTTP status
 

@@ -4,14 +4,12 @@ Run all project validation on the RTX workstation, including CPU reference tests
 
 ## Supported checks
 
-From the repository root, using the provisioned test environment:
+From the repository root, use an isolated test environment with `pytest`, `numpy`, `pyzmq` and `PyYAML` installed. Optional rendering dependencies may produce documented skips; inspect the test summary.
 
 ```sh
 ctest --test-dir build-cpu --output-on-failure
 ctest --test-dir build --output-on-failure
-for component in sionna_bridge dashboard integrations use_cases; do
-  python -m unittest discover -s "tests/$component" -p 'test_*.py'
-done
+python -m pytest tests/sionna_bridge tests/dashboard tests/integrations tests/use_cases
 node tests/dashboard/test_web_ui_disconnect.mjs
 node tests/dashboard/test_web_ui_ran.mjs
 ```
@@ -24,9 +22,9 @@ A strict real-time pass requires nonzero work and zero starvation, overflow, seq
 
 ## Validation
 
-Three layers, each progressively closer to a live radio integration. The detailed test surface is mapped in [§18.5 Diagram TA](testing.md#test-architecture) below.
+Three layers, each progressively closer to a live radio integration. The detailed test surface is mapped in [Test architecture — what each layer guards](testing.md#test-architecture) below.
 
-**Which layer is the testing target for what.** The **unit tests** (§18.1) and the **synthetic GPU validation** (§18.2) are the targets for the internal build roadmap (the *Phase 1/2/3* work — correctness, CPU↔CUDA parity, kernel behaviour); the **live-radio integration** smoke (§18.3) is the target for the *Milestone A/B/C* proof points (a real srsRAN gNB + srsUE completing attach + PDU (protocol data unit) session + ping through the broker). "Milestone" and "Phase" are two distinct axes — *what works end-to-end* vs *how it was built* — not competing labels.
+**Which layer is the testing target for what.** The **unit tests** ([Unit tests (CTest, 12/12 at the integration revision)](testing.md#test-layer-unit)) and the **synthetic GPU validation** ([Remote GPU test sequence (gpu-test-sequence.sh, 9 stages)](testing.md#test-layer-remote)) are the targets for the internal build roadmap (the *Phase 1/2/3* work — correctness, CPU↔CUDA parity, kernel behaviour); the **live-radio integration** smoke ([Live OCUDU + srsRAN smoke](testing.md#test-layer-live)) is the target for the *Milestone A/B/C* proof points (a real srsRAN gNB + srsUE completing attach + PDU (protocol data unit) session + ping through the broker). "Milestone" and "Phase" are two distinct axes — *what works end-to-end* vs *how it was built* — not competing labels.
 
 (test-layer-unit)=
 
@@ -53,7 +51,7 @@ Run with `ctest --test-dir build --output-on-failure` after `cmake --build`. The
 The locked-in remote validation. **Must pass before any change to the broker or CUDA backend ships.** Each step adds a layer:
 
 1.  CUDA release build (rsync local tree → build → check exit).
-2.  CTest 12/12 at the recorded integration revision on the remote box (same suite as §18.1 above, GPU path enabled so all `OCUDU_GPU_CHANNEL_HAS_CUDA` blocks actually run).
+2.  CTest 12/12 at the recorded integration revision on the remote box (same suite as [Unit tests (CTest, 12/12 at the integration revision)](testing.md#test-layer-unit) above, GPU path enabled so all `OCUDU_GPU_CHANNEL_HAS_CUDA` blocks actually run).
 3.  Synthetic CUDA relay loop — clean 0 dB channel, sink measures `avg_power ≈ 1.0`.
 4.  Synthetic CUDA relay loop — AWGN `noise_power = 0.25`, sink measures `avg_power ≈ 1.25` within 0.003 %.
 5.  3-node graph (Diagram G) — `gnb0` RX `avg_power ≈ 2.005` (two UE uplinks summed), `ue0/ue1` RX `avg_power ≈ 0.501` (desired + −40 dB crosstalk).
@@ -76,7 +74,7 @@ Three of the standing gates exist specifically to judge multi-port behaviour, an
 
 - **Synthetic, through the broker** — `gpu-test-sequence.sh` steps 8 and 9 relay a declared 2×2 correlated topology through a running broker and compare the received power against the analytic expectation (measured 9.542 against an expected 9.71, with an iid control at 6.964 against 6.94), then swap the correlation matrix on a **live** broker over the control plane and confirm the received power moves off the iid value. A milestone whose gates all call the processor directly proves the processor and nothing above it; these run the capability through the layer that ships it.
 - **Live transport** — `run-ocudu-mimo-2port-no-core.sh`: a real 2-antenna OCUDU gNB at a pinned revision, a byte-pinned fixture, four ZMQ endpoints, no Docker and no core. It judges four-endpoint flow, sibling reply sizes, sibling acquisition skew, the gNB's own real-time failure count and the strict broker counters.
-- **Live matrix** — `verify-mimo-matrix-capture.py`, run by the same gate against the broker's wire capture. This is the one that judges what the emulator *computed*: it reads `H` from the topology and compares `y` against `Hx` sample by sample, in both directions, reporting the off-diagonal share of each row. Numbers and mutation probes in [§25](../reports/validation/rank1-boundaries.md#mimo-evidence).
+- **Live matrix** — `verify-mimo-matrix-capture.py`, run by the same gate against the broker's wire capture. This is the one that judges what the emulator *computed*: it reads `H` from the topology and compares `y` against `Hx` sample by sample, in both directions, reporting the off-diagonal share of each row. Numbers and mutation probes in [Live evidence, and the line it stops at](../reports/validation/rank1-boundaries.md#mimo-evidence).
 
 **A zero count satisfies every threshold.** Each of these gates asserts that its instrument recorded work — samples compared, markers checked, kernels launched — before it asserts anything about the values. That rule was written after a benchmark reported millions of iterations and a kernel count of zero and exited green, and after this very gate reported `marker_mismatches=0` beside `marker_checks=0`.
 
@@ -86,4 +84,8 @@ Three of the standing gates exist specifically to judge multi-port behaviour, an
 
 ![Diagram TA — Layer 1 catches algorithmic regressions in seconds and runs per commit; Layer 2 catches anything ctest can't reach (broker hot path, real ZMQ, cross-stream concurrency, cumulative-stat mismatches between CPU and CUDA) and runs pre-ship; Layer 3 catches protocol-stack wedges that only manifest with a real radio stack and runs at milestone boundaries. The specific guards in each layer are named in §18.1 – §18.3 above.](../assets/diagrams/reference-17.svg)
 
-Diagram TA — Layer 1 catches algorithmic regressions in seconds and runs per commit; Layer 2 catches anything ctest can't reach (broker hot path, real ZMQ, cross-stream concurrency, cumulative-stat mismatches between CPU and CUDA) and runs pre-ship; Layer 3 catches protocol-stack wedges that only manifest with a real radio stack and runs at milestone boundaries. The specific guards in each layer are named in §18.1 – §18.3 above.
+<a href="../assets/diagrams/reference-17.svg">Open this diagram at full size</a>
+
+The preserved schematic shows the earlier eight-test CTest surface. The current combined tree has 12 CTest targets per backend, as recorded in the validation reports.
+
+Diagram TA — Layer 1 catches algorithmic regressions in seconds and runs per commit; Layer 2 catches anything ctest can't reach (broker hot path, real ZMQ, cross-stream concurrency, cumulative-stat mismatches between CPU and CUDA) and runs pre-ship; Layer 3 catches protocol-stack wedges that only manifest with a real radio stack and runs at milestone boundaries. The specific guards in each layer are named in [Unit tests (CTest, 12/12 at the integration revision)](testing.md#test-layer-unit) – [Live OCUDU + srsRAN smoke](testing.md#test-layer-live) above.

@@ -21,6 +21,7 @@ Current guidance is English. Historical records retain their original language a
 
 ```{toctree}
 :maxdepth: 2
+:hidden:
 :caption: Documentation
 
 getting_started/README

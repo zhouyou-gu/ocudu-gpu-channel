@@ -24,6 +24,12 @@ def prepare_source(app, docname, source):
         if parts.scheme or parts.netloc or not parts.path:
             return match.group(0)
         target = (here.parent / unquote(parts.path)).resolve()
+        # MyST's path#fragment resolver handles heading slugs; explicit labels
+        # must use its global-reference form instead.
+        if target.suffix == '.md' and target.is_file() and parts.fragment:
+            marker = '(' + unquote(parts.fragment) + ')='
+            if marker in target.read_text(encoding='utf-8').splitlines():
+                return prefix + unquote(parts.fragment) + suffix
         root = docs.parent.resolve()
         if target.is_relative_to(root) and not target.is_relative_to(docs.resolve()):
             path = target.relative_to(root).as_posix()
@@ -38,6 +44,14 @@ def prepare_source(app, docname, source):
 
     text = re.sub(r'(\]\()([^\s)]+)(\))', rewrite, text)
     text = re.sub(r'((?:href|src)=["\'])([^"\']+)(["\'])', rewrite, text)
+    # Historical HTML is a standalone page, not a relocated download: its
+    # relative links must retain their canonical directory.
+    def standalone(match):
+        label, url = match.groups()
+        if (here.parent / urlsplit(url).path).is_file():
+            return '<a href="' + html.escape(url, quote=True) + '">' + html.escape(label) + '</a>'
+        return match.group(0)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+\.html(?:#[^)]*)?)\)', standalone, text)
     source[0] = text
 
 
@@ -95,8 +109,6 @@ def finish_site(app, exception):
         relative = posixpath.relpath(new, posixpath.dirname(old) or '.')
         fragments = {key.split('#', 1)[1]: posixpath.relpath(value.split('#',1)[0], posixpath.dirname(old) or '.') + '#' + value.split('#',1)[1]
                      for key, value in routes['fragments'].items() if key.startswith(old + '#')}
-        if old == 'index.html':
-            fragments['key-terms'] = 'concepts/glossary.html'
         if old.endswith('.md'):
             destination.write_text(f'# Documentation moved\n\nContinue at [{new}]({relative}).\n', encoding='utf-8')
         elif old.endswith('.html'):

@@ -1,26 +1,32 @@
-<svg font-family="SF Mono,Menlo,monospace" font-size="11" style="background:#0f1420;color:#e7ecf5;max-width:100%;height:auto" viewbox="0 0 1000 240" xmlns="http://www.w3.org/2000/svg">
-<text fill="#cdd6e6" font-size="12" text-anchor="middle" x="500" y="20">Diagram SG · sp.use_device_channel decision · evaluated once per destination at prepare()</text>
-<defs>
-<marker id="aa" markerheight="6" markerwidth="6" orient="auto" refx="9" refy="5" viewbox="0 0 10 10">
-<path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"></path>
-</marker>
-</defs>
-<!-- Decision diamond -->
-<polygon fill="#0b101a" points="500,50 700,110 500,170 300,110" stroke="#ffb454"></polygon>
-<text fill="#ffb454" font-size="11" text-anchor="middle" x="500" y="106">every incoming edge has</text>
-<text fill="#ffb454" font-size="11" text-anchor="middle" x="500" y="122">model.chain[0].type == tdl ?</text>
-<!-- false branch (left) → HOST fallback, green-dashed -->
-<line stroke="#6fd08c" stroke-dasharray="4 3" x1="300" x2="180" y1="110" y2="110"></line>
-<line marker-end="url(#aa)" stroke="#6fd08c" stroke-dasharray="4 3" x1="180" x2="180" y1="110" y2="190"></line>
-<text fill="#6fd08c" font-size="10" text-anchor="middle" x="240" y="100">false</text>
-<!-- FALLBACK modifier: dashed green border (HOST class) -->
-<rect fill="#0b101a" height="36" rx="6" stroke="#6fd08c" stroke-dasharray="4 3" stroke-width="1.6" width="240" x="60" y="190"></rect>
-<text fill="#6fd08c" font-size="11" text-anchor="middle" x="180" y="212">host fallback (stage_link)</text>
-<!-- true branch (right) -->
-<line stroke="#5db1ff" x1="700" x2="820" y1="110" y2="110"></line>
-<line marker-end="url(#aa)" stroke="#5db1ff" x1="820" x2="820" y1="110" y2="190"></line>
-<text fill="#5db1ff" font-size="10" text-anchor="middle" x="760" y="100">true</text>
-<!-- DEVICE class: blue solid -->
-<rect fill="#0b101a" height="36" rx="6" stroke="#5db1ff" stroke-width="1.6" width="240" x="700" y="190"></rect>
-<text fill="#5db1ff" font-size="11" text-anchor="middle" x="820" y="212">device path (apply_channel_kernel)</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" style="background:#0f1420;color:#e7ecf5;--bg:#0f1420;--panel:#1a2233;--ink:#e7ecf5;--muted:#9aa7bd;--edge:#2c3850;--accent:#5db1ff;--warm:#ffb454;--good:#6fd08c;--cell:#0b101a" viewBox="0 0 1000 240" font-family="SF Mono,Menlo,monospace" font-size="11">
+    <text x="500" y="20" fill="#cdd6e6" text-anchor="middle" font-size="12">Diagram SG · sp.use_device_channel decision · evaluated once per destination at prepare()</text>
+
+    <defs>
+      <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#9aa7bd"/>
+      </marker>
+    </defs>
+
+    <!-- Decision diamond -->
+    <polygon points="500,50 700,110 500,170 300,110" fill="#0b101a" stroke="#ffb454"/>
+    <text x="500" y="106" fill="#ffb454" text-anchor="middle" font-size="11">every incoming edge has</text>
+    <text x="500" y="122" fill="#ffb454" text-anchor="middle" font-size="11">model.chain[0].type == tdl ?</text>
+
+    <!-- false branch (left) → HOST fallback, green-dashed -->
+    <line x1="300" y1="110" x2="180" y2="110" stroke="#6fd08c" stroke-dasharray="4 3"/>
+    <line x1="180" y1="110" x2="180" y2="190" stroke="#6fd08c" stroke-dasharray="4 3" marker-end="url(#aa)"/>
+    <text x="240" y="100" fill="#6fd08c" text-anchor="middle" font-size="10">false</text>
+
+    <!-- FALLBACK modifier: dashed green border (HOST class) -->
+    <rect x="60" y="190" width="240" height="36" rx="6" fill="#0b101a" stroke="#6fd08c" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <text x="180" y="212" fill="#6fd08c" text-anchor="middle" font-size="11">host fallback (stage_link)</text>
+
+    <!-- true branch (right) -->
+    <line x1="700" y1="110" x2="820" y2="110" stroke="#5db1ff"/>
+    <line x1="820" y1="110" x2="820" y2="190" stroke="#5db1ff" marker-end="url(#aa)"/>
+    <text x="760" y="100" fill="#5db1ff" text-anchor="middle" font-size="10">true</text>
+
+    <!-- DEVICE class: blue solid -->
+    <rect x="700" y="190" width="240" height="36" rx="6" fill="#0b101a" stroke="#5db1ff" stroke-width="1.6"/>
+    <text x="820" y="212" fill="#5db1ff" text-anchor="middle" font-size="11">device path (apply_channel_kernel)</text>
+  </svg>

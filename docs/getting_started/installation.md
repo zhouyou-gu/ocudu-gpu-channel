@@ -4,7 +4,7 @@ Build the C++ broker first. Add Python applications only for the workflows you i
 
 ## CUDA broker
 
-Verify `cmake --version`, `pkg-config --modversion libzmq`, `nvcc --version` and `nvidia-smi` before configuration. When using the managed RTX workspace, source its generated `tools/env.sh` to expose the user-space toolchain.
+Verify `cmake --version`, `pkg-config --modversion libzmq`, `nvcc --version` and `nvidia-smi` before configuration. When using the managed RTX workspace, source `~/ocudu-gpu-channel-workspace/tools/env.sh` (or `tools/env.sh` under your configured workspace root) to expose the user-space toolchain; see [remote workspace setup](../guides/remote-workspace.md).
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \

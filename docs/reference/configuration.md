@@ -38,13 +38,15 @@ An edge in `links` requires `from`, `to` and `model`; `propagation_delay_samples
 
 ## Model-level matrix fields
 
-Models are keyed by ID and contain an ordered `chain`. Optional `fixed_mimo.coefficients` entries use `tap`, `rx`, `tx`, `real`, `imag`; unspecified coefficients are zero, and no implicit transmit normalization is applied. Indices must address prepared lanes and taps.
+Models are keyed by ID and contain an ordered `chain`. Optional `fixed_mimo.coefficients` entries use `tap`, `rx`, `tx`, `real`, `imag`; unspecified coefficients are zero, and no implicit transmit normalization is applied. The integer `tap`, `rx`, `tx` fields default to zero; real-valued `real` and `imag` default to zero. Indices must address prepared lanes and taps.
 
-`spatial_correlation.kind` is `iid` or `kronecker`; `full` is explicitly unimplemented. `rx` and `tx` entries use `i`, `j`, `re`, `im` to define the Hermitian positive-semidefinite unit-diagonal correlation matrices. Omitted off-diagonal entries are zero. `los_matrix.coefficients` uses `rx`, `tx`, `re`, `im`, with unspecified lanes retaining `1+0j`. Fixed matrices and stochastic correlation cannot be declared together. See [matrix-channel explanations](../concepts/channel-models.md#mimo-matrix) for interpretation.
+`spatial_correlation.kind` defaults to `iid` and accepts `iid` or `kronecker`; `full` is explicitly unimplemented. `rx` and `tx` entries use integer indices `i`, `j` and real-valued `re`, `im` to define Hermitian positive-semidefinite unit-diagonal matrices. Entry fields `i`, `j`, `re` and `im` default to zero, so specify valid indices explicitly. Only upper-triangle entries (`i < j`) are accepted; the lower triangle is mirrored, the diagonal is one and omitted off-diagonal entries are zero. Duplicate/out-of-range entries and magnitudes above one are rejected. `iid` rejects explicit correlation entries; `kronecker` requires at least one RX or TX entry, a leading fading TDL step and at most 16 lanes. Fixed matrices cannot be combined with non-IID correlation.
+
+`los_matrix.coefficients` uses integer `rx`, `tx` (default zero) and real-valued `re`, `im` (defaults one and zero). Omitting the entire matrix gives `1+0j` on every lane. Once declared, it must name every lane exactly once and requires a fading TDL tap with `is_los`; a partial matrix is rejected. See [matrix-channel explanations](../concepts/channel-models.md#mimo-matrix) for interpretation.
 
 ## Tap and fading fields
 
-A `tdl` tap has `delay_samples`, `gain_db`, `phase_rad`, `is_los`, `los_k_db` and `los_angle_rad`, defaulting respectively to `0`, `0`, `0`, `false`, `0` and `0`. Samples may be fractional; phases/angles are radians, gains and K-factor are dB. Duplicate delays are rejected; combine their complex weights explicitly. CUDA requires a leading TDL and observes the device tap/capacity bounds.
+A `tdl` tap has `delay_samples`, `gain_db`, `phase_rad`, `is_los`, `los_k_db` and `los_angle_rad`, defaulting respectively to `0`, `0`, `0`, `false`, `0` and `0`. Samples may be fractional; phases/angles are radians, gains and K-factor are dB. Duplicate delays are rejected; combine their complex weights explicitly. If a CUDA chain contains TDL, that step must be first. Chains without TDL and static host-staging paths remain supported; dynamic matrices separately require the leading-TDL device route and its tap/capacity bounds.
 
 Optional `fading` enables time-varying taps. `f_d_max_hz` defaults to `0`, `spectrum` to `jakes`, and `grid_us` to `100`. `gaussian` and `flat` parse but their processor generators are unimplemented; parser acceptance is not execution support. `gain` steps use `gain_db` and remain fixed across live profile updates. Step-specific scalar defaults and execution are defined in [processing.cpp](../../src/processing.cpp) and [backend source](../../src/cuda_backend.cu).
 
@@ -63,16 +65,18 @@ An XML scene path resolves from the process working directory, **not from the sc
 
 ## Topology graph and YAML model
 
-**This section describes single-antenna radios.** A radio with several antenna ports groups its ports under `radio_nodes:` and its links then connect radios rather than sockets; the schema, the matrix-index rule and the load-time rejections are in [§22](../concepts/radio-topology.md#mimo-nodes). Everything below still holds — a single-port radio is the `Nt = Nr = 1` case, and a topology that declares no `radio_nodes:` keeps exactly the behaviour and the link keys described here.
+**This section describes single-antenna radios.** A radio with several antenna ports groups its ports under `radio_nodes:` and its links then connect radios rather than sockets; the schema, the matrix-index rule and the load-time rejections are in [Radio nodes — a radio is not its socket](../concepts/radio-topology.md#mimo-nodes). Everything below still holds — a single-port radio is the `Nt = Nr = 1` case, and a topology that declares no `radio_nodes:` keeps exactly the behaviour and the link keys described here.
 
 The topology is a directed graph: nodes are devices (gNBs and UEs); edges are channel edges between them, each with a named `model`. The broker reads `use_cases/configs/topologies/*/topology.*.yaml` and builds one `CudaLinkSlot` per edge. The 3-node example below (`use_cases/configs/topologies/basic/topology.graph.cuda.yaml`) carries both **desired** edges (downlink + uplink) and **crosstalk** edges (UE↔UE leakage).
 
 (arg)=
- 
+
 (argx)=
  ![Diagram G — directed-graph topology. Nodes are EXTERNAL SDR endpoints (grey per §2.1). Solid green = desired edges (primary signal flow); dashed amber = crosstalk (secondary path, FALLBACK modifier visual). Every node has its own rx_model noise floor, applied once to the summed RX. The broker sums all edges arriving at each node.](../assets/diagrams/reference-02.svg)
 
-Diagram G — directed-graph topology. Nodes are EXTERNAL SDR endpoints (grey per §2.1). Solid green = desired edges (primary signal flow); dashed amber = crosstalk (secondary path, FALLBACK modifier visual). Every node has its own `rx_model` noise floor, applied once to the summed RX. The broker sums all edges arriving at each node.
+<a href="../assets/diagrams/reference-02.svg">Open this diagram at full size</a>
+
+Diagram G — directed-graph topology. Nodes are EXTERNAL SDR endpoints (grey per [Diagram conventions](../concepts/glossary.md#diagram-rules)). Solid green = desired edges (primary signal flow); dashed amber = crosstalk (secondary path, FALLBACK modifier visual). Every node has its own `rx_model` noise floor, applied once to the summed RX. The broker sums all edges arriving at each node.
 
 A complete runnable configuration is maintained with the use cases:
 
@@ -86,17 +90,18 @@ A complete runnable configuration is maintained with the use cases:
 
 ## Channel models in YAML
 
-Every model is a chain of named steps. The CPU and CUDA backends accept the same step set and are compared numerically at the declared test tolerances (validated by `tests/core/test_processing.cpp`). YAML keys per step type:
+Every model is a chain of named steps. The CPU and CUDA backends accept the same step set and are compared numerically at the declared test tolerances (validated by `tests/core/test_processing.cpp`). YAML keys per step type. Scalar defaults are zero for path loss, gain, phase and CFO; AWGN defaults to 60 dB SNR when no nonnegative absolute `noise_power` is supplied. A supplied absolute noise power takes precedence over SNR.
 
 | Step type | YAML keys | Effect |
 |----|----|----|
-| `tdl` | `taps:` block of `{delay_samples, gain_db, phase_rad}` (+ optional `fading:` sub-config and per-tap `is_los` / `los_k_db` / `los_angle_rad`) | Tapped delay line — the chain-leading propagation step. Each tap shifts the signal by `delay_samples` (integer or fractional, resolved by the shared 8-tap Hamming-windowed sinc in `delay.h`) and applies its complex tap weight `10`<sup>`gain_db/20`</sup>`·exp(j·phase_rad)`; with a `fading` sub-config each tap's weight becomes time-varying with a Jakes-shaped Doppler spectrum (plus optional Rician line-of-sight (LOS) specular). Applied **device-side by default** in `apply_channel_kernel` ([§11 Diagram S](device-pipeline.md#kernels)) for any topology where every incoming edge has a leading `tdl`; falls back to host-side `stage_link()` calling `apply_tdl_step{_fading}` in `delay.h` for mixed-edge or non-tdl-leading nodes. Cross-slot history lives in a per-edge `delay_line` ring (in `DeviceLinkState` global memory on the device path, in the host `LinkModelState` on the fallback). A single tap with `delay_samples = 0` is the static-gain case (subsumes the old `gain` step); a single tap with non-zero delay subsumes the old `integer_delay` / `fractional_delay` steps. The chain-leading constraint is enforced by `validate_cuda_support`; a non-leading `tdl` is rejected on the CUDA path (CPU accepts it anywhere). |
+| `tdl` | `taps:` block of `{delay_samples, gain_db, phase_rad}` (+ optional `fading:` sub-config and per-tap `is_los` / `los_k_db` / `los_angle_rad`) | Tapped delay line — the chain-leading propagation step. Each tap shifts the signal by `delay_samples` (integer or fractional, resolved by the shared 8-tap Hamming-windowed sinc in `delay.h`) and applies its complex tap weight `10`<sup>`gain_db/20`</sup>`·exp(j·phase_rad)`; with a `fading` sub-config each tap's weight becomes time-varying with a Jakes-shaped Doppler spectrum (plus optional Rician line-of-sight (LOS) specular). Applied **device-side by default** in `apply_channel_kernel` ([The channel — applied per edge (device kernel by default, host fallback)](device-pipeline.md#kernels)) for any topology where every incoming edge has a leading `tdl`; falls back to host-side `stage_link()` calling `apply_tdl_step{_fading}` in `delay.h` for mixed-edge or non-tdl-leading nodes. Cross-slot history lives in a per-edge `delay_line` ring (in `DeviceLinkState` global memory on the device path, in the host `LinkModelState` on the fallback). A single tap with `delay_samples = 0` is the static-gain case (subsumes the old `gain` step); a single tap with non-zero delay subsumes the old `integer_delay` / `fractional_delay` steps. The chain-leading constraint is enforced by `validate_cuda_support`; a non-leading `tdl` is rejected on the CUDA path (CPU accepts it anywhere). |
 | `path_loss` | `path_loss_db` | Scale branch, sign-flipped vs. gain — attenuation. `step.a` = `10`<sup>`−path_loss_db/20`</sup>. |
 | `phase` | `phase_rad` | static phase rotation — `step.a` = phase, `step.b` = 0 |
-| `cfo` | `cfo_hz` | linear phase drift = carrier frequency offset — `step.b` = `2π·f`<sub>`cfo`</sub>`/f`<sub>`s`</sub> |
-| `awgn` | `noise_power` *or* `snr_db` | additive white Gaussian noise (AWGN): complex Gaussian noise via counter-based Philox. Absolute mode: per-component σ = √(noise_power/2); SNR mode: noise scaled to `running_power / 10^(SNR/10)` |
+| `gain` | `gain_db` (default 0 dB) | Fixed amplitude factor `10^(gain_db/20)`; retained across live profile changes. |
+| `cfo` | `cfo_hz` (default 0 Hz), `phase_rad` (default 0 radians) | linear phase drift = carrier frequency offset — `step.b` = `2π·f`<sub>`cfo`</sub>`/f`<sub>`s`</sub> |
+| `awgn` | `noise_power` (unset), `snr_db` (default 60 dB) | additive white Gaussian noise (AWGN): complex Gaussian noise via counter-based Philox. A nonnegative `noise_power` takes precedence over SNR and bypasses live SNR changes. Absolute mode: per-component σ = √(noise_power/2); SNR mode: noise scaled to `running_power / 10^(SNR/10)` |
 
-**Three named knobs for the chain-leading delay.** Two physically distinct effects compose into the same chain-leading delay step ([§9](../concepts/timing.md#alignment), Layer 2). The YAML exposes a named knob for each so a topology can express each one cleanly; at config-load time `fold_link_leading_delays()` sums them and merges the total into the edge's effective chain.
+**Three named knobs for the chain-leading delay.** Two physically distinct effects compose into the same chain-leading delay step ([Signal alignment and time discipline](../concepts/timing.md#alignment), Layer 2). The YAML exposes a named knob for each so a topology can express each one cleanly; at config-load time `fold_link_leading_delays()` sums them and merges the total into the edge's effective chain.
 
 | Knob | Scope | YAML key | Physical meaning |
 |----|----|----|----|
