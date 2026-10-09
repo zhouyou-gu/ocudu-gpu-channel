@@ -39,6 +39,14 @@ Reports: [integration guide](docs/sionna-integration.md), [merge validation](doc
 
 ## Completed Changes
 
+### Structure migration — 2026-10-09
+
+- Recorded the approved destination map and command interfaces in `docs/project-structure.md`; preserved the earlier planning note. Migration and isolated RTX validation are in progress.
+
+### Structure planning — 2026-10-09
+
+- Reviewed source, Python components, workflows, configurations and documentation; proposed separating runtime packages, external integrations and operational scripts. Prepared a staged migration plan in chat; implementation has not started.
+
 ### Pull-request integration — 2026-10-08
 
 - Published the integrated tree through `8ecbd5d`; GitHub confirms PRs #2–#6 merged, with contributor history preserved and no open PRs remaining.
@@ -123,4 +131,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-PRs #2–#6 are merged and published; combined-tree validation is complete. No further merge work, live-radio rerun or deployment is queued.
+Implement the approved structure migration in separate commits, then validate the complete tree on the RTX workstation. The baseline is `0b613d9`; no deployment or publication is queued.
