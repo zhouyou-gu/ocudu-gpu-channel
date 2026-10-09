@@ -3,6 +3,8 @@
 > Dated evidence, preserved from `docs/robot-fight-r7.md` at `58d3156`. Results apply only to the recorded revisions, hardware and configurations; see [current status](../../../getting_started/status.md).
 
 
+The downloadable audit, probe and robustness JSON files use relative run paths in place of personal workspace prefixes. Their original and public hashes, changed fields and unchanged measurement digests are recorded in `docs/_compat/redactions.json`; see [public editions](../../../development/documentation.md#public-editions).
+
 R7 implementation and this validation campaign are complete: eight radio arena
 runs, nine requested radio characterization conditions (seven successful,
 two unsupported), and 96 local impairment fights. The compensated controller

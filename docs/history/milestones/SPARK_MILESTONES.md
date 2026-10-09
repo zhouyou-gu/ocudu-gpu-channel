@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # DGX Spark(GB10)에서 CUDA 가속 OCUDU 검증 마일스톤
 
 > Historical record; its claims apply to the original date, revision and setup. Migrated from `SPARK_MILESTONES.md` at `58d3156` without changing recorded measurements.
@@ -983,7 +985,7 @@ UE 노드 기준, 같은 대역폭의 S8 값과 비교(전체 표는 `compare-bw
 
 ## S15 — 브로커 코드만으로 lock-step 한 바퀴 줄이기 (2026-09-29)
 
-**하려던 것:** S10·S13에서 넓은 대역 2×2가 실시간에 못 미치는 것은 gNB → 브로커 → UE → 브로커 → gNB 고리가 메시지마다 한 바퀴를 통째로 기다리기 때문이라고 판정했다. 사용자 결정은 **우리 코드(브로커·에뮬레이터)만** 고치는 것이다. OAI·OCUDU ZMQ 드라이버, gNB·UE 설정, 호스트 idle·sysctl은 건드리지 않았다. 브랜치 `broker-round`(worktree `~/ocudu-work/ocudu-broker-round`, `integration-0928` `9c7f1d7`에서 분기), Spark 트리 `/workspace/gpuch/br15`, 빌드 `builds/gpuch-br15-release`. 모든 라이브 실행은 OAI 2×2 게이트(unitary H, zero-copy, CPU gNB, 게이트 기본값)이고, 실행마다 다른 GPU 프로세스가 없음을 기록했다(전부 없음).
+**하려던 것:** S10·S13에서 넓은 대역 2×2가 실시간에 못 미치는 것은 gNB → 브로커 → UE → 브로커 → gNB 고리가 메시지마다 한 바퀴를 통째로 기다리기 때문이라고 판정했다. 이 실험의 변경 범위는 **브로커·에뮬레이터 코드로 한정**했다. OAI·OCUDU ZMQ 드라이버, gNB·UE 설정, 호스트 idle·sysctl은 건드리지 않았다. 브랜치 `broker-round`(worktree `~/ocudu-work/ocudu-broker-round`, `integration-0928` `9c7f1d7`에서 분기), Spark 트리 `/workspace/gpuch/br15`, 빌드 `builds/gpuch-br15-release`. 모든 라이브 실행은 OAI 2×2 게이트(unitary H, zero-copy, CPU gNB, 게이트 기본값)이고, 실행마다 다른 GPU 프로세스가 없음을 기록했다(전부 없음).
 
 ### 1. 한 바퀴가 어디에 쓰이나 — 먼저 잰 것
 
@@ -1077,7 +1079,7 @@ UE 노드 기준, 같은 대역폭의 S8 값과 비교(전체 표는 `compare-bw
 
 ## S17 — lock-step 고리의 파이프라이닝: gNB lower PHY를 ZMQ에서도 스레드 모드로 (2026-10-02)
 
-**왜:** S15는 브로커 몫만 줄여 100 MHz 2×2 무부하 0.57 → 0.68×에서 멈췄고, 바닥은 0.83×였다. 한 바퀴의 나머지는 "장치 턴어라운드"였는데, 그 정체는 gNB가 UL 블록 하나를 받아야 DL 블록 하나를 만드는 직렬 구조였다. 사용자 결정: 드라이버·gNB 쪽 로컬 패치로 푼다.
+**왜:** S15는 브로커 몫만 줄여 100 MHz 2×2 무부하 0.57 → 0.68×에서 멈췄고, 바닥은 0.83×였다. 한 바퀴의 나머지는 "장치 턴어라운드"였는데, 그 정체는 gNB가 UL 블록 하나를 받아야 DL 블록 하나를 만드는 직렬 구조였다. 해결 범위: 드라이버·gNB 쪽 로컬 패치.
 
 **원인 (코드 읽기):** OCUDU는 `device_driver == "zmq"`이면 lower PHY를 blocking/sequential로 강제한다(세 곳: `ru_sdr_config_cli11_schema.cpp` autoderive, `ru_sdr_config_translator.cpp` fill_sdr_worker_manager_config, `split_8_o_du_application_unit_impl.cpp` fill_worker_manager_config). TX·RX·상위 PHY가 `phy_worker` 하나에서 돌아 `ul_process()`의 receive가 끝나야 `dl_process()`가 돈다. 코드상 DL은 마지막 RX보다 1 ms(`rx_to_tx_max_delay = srate_kHz + tx_time_offset`)까지 앞설 수 있지만 단일 스레드라 그 여유를 쓰지 못한다. OAI nrUE는 이미 UL을 RX보다 3슬롯(`NR_UE_CAPABILITY_SLOT_RX_TO_TX`) 앞서 쓰고 요청도 받자마자 다음 것을 보내므로 UE 쪽은 손댈 것이 없다. 브로커 run-ahead는 1 batch(`rx_high_water`).
 

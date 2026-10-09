@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # 로봇 파이팅 데모 — 실시간 채널 에뮬레이터 검증 마일스톤
 
 > Historical record; its claims apply to the original date, revision and setup. Migrated from `ROBOT_FIGHT_MILESTONES.md` at `58d3156` without changing recorded measurements.
@@ -290,7 +292,7 @@ R4a의 게이트 훅에 R2/R2b의 아레나·두뇌·모뎀을 얹어 **제어 �
 
 **로컬(R2b d0, 워크스테이션 루프백) 대비.** RTT p50 3.0 → **21 ms**(+18 ms = 슬롯 구조·두 홉 tun/GTP), p99 6.7 → 35–115 ms, 편도 0.6 → 8.4 ms, stale 0.2회/판 → 0, 승률 0.50 → 0.50(16:16), 결판 시간 6.6 → 8.2 s 평균. R2b가 예측한 대로 20 ms급 RTT는 승패를 바꾸지 않는다.
 
-**31–32판(14:53:50–14:54:21)의 외부 경합 — 우연한 대조군.** 다른 에이전트의 게이트(`ocudu-robot-fight/20260929T145337Z`)가 14:53:37에 같은 컨테이너에서 `cmake --build -j20`을 시작했다. 그 두 판만 RTT p50 21 → **85–97 ms**, p99 189–563 ms, 편도 8.4 → 22–29 ms, 브로커 kernel p99 71–168 µs, gNB PUSCH KO 5 → 14.7 %, PUSCH SINR p10 −0.4 → −8.3 dB. 경기는 완주했고(승패 ue0 2판) stale 0. **CPU 경합만으로 루프 RTT가 4배가 된다** — R5의 "스케줄링 off" 조건이 어떤 모습인지 미리 보여준 셈. 이 두 판은 대조군이지 a3 정상 지표에서는 제외.
+**31–32판(14:53:50–14:54:21)의 외부 경합 — 우연한 대조군.** 동시에 실행된 별도 게이트(`ocudu-robot-fight/20260929T145337Z`)가 14:53:37에 같은 컨테이너에서 `cmake --build -j20`을 시작했다. 그 두 판만 RTT p50 21 → **85–97 ms**, p99 189–563 ms, 편도 8.4 → 22–29 ms, 브로커 kernel p99 71–168 µs, gNB PUSCH KO 5 → 14.7 %, PUSCH SINR p10 −0.4 → −8.3 dB. 경기는 완주했고(승패 ue0 2판) stale 0. **CPU 경합만으로 루프 RTT가 4배가 된다** — R5의 "스케줄링 off" 조건이 어떤 모습인지 미리 보여준 셈. 이 두 판은 대조군이지 a3 정상 지표에서는 제외.
 
 **발견·교훈.**
 1. **그림자에서는 UL이 먼저 죽는다.** DL은 40 dB 기준에서 그림자 −14…−20 dB를 BLER 50 %로 버티지만, UL PUSCH SINR은 LOS에서도 gNB 보고값 **2.5–5 dB**(MCS 2–3)라 여유가 없다. 200 Hz STATE 스트림(~300 kbps)은 LOS에서만 산다. R2b의 stale-정책 실험이 보여준 "굶은 쪽이 오히려 이긴다"는 여기서는 나타나지 않았다 — 링크가 죽으면 **양쪽** 두뇌가 동시에 STATE를 잃어 경기가 정지하기 때문(제어 루프의 두 방향이 같은 셀을 지난다).
@@ -379,7 +381,7 @@ event=stop tx_pulls=7767 rx_requests=7715 rx_starvations=0 tx_queue_overflows=0 
 
 R5a의 게이트에 R2c의 원격 밸런스 봇을 얹어 **같은 GPU에서 스케줄링만 다른 두 브로커** 아래 경기를 돌렸다. 트리 `/workspace/gpuch/int0928`을 `b3cd457`로 올리고(번들 fetch, git 레포 유지) robot_fight 패키지 v2를 양쪽 sha256 대조, Spark root에서 robot_fight 테스트 15/15(netns 모뎀 포함). 래퍼 `/workspace/gpuch/r5b-run.sh <tag> [ENV=..]`(r5-run.sh + R4b 훅, `RF_BOT=balance RF_POLICY=balance` 기본), 대기 러너 `r5b-go.sh`, 배치 `r5b-sweep.sh`·`r5b-battle.sh`. 새 분석기 `examples/robot_fight/analyze_battle.py`(경기 창 × 브로커 a/b `process_us`·kernel·stall·starvation(heartbeat 델타가 있으면) × 두뇌 RTT × 브리지 갱신, Wilson CI). 결과 사본 `results/robot-fight/r5b/`(git 제외). 모든 런 GPU에 다른 프로세스 없음, 게이트 전부 PASS, 종료 후 고아 0.
 
-**세션 재시작.** 09-30 05:20 UTC에 Claude 세션이 재시작돼 sweep 대기가 끊겼다. 네 셀은 Spark에서 끝까지 돌았고(`r5b-q1..q4.out`, `SWEEP_DONE`) 출력에서 복구했다 — 재실행 없음.
+**모니터링 중단.** 09-30 05:20 UTC에 모니터링 연결이 끊겨 sweep 대기가 중단됐다. 네 셀은 Spark에서 끝까지 돌았고(`r5b-q1..q4.out`, `SWEEP_DONE`) 출력에서 복구했다 — 재실행 없음.
 
 **1. 기준선(`151114Z`, a·b plain, 경합 없음, 300 s, 밸런스 봇, 20 s 제한):** 22판, 12:9:1, ue0 승률 0.57(0.37–0.76), RTF 1.0000–1.0002, RTT p50 19.5 / p99 30 ms 양쪽, 편도 8.8 ms, stale 0, 브로커 proc 111/238(a) · 111/262(b) µs, 브리지 10 Hz 양쪽. **밸런스 봇은 20 ms RTT 링크 위에서 선다**: 넘어짐은 22판 중 3회(ue1 fall 3 — 밀기 충돌 중 넘어짐, R2c 로컬 0/24보다 잦음), 나머지는 ring_out·가장자리 타이브레이크. 진자 손잡이는 바꾸지 않았다.
 
@@ -450,8 +452,8 @@ R5a의 게이트에 R2c의 원격 밸런스 봇을 얹어 **같은 GPU에서 스
 **렌더 속도.** `both` 1280×720: R4b 8판 1,962프레임이 4분 25초 → **≈ 7.4 fps(0.135 s/프레임)**; 첫 프레임(figure 생성 포함)은 0.48 s. 3-D osmesa 640×480 자체는 ≈ 90 ms/프레임이라 병목이고, 2-D만은 ≈ 12 fps. 300 s 런(7,987 프레임)은 ≈ 18–20분.
 
 **결과물(`results/robot-fight/videos/`, git-ignored, 기존 2-D 영상 옆에 `-3d` 접미사).**
-- `/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/videos/r5b-20260930T052100Z-all-3d.mp4` — R5b 첫 배틀 런 32판 전부, 5:19, 실시간 속도. 3-D에서 B(빨강) 역진자가 기울다 넘어지는 장면과 패널 ③의 B 브로커 호출 ~2.2 ms가 같은 시간축에 보인다.
-- `/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/videos/r4b-20260929T144912Z-fights1-8-3d.mp4` — R4b 스모봇 1–8판, 78.5 s.
+- `${HOME}/ocudu-work/ocudu-integration/results/robot-fight/videos/r5b-20260930T052100Z-all-3d.mp4` — R5b 첫 배틀 런 32판 전부, 5:19, 실시간 속도. 3-D에서 B(빨강) 역진자가 기울다 넘어지는 장면과 패널 ③의 B 브로커 호출 ~2.2 ms가 같은 시간축에 보인다.
+- `${HOME}/ocudu-work/ocudu-integration/results/robot-fight/videos/r4b-20260929T144912Z-fights1-8-3d.mp4` — R4b 스모봇 1–8판, 78.5 s.
 
 **파일.** `examples/robot_fight/render_replay.py`(Scene3D, `--view`), `tests/test_robot_fight_replay.py`. `fcbcb6e`에 포함해 게시함.
 

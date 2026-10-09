@@ -1,0 +1,38 @@
+# Shared by working-tree uploads. Exclusions also protect remote files under
+# --delete; never combine this list with --delete-excluded.
+.git
+/.config
+/.agents/
+/.claude/
+/.playwright-mcp/
+/references/
+/writing/
+
+# Root-local builds, environments, external checkouts and run artifacts.
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+/Testing/
+/.build/
+/.venv-docs/
+/ocudu/
+/srsRAN_4G/
+/srsran_4g/
+/results/
+/artifacts/
+/datasets/
+/tmp/
+/dist/
+
+# Generated files may also occur inside source directories.
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+*.py[cod]
+*.log
+*.pcap
+*.pcapng
+.DS_Store

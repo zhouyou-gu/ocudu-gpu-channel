@@ -35,7 +35,7 @@ The remote workspace is rooted at `REMOTE_WORKSPACE` from `.config`.
 
 ## Remote Helpers
 
-The scripts in `scripts/remote/` source ignored `.config` and never store private workstation values in tracked files. See `scripts/remote/README.md` for the script matrix; full inventory:
+The scripts in `scripts/remote/` source ignored `.config` and never store private workstation values in tracked files. See the [remote script index](../../scripts/remote/README.md) for synchronization behavior, shared upload exclusions and the full script matrix. Common helpers:
 
 ```sh
 # Workspace + toolchain
@@ -43,7 +43,8 @@ scripts/remote/common.sh                      # shared sourcing (.config + helpe
 scripts/remote/init-workspace.sh              # initialise remote workspace dirs
 scripts/remote/bootstrap-user-tools.sh        # user-space CMake/CUDA/ZeroMQ
 scripts/remote/probe.sh                       # toolchain sanity check
-scripts/remote/sync.sh                        # rsync local tree to remote
+scripts/remote/sync.sh                        # fetch + fast-forward remote branch from origin
+scripts/remote/bootstrap-sionna.sh            # optional remote Sionna environment
 
 # Build + run
 scripts/remote/build-and-bench-cuda-mvp.sh    # build + run the CUDA MVP benchmark
@@ -56,13 +57,13 @@ scripts/remote/ocudu-multi-gnb-smoke.sh       # Milestone C (2 gNBs + 2 UEs with
 scripts/remote/ocudu-interop-smoke.sh         # broader interop smoke
 
 # Perf sweeps (see scripts/remote/README.md for which to use when)
-scripts/remote/perf-sweep.sh                  # CPU + CUDA across every example
+scripts/remote/perf-sweep.sh                  # CPU + CUDA configuration sweep
 scripts/remote/perf-fanin-sweep.sh            # CUDA, 21 generated one-to-N configs
 scripts/remote/perf-backend-compare.sh        # CPU vs CUDA matching + speedup
 scripts/remote/perf-deep-profile.sh           # Nsight Systems / Compute deep dive
 ```
 
-Use Wi-Fi only for SSH/control unless a later validation run explicitly proves a wired low-latency data path. Distributed IQ transport requires the network criteria in `docs/distributed.md`.
+Use Wi-Fi only for SSH/control unless a later validation run explicitly proves a wired low-latency data path. Distributed IQ transport requires the network criteria in [distributed operation](distributed.md).
 
 ## Run ownership
 

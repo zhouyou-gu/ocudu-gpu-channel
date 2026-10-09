@@ -22,6 +22,3 @@ html_theme_options = {'navigation_with_keys': True, 'sidebar_hide_name': False}
 html_show_sourcelink = False
 html_copy_source = False
 html_use_index = False
-
-# Published GitHub source entrypoints; canonical pages are included instead.
-exclude_patterns += ['distributed.md', 'main-merge-validation.md', 'ocudu-interop.md', 'plans/device-channel-pipeline.md', 'plans/runtime-mutable-channel-v2.md', 'plans/runtime-mutable-channel-v3.md', 'plans/runtime-mutable-channel.md', 'platforms.md', 'project-structure.md', 'sionna-integration.md', 'sionna-merge-fixes-validation.md']

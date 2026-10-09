@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 > Historical integration record from `docs/cuda-ocudu-integration.html` at `58d3156`. Current procedures are in the operating guides.
 
 Implementation report · ocudu-gpu-channel · branch cuda-rebuild
@@ -353,8 +355,8 @@ Reported upstream as an observation about the documentation, which describes `lo
 
 ## Running and re-verifying
 
-    source /home/minwoo/ocudu-env.sh
-    export OCUDU_REPO=/home/minwoo/ocudu-work/ocudu-cuda-rebuild   # the default points at the other tree
+    source ${HOME}/ocudu-env.sh
+    export OCUDU_REPO=${HOME}/ocudu-work/ocudu-cuda-rebuild   # the default points at the other tree
     cd "$OCUDU_REPO"
 
     # CPU reference — no acceleration environment set

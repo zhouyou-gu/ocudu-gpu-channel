@@ -7,7 +7,7 @@
   "runs": {
     "base-comp0": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/base-comp0",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/base-comp0",
       "valid": 12,
       "rejected": [],
       "comparison": {
@@ -315,7 +315,7 @@
     },
     "base-comp1": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/base-comp1",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/base-comp1",
       "valid": 12,
       "rejected": [],
       "comparison": {
@@ -623,7 +623,7 @@
     },
     "out100-comp0": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/out100-comp0",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/out100-comp0",
       "valid": 12,
       "rejected": [],
       "comparison": {
@@ -931,7 +931,7 @@
     },
     "out100-comp1": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/out100-comp1",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/out100-comp1",
       "valid": 12,
       "rejected": [],
       "comparison": {
@@ -1239,7 +1239,7 @@
     },
     "out300-comp0": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/out300-comp0",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/out300-comp0",
       "valid": 12,
       "rejected": [],
       "comparison": {
@@ -1547,7 +1547,7 @@
     },
     "out300-comp1": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/out300-comp1",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/out300-comp1",
       "valid": 12,
       "rejected": [],
       "comparison": {
@@ -1855,7 +1855,7 @@
     },
     "loss10-comp0": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/loss10-comp0",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/loss10-comp0",
       "valid": 12,
       "rejected": [],
       "comparison": {
@@ -2163,7 +2163,7 @@
     },
     "loss10-comp1": {
       "attach_summary": null,
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-robustness-20260930T075317Z/loss10-comp1",
+      "path": "results/robot-fight/r7-robustness-20260930T075317Z/loss10-comp1",
       "valid": 12,
       "rejected": [],
       "comparison": {

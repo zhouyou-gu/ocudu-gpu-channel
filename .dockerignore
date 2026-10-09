@@ -31,18 +31,24 @@ tmp
 *.pcapng
 
 # Local tooling and editor/OS noise
+.agents
 .claude
+.build
+.venv-docs
 .playwright-mcp
 .config
 writing
-.DS_Store
+**/.DS_Store
 
 # The Docker files themselves
 Dockerfile
 .dockerignore
 
 # Python package outputs
-*.egg-info
+**/*.egg-info
 dist
-__pycache__
-.pytest_cache
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.py[cod]

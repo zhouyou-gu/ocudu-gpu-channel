@@ -119,6 +119,6 @@ Two follow-on checks key off the probe. **Footprint:** `event=hardware_footprint
 
 See [telemetry and dashboard status](telemetry.md) for freshness and readiness, and the [channel validation report](../reports/validation/sionna-merge-fixes-validation.md) for delayed-echo checks. These checks do not establish continuous moving traffic or strict real-time qualification.
 
-Design plans for the three increments live alongside the source: [Runtime mutability v1](../history/designs/runtime-mutable-channel.md) (v1 scalars), [`runtime-mutable-channel-v2.md`](../history/designs/runtime-mutable-channel-v2.md) (v2 profile swap + timing + warmup + batches), [`runtime-mutable-channel-v3.md`](../history/designs/runtime-mutable-channel-v3.md) (v3 telemetry + force-flag + hardware probe). Each plan has a locked-decisions section recording the user-approved design choices.
+Design plans for the three increments live alongside the source: [Runtime mutability v1](../history/designs/runtime-mutable-channel.md) (v1 scalars), [`runtime-mutable-channel-v2.md`](../history/designs/runtime-mutable-channel-v2.md) (v2 profile swap + timing + warmup + batches), [`runtime-mutable-channel-v3.md`](../history/designs/runtime-mutable-channel-v3.md) (v3 telemetry + force-flag + hardware probe). Each plan records its design decisions and implementation boundaries.
 
 (part-v)=

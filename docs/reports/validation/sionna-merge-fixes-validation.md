@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Sionna integration fixes and RTX 5090 validation
 
 > Dated evidence, preserved from `docs/sionna-merge-fixes-validation.md` at `58d3156`. Results apply only to the recorded revisions, hardware and configurations; see [current status](../../getting_started/status.md).
@@ -11,7 +13,7 @@ The four bounded fixes pass regression checks. The stationary two-gNB/two-UE cas
 
 Reviewed baseline: `88cbe6d34046e20a4fab277deb85166876d71139`.
 Fixed executable source: `16af288050750932ab5f7d48fb6cca1f14a7c9d3` (C++ last changed in `b621b12`).
-Normal integration merge: `3f4c234`, retaining contributor tip `066a702` as a parent and ancestor. No contributor commits were squashed or rebased. Original uncommitted edits remain in the original checkout; implementation uses the separate `integration/sionna-history-fix` worktree.
+Normal integration merge: `3f4c234`, retaining contributor tip `066a702` as a parent and ancestor. No contributor commits were squashed or rebased. Validation used the `integration/sionna-history-fix` worktree.
 
 | Commit | Change |
 |---|---|
@@ -26,7 +28,7 @@ History preservation from `88cbe6d` remains: identical and coefficient-only matr
 
 ## Environment and evidence
 
-RTX 5090 workstation: Intel Core Ultra 9 285K, 24 logical CPUs, CUDA 12.8.1, NVIDIA driver 580.173.02. All remaining tests, including CPU reference comparisons, run on this workstation following the user's instruction. Earlier local test results are historical and are not substituted for remote results.
+RTX 5090 workstation: Intel Core Ultra 9 285K, 24 logical CPUs, CUDA 12.8.1, NVIDIA driver 580.173.02. All remaining tests, including CPU reference comparisons, run on this workstation. Earlier local test results are historical and are not substituted for remote results.
 
 Remote artifact root: `~/ocudu-gpu-channel-workspace/validation/sionna-history-20260913/fix-validation/`. Baseline source/build remain isolated in its parent directory. Local raw review artifacts are ignored under `build-review-20260914/` in the integration worktree.
 
@@ -71,7 +73,7 @@ Chrome has exercised the SUTD scene, ray/label toggles, view reset, antenna filt
 
 ## Actual OCUDU runtime
 
-These tests used two real OCUDU gNB containers (four TX and four RX antenna ports each), two real srsUE containers (one TX/RX port each), Open5GS, the fixed CUDA broker, Sionna and two dashboard instances. OCUDU image source commit is `2563975`; exact image IDs are preserved in each run's `ran-core-images.json`, `srsue-image.json` and `runtime-containers.json`. The user’s other 11 core and two research containers remained running.
+These tests used two real OCUDU gNB containers (four TX and four RX antenna ports each), two real srsUE containers (one TX/RX port each), Open5GS, the fixed CUDA broker, Sionna and two dashboard instances. OCUDU image source commit is `2563975`; exact image IDs are preserved in each run's `ran-core-images.json`, `srsue-image.json` and `runtime-containers.json`. Eleven other core containers and two research containers remained running.
 
 The validation harness is derived from `scripts/remote/ocudu-multi-gnb-smoke.sh`, with test-only changes: isolated Docker project/container names, reuse of installed images, supported scheduler metrics options, two WebSocket subscriptions and TERM shutdown of the background web wrapper. Its exact source is retained in `build-review-20260914/live-ocudu-inner.sh` and at the remote artifact root. This is an adapted live harness, not a claim that every supplied live launcher works unchanged.
 
@@ -88,7 +90,7 @@ Stationary observations confirmed ten usable links, correct 1x4/4x1/1x1 dimensio
 
 Remote Chrome verified scheduler rows for both PCIs, scene ray/label toggles, reset view, antenna-2 filtering, tap/frequency plots and resource cards. Browser screenshots and DOM evidence are retained under each live run’s log directory. CQI’s unreported sentinel remains an em dash; it is not fabricated into a measurement.
 
-The inherited gate labels starvation as soft and returns `passed` for the stationary case. This review deliberately applies the stricter user/workspace qualification: 56 nonzero starvation events prevent a strict pass. Its 90-second option is an attach timeout, not a fixed elapsed duration; the stationary run additionally held the stack for 80 seconds and committed 208 Sionna batches. The moving run held for 60 seconds and committed 285 batches (including extra shutdown time).
+The inherited gate labels starvation as soft and returns `passed` for the stationary case. This review deliberately applies the strict zero-starvation criterion: 56 nonzero starvation events prevent a strict pass. Its 90-second option is an attach timeout, not a fixed elapsed duration; the stationary run additionally held the stack for 80 seconds and committed 208 Sionna batches. The moving run held for 60 seconds and committed 285 batches (including extra shutdown time).
 
 The supplied SUTD route includes deliberate coverage outages and geometry changes. Results from that route must be separated from a stationary connectivity case; connected sockets alone cannot establish successful radio operation.
 

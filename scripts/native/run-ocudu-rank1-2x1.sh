@@ -87,12 +87,12 @@ else
     --root "${native_root}" --repo-root "${repo_root}" \
     --lock "${script_dir}/native-workspace.lock.json"
 fi
-# Pin the f93386b fixture/driver contents after the use_cases/ relocation.
-# Only paths changed; content hashes also work in exported validation trees.
+# Pin the f93386b fixtures after relocation and the driver after upload-filter cleanup.
+# Radio commands are unchanged; content hashes also work in exported validation trees.
 printf '%s  %s\n' \
   7560250a7eff4ee125999a9eb15c386064a7a1de2cce276721b7ee866ab1cd67 "${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml" \
   720fac823f216db74b8c17d8a6bc92242a462a9be50e9316aa0c7b103fd7699f "${repo_root}/use_cases/configs/ran/ocudu/docker/gnb_zmq_b210_fdd_srsue.yaml" \
-  1079929193e4bd23f97edc3735c37e964e43f5c5d20693a9bc98afad72d5ad60 "${repo_root}/scripts/remote/ocudu-attach-smoke.sh" \
+  fd297edd1f124fc60afa685572f15e335ccde0afe3e18cc9d95219a97afd39e3 "${repo_root}/scripts/remote/ocudu-attach-smoke.sh" \
   de4c7500a9747c989b7028853999f81341760fa7f47ff1cb0d0431b3236c1b87 "${repo_root}/scripts/remote/common.sh" | \
   sha256sum --check --quiet --strict - >/dev/null 2>&1 || \
   usage_error "pre-MIMO legacy fixture or driver changed"

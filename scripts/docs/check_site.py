@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the built artifact, legacy destinations and immutable evidence bytes."""
+"""Check publication text, legacy destinations and evidence provenance."""
 import argparse
 import hashlib
 import json
@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from bs4 import BeautifulSoup
 from update_cli_reference import render as render_cli
+from publication_checks import evidence_hashes, public_text_errors
 
 
 def check(site, repo):
@@ -78,6 +79,9 @@ def check(site, repo):
                 errors.append(f'legacy fragment misrouted: {old}: {actual!r}, expected {expected!r}')
         elif fragment not in ids.get((site / page).resolve(), set()):
             errors.append(f'legacy fragment lost: {old}')
+    public_hashes, provenance_errors = evidence_hashes(repo, inventory)
+    errors.extend(provenance_errors)
+    errors.extend(public_text_errors(repo, site))
     evidence = 0
     for record in inventory['files']:
         destination = repo / record['destination']
@@ -86,12 +90,17 @@ def check(site, repo):
         if record['kind'] != 'evidence':
             continue
         evidence += 1
-        if not destination.exists() or hashlib.sha256(destination.read_bytes()).hexdigest() != record['sha256']:
+        expected_hash = public_hashes[record['destination']]
+        if not destination.exists() or hashlib.sha256(destination.read_bytes()).hexdigest() != expected_hash:
             errors.append(f'evidence changed: {record["source"]}')
-        old = record['source'].removeprefix('docs/')
-        legacy = site / old
-        if not legacy.exists() or hashlib.sha256(legacy.read_bytes()).hexdigest() != record['sha256']:
-            errors.append(f'published evidence changed: {old}')
+        published = {site / record['source'].removeprefix('docs/'),
+                     site / record['destination'].removeprefix('docs/')}
+        # Sphinx creates additional copies for downloadable redacted JSONs.
+        if expected_hash != record['sha256']:
+            published.update((site / '_downloads').rglob(destination.name))
+        for path in published:
+            if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
+                errors.append(f'published evidence changed: {path.relative_to(site)}')
     diagrams = list((docs / 'assets/diagrams').glob('reference-*.svg'))
     if len(diagrams) != inventory['inline_svg_count']:
         errors.append(f'expected {inventory["inline_svg_count"]} technical-reference SVGs; found {len(diagrams)}')

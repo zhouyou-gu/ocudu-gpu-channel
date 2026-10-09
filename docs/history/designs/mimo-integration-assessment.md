@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 > Historical report migrated from `docs/mimo-integration-report.html` at `58d3156`; original findings retain their recorded scope.
 
 Engineering assessment · research snapshot 16 August 2026
@@ -8,11 +10,11 @@ What OCUDU’s four-port gNB can do with one-port srsUE 5G, and how buffered Sio
 
 Source-backed Local project: `a801155` CUDA fork: `nvcuda_accel_02 @ b708b13` srsRAN_4G: `release_25_10` Sionna RT: `2.0.1`
 (mimo-integration-assessment-brief)=
- 00 · User-owned scope
+ 00 · Assessment scope
 
 ## Project goal, intentions and requirements
 
-This is the controlling brief for the report. Later recommendations, diagrams, roadmap items and claims must remain consistent with it unless the user explicitly revises this section.
+This section defines the assessment’s scope. Recommendations, diagrams, roadmap items and claims use the same rank-1 assumptions.
 
 Goal
 
@@ -70,7 +72,7 @@ Sionna channel export
 - Activate every coefficient in a directional vector atomically, define an explicit underrun policy and never substitute missing channel state with silent zero-filled IQ.
 - Validate exported CIRs against `Paths.taps()`, record normalization/path-reduction metadata, and label Sionna integration as planned until these gates pass.
 
-**Scope-change rule:** a new antenna count, UE, rank, beam-control method, channel-source contract or MU-MIMO objective is not an editorial detail. Record the user’s revised intent here first, then update the decision, architecture, roadmap, validation gates and limitations together.
+**Scope-change rule:** a new antenna count, UE, rank, beam-control method, channel-source contract or MU-MIMO objective is not an editorial detail. Document the revised scope, then update the decision, architecture, roadmap, validation gates and limitations together.
 (mimo-integration-assessment-verdict)=
  01 · Direct answers
 

@@ -891,7 +891,7 @@
       "failure_class": "configuration_not_supported",
       "failure_evidence": [
         {
-          "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-k2/runner.out",
+          "path": "results/robot-fight/r7-corrected/corrected-k2/runner.out",
           "line": 6,
           "text": "--min_k2: Value 8 not in range [1 - 4]"
         }
@@ -1091,7 +1091,7 @@
       "failure_class": "configuration_not_supported",
       "failure_evidence": [
         {
-          "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-ran-k1k2/runner.out",
+          "path": "results/robot-fight/r7-corrected/corrected-ran-k1k2/runner.out",
           "line": 6,
           "text": "--min_k1: Value 7 not in range [1 - 4]"
         }

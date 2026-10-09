@@ -1,12 +1,13 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Local main merge and validation
 
 > Dated evidence, preserved from `docs/main-merge-validation.md` at `58d3156`. Results apply only to the recorded revisions, hardware and configurations; see [current status](../../getting_started/status.md).
 
 
-Date: 14 September 2026. The user authorized consolidation into `main` in the
-original checkout, automatic conflict resolution and retention of contributor
-history. This is a local merge record; no push, tag or release publication was
-performed. Current implementation and qualification limits are described in the
+Date: 14 September 2026. Integration was consolidated into `main` with conflicts
+resolved and contributor history retained. This record covers the local merge
+and validation before publication. Current implementation and qualification limits are described in the
 [Sionna integration guide](../../history/milestones/sionna-integration-20260914.md).
 
 ## Retained history
@@ -51,7 +52,7 @@ hold/keepalive changes are covered by the integrated implementations; the
 obsolete UI was not copied over the unified dashboard. Keepalive remains an
 explicit `OCUDU_MGNB_UE_KEEPALIVE_SECONDS` option.
 
-The separate user-owned srsRAN repository still contains tested UE source
+The separate srsRAN fork still contains tested UE source
 `daa167ae3`; its commits were not copied into this channel repository. Those
 fixes are not implied to be on remote `master`.
 
@@ -107,6 +108,6 @@ software revisions and limitations in the integration guide.
 ## Remaining qualification failures
 
 Continuous two-UE moving connectivity and strict zero-miss real-time operation
-remain failed. The user authorized merging the bounded fixes into local main;
+remain failed. The bounded fixes were merged into local main;
 the merge does not change those measurements or establish seamless geometry
 updates. No thresholds or runtime scheduling settings were relaxed.

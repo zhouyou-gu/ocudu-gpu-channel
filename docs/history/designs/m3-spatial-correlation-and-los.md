@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # M3 — 공간 상관 + coherent LOS 상세 설계
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/m3-spatial-correlation-and-los.md` at `58d3156` without changing recorded measurements.
@@ -115,7 +117,7 @@ H_ℓ = sqrt(P_ℓ/(K+1))·H_NLOS,corr + sqrt(P_ℓ·K/(K+1))·H_LOS,coh
 
 오늘 커널의 per-tap `los_factor` / `rayleigh_factor`가 이미 그 두 스칼라다(`device_channel.cu:204-207`). 바뀌는 것은 **`H_LOS,coh`의 lane 성분이 어디서 오는가**뿐이다: lane RNG의 독립 draw(`tap_phi_los`)가 아니라 **선언된 행렬**에서 온다.
 
-**기하에서 유도하지 않는다.** `AGENT_GOAL.md`의 비목표가 안테나 배열 기하·빔포밍·프리코더·CDL을 사용자의 명시적 확장 없이는 제외한다. 따라서 LOS 위상은 안테나 간격에서 계산하는 것이 아니라 `fixed_mimo`와 같은 sparse 복소 계수 형태로 **선언**한다:
+**기하에서 유도하지 않는다.** 이 모델은 안테나 배열 기하·빔포밍·프리코더·CDL에서 계수를 계산하지 않는다. 따라서 LOS 위상은 안테나 간격에서 계산하는 것이 아니라 `fixed_mimo`와 같은 sparse 복소 계수 형태로 **선언**한다:
 
 ```yaml
     los_matrix:
@@ -233,7 +235,8 @@ mixing은 **+4.2 µs (+7%)**이고 500 µs 슬롯 예산의 1% 미만이다. `ii
 
 `ocudu_gpu_channel_bench`가 `config.devices`를 돌며 device id로 `process_superposition`을 불렀다. M1부터 dst 키는 **노드** id이므로, 다중 포트 토폴로지에서는 모든 조회가 빗나가 **커널 카운트 0으로 수천만 번 공회전**했다 — 아무것도 재지 않으면서 초록색으로 끝났다. M1이 남긴 구멍이고, M3.7이 그것을 밟았다. 이제 `resolve_topology()`의 노드를 돌고 RX 포트마다 출력 행을 넘긴다. 1×1에서는 노드가 곧 포트이므로 출력 형식은 그대로다.
 
-## 7. 확정된 결정 (2026-08-15, 사용자 승인)
+(7-확정된-결정-2026-08-15-사용자-승인)=
+## 7. 확정된 결정 (2026-08-15)
 
 권고안 그대로 확정. 근거는 각 항목에 남긴다.
 
@@ -245,4 +248,4 @@ mixing은 **+4.2 µs (+7%)**이고 500 µs 슬롯 예산의 1% 미만이다. `ii
 
 ## 8. 비고 — M0 부채는 그대로다
 
-multi-UE / multi-gNB 라이브 게이트는 여전히 환경 차단 상태다(unprivileged LXC + lock-step 가상시간의 지터 부재; `AGENT_PROGRESS.md` M0 섹션). M3의 exit 게이트도 전부 합성·단위 테스트로 판정되므로 이 제약에 걸리지 않지만, **M3이 그 부채를 줄여주지도 않는다.**
+multi-UE / multi-gNB 라이브 게이트는 여전히 환경 차단 상태다(unprivileged LXC + lock-step 가상시간의 지터 부재; M0 검증 기록). M3의 exit 게이트도 전부 합성·단위 테스트로 판정되므로 이 제약에 걸리지 않지만, **M3이 그 부채를 줄여주지도 않는다.**

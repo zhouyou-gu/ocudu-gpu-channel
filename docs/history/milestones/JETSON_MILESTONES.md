@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Jetson AGX Orin에서 CUDA 가속 OCUDU 검증 마일스톤
 
 > Historical record; its claims apply to the original date, revision and setup. Migrated from `JETSON_MILESTONES.md` at `58d3156` without changing recorded measurements.
@@ -96,7 +98,7 @@ J0는 코드를 한 줄도 빌드하지 않는다. 끝나면 "이 Jetson 위에�
 **호스트 접근 (09-24 확인, 갱신):** 호스트 계정은 **`user-a`**(uid 1000, 호스트의 유일한 일반 계정, `sudo` 그룹, **sudo에 비밀번호 필요**, `docker` 그룹 아님 → `docker`도 sudo 필요). 워크스테이션에서 `ssh jetson-host`(키 인증, 호스트 키 `SHA256:XVzmSESV…` 대조 후 등록)로 접속된다. 계정 소유자에게 키 등록 사실을 알릴 것. **Claude는 sudo를 못 쓰므로 sudo 명령은 minwoo가 호스트 터미널에서 실행**한다.
 
 **호스트 구성 (user-a의 `~/SETUP.md`, `~/jetson-dev-image/Dockerfile`):**
-- 이 Jetson은 **공용**이다. `ocudu-user-a` 컨테이너(포트 2201, 5559/5560 공개)가 이 워크스테이션과 LAN 직결(`192.168.50.1`↔`.2`)로 **Sionna→채널 에뮬레이터 분산 구성**을 돌린다. 09-24 14:30 기준 GPU 부하 0(미실행).
+- 이 Jetson은 **공용**이다. 별도 컨테이너에서 LAN을 통한 Sionna→채널 에뮬레이터 분산 구성을 사용한다. 09-24 14:30 기준 GPU 부하 0(미실행).
 - 컨테이너 이미지 `ocudu-jetson-dev:latest` = `l4t-jetpack:r36.4.0` + gcc-12 기본 + pip cmake≥3.28 + `dev` NOPASSWD sudo + sshd 비밀번호 인증. **우리 컨테이너도 같은 이미지로 보인다**(확인은 `docker inspect` 필요).
 - `/home/dev`, `/workspace`는 **named volume**이다(컨테이너 안에서 `mmcblk0p1`로 보인 이유: 볼륨이 호스트 루트 fs에 있음). 재생성해도 남는다.
 - 전원 모드 **`MODE_30W`(ID 2)** — 추정이 맞았다. MAXN으로 바꾸면 user-a의 브로커 측정 조건도 바뀐다 → **변경 전 user-a와 합의**.

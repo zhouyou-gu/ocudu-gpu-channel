@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): workflow references were normalized for this public edition; measurements and conclusions are unchanged.
+
 # M2 — IID 확률적 페이딩 상세 설계
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/m2-iid-stochastic-fading.md` at `58d3156` without changing recorded measurements.
@@ -117,4 +119,4 @@ M1.6에서 새로 추가한 CUDA 테스트가 **가드 매크로 이름이 틀�
 
 ## 5. 비고 — M0 부채는 그대로다
 
-multi-UE / multi-gNB 라이브 게이트는 여전히 환경 차단 상태다(unprivileged LXC + lock-step 가상시간의 지터 부재; `AGENT_PROGRESS.md` M0 섹션). M2의 exit 게이트는 전부 합성·단위 테스트로 판정되므로 이 제약에 걸리지 않지만, **M2가 그 부채를 줄여주지도 않는다.**
+multi-UE / multi-gNB 라이브 게이트는 여전히 환경 차단 상태다(unprivileged LXC + lock-step 가상시간의 지터 부재; M0 검증 기록). M2의 exit 게이트는 전부 합성·단위 테스트로 판정되므로 이 제약에 걸리지 않지만, **M2가 그 부채를 줄여주지도 않는다.**

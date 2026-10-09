@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): workflow references were normalized for this public edition; measurements and conclusions are unchanged.
+
 # M1 — 차원 도입 + 고정 행렬 상세 설계
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/m1-dimensions-and-fixed-matrix.md` at `58d3156` without changing recorded measurements.
@@ -219,6 +221,6 @@ M1.4의 **1×1 bit-exact**가 이 마일스톤의 안전망이다. 여기서 어
 
 ## 8. 비고: 라이브 검증의 현재 한계
 
-M0에서 확인된 대로 이 환경에서는 multi-UE 라이브 attach가 불가능하다(unprivileged LXC + lock-step 가상시간의 지터 부재; `AGENT_PROGRESS.md` M0 섹션 참조). M1의 exit 게이트는 **전부 합성·단위 테스트로 판정 가능하도록** 설계되어 있으므로 이 제약에 걸리지 않는다.
+M0에서 확인된 대로 이 환경에서는 multi-UE 라이브 attach가 불가능하다(unprivileged LXC + lock-step 가상시간의 지터 부재; M0 검증 기록 참조). M1의 exit 게이트는 **전부 합성·단위 테스트로 판정 가능하도록** 설계되어 있으므로 이 제약에 걸리지 않는다.
 
 다만 [MIMO_MILESTONES.md](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/5ffd73ea4afa2295b9a588b0b03a411329e81d9b/MIMO_MILESTONES.md) M5의 라이브 게이트는 여전히 미해결 부채로 남아 있고, M1이 그 부채를 줄여주지 않는다는 점을 분명히 해 둔다.

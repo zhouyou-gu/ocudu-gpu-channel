@@ -34,7 +34,7 @@ and authorship are retained; contribution areas can overlap.
 
 | Contributor | Affiliation | Role | Contribution areas |
 |---|---|---|---|
-| **[Zhouyou Gu](https://github.com/zhouyou-gu)** | Singapore University of Technology and Design (SUTD) | Project lead | Core broker and CPU/CUDA emulator, topology and runtime control, OCUDU/srsRAN interop, integration fixes and RTX validation, and multi-UE attachment/recovery work in the user-owned srsRAN fork. |
+| **[Zhouyou Gu](https://github.com/zhouyou-gu)** | Singapore University of Technology and Design (SUTD) | Project lead | Core broker and CPU/CUDA emulator, topology and runtime control, OCUDU/srsRAN interop, integration fixes and RTX validation, and multi-UE attachment/recovery work in the [srsRAN fork](https://github.com/zhouyou-gu/srsRAN_4G). |
 | **[Jihong Park](https://www.sutd.edu.sg/profile/park-jihong/)** | Singapore University of Technology and Design (SUTD) | Steering | Project steering. |
 | **[Minwoo Eun](https://github.com/MinwooEun)** | Yonsei University | Rank-1 MISO/SIMO contributor | Multi-port radios and physical-link state, fixed and correlated matrix channels, live 2×1/1×2 and 4×1/1×4 gates, wire-capture scoring and transport validation, and precoding/UE feasibility studies. |
 | **[Hyunsoo Lee](https://github.com/ehs0)** | Yonsei University | Sionna integration contributor | Sionna RT bridge and live scalar/matrix updates, native integration, moving SUTD scene and antenna arrays, scene/ray/channel visualization, timing/resource views, and the initial gNB scheduler KPI panel. |

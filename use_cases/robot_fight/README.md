@@ -7,7 +7,7 @@ interface: the whole control loop then crosses the channel emulator. The arena
 also publishes robot positions for the Sionna bridge (R3).
 
 Everything runs on the wall clock and nobody waits for anybody (the
-"아무도 기다리지 않는다" invariant of `ROBOT_FIGHT_MILESTONES.md`): a late or
+"아무도 기다리지 않는다" invariant of [ROBOT_FIGHT_MILESTONES.md](../../docs/history/milestones/ROBOT_FIGHT_MILESTONES.md)): a late or
 lost command is a physical event, not a stall.
 
 ```
@@ -284,7 +284,7 @@ Two-cell, two-broker robot-fight gate (R5). Run from the repo root:
 `bash use_cases/robot_fight/run-ocudu-robot-fight.sh`.
 
 `run-ocudu-robot-fight.sh` is the scheduling battle of
-`ROBOT_FIGHT_MILESTONES.md` R5: cell a (`gnb0` PCI 1 <-> `ue0`) and cell b
+[ROBOT_FIGHT_MILESTONES.md](../../docs/history/milestones/ROBOT_FIGHT_MILESTONES.md) R5: cell a (`gnb0` PCI 1 <-> `ue0`) and cell b
 (`gnb1` PCI 2 <-> `ue1`) are served by **two separate broker processes** on
 one GPU, each driven by its own Sionna bridge from one scene
 (`use_cases/configs/sionna/scenarios/robot_ring/robot-ring-fight.json`, `gnb1` on `gnb0`'s mast) and one

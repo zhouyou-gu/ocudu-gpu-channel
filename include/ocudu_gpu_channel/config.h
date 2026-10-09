@@ -296,9 +296,8 @@ struct SpatialCorrelationConfig {
 // rank-1 component of H, not an independent draw per lane. This declares that
 // relationship. A lane with no entry carries the default 1 + 0j.
 //
-// It is declared rather than computed from antenna geometry because array
-// geometry, beamforming and CDL are mission non-goals (AGENT_GOAL.mimo.md)
-// until the user expands the mission.
+// Coefficients are declared explicitly; this model does not derive them from
+// antenna geometry, beamforming weights or a CDL model.
 struct LosCoefficient {
   int rx = 0;
   int tx = 0;

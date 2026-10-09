@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): workflow references were normalized for this public edition; measurements and conclusions are unchanged.
+
 # M5 — 라이브 통합 상세 설계
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/m5-live-integration.md` at `58d3156` without changing recorded measurements.
@@ -18,7 +20,7 @@
 1. **1×1 라이브 회귀** (M0 직후 한 번, M4 이후 다시) → **완료**. M4 직후 재실행했고 `20260815T103840Z` `status=passed`(rrc/pdu/ping 전부 1).
 2. **멀티포트 OCUDU gNB ↔ 합성 2-port peer** → 남은 것은 이것 하나다.
 
-그리고 2번에는 선행 조건이 붙어 있었다 — "OCUDU ZMQ의 다중 포트 `device_args` 문법을 소스로 확인하기 전에 이 게이트를 약속하지 않는다". **그 확인도 완료**했다(`AGENT_PROGRESS.md` 블로커 항목). 즉 M5는 지금 착수 가능한 상태다.
+그리고 2번에는 선행 조건이 붙어 있었다 — "OCUDU ZMQ의 다중 포트 `device_args` 문법을 소스로 확인하기 전에 이 게이트를 약속하지 않는다". **그 확인도 완료**했다(기록된 선행 조건 검증). 즉 M5는 지금 착수 가능한 상태다.
 
 **주의**: 같은 절이 **명시적 비게이트**도 적어 두었다 — srsUE `release_23_11`은 rank-2 acceptance gate가 될 수 없고, **독립 srsUE 프로세스 두 개는 2-port UE 하나가 아니다.** M5의 다중포트 상대는 처음부터 **합성 peer**로 지정돼 있다.
 

@@ -57,7 +57,7 @@ if [[ "${sync_worktree}" == "1" ]]; then
   esac
   echo "syncing working tree to ${REMOTE_USER}@${REMOTE_HOST}:${remote_dest}"
   rsync -az --delete \
-    --exclude '.git' --exclude 'build*' --exclude '.config' \
+    --exclude-from="${script_dir}/rsync-excludes.txt" \
     -e "ssh -i ${REMOTE_SSH_KEY} -o BatchMode=yes -o ConnectTimeout=8" \
     "${repo_root}/" "${REMOTE_USER}@${REMOTE_HOST}:${remote_dest}/"
   skip_remote_pull=1

@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Plan — Phase 3 v3: telemetry feed, force-flag effects, hardware checks
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/runtime-mutable-channel-v3.md` at `58d3156` without changing recorded measurements.
@@ -79,7 +81,8 @@ ZMQ topic prefix is the `link_id` so subscribers can filter — `socket.setsocko
 
 v2.0 added `force: true` on profile_swap REQs as the override for the "chain has no leading tdl" eligibility check. The snap accepts the profile and copies it into `live_profile`, but the data plane is unchanged: the YAML chain still has no leading tdl, so `chain_has_leading_tdl == false` and the kernel's per-tap convolution path is never invoked for that edge's contribution. The forced profile sits in `live_profile` as a no-op.
 
-### The decision the user needs to make
+(the-decision-the-user-needs-to-make)=
+### Force behavior alternatives
 
 There are three plausible meanings for "force should have an effect":
 
@@ -89,7 +92,7 @@ There are three plausible meanings for "force should have an effect":
 | **B. Per-destination dispatch override** | When ANY edge of a destination has a forced profile, that destination's `use_device_channel` flips to `false` for the rest of the run; the host stage_link path takes over and the new taps apply via the v1-fin-C effective-taps rebuild. | Adds a runtime "dispatch override" flag per destination; trades GPU speed for new-profile correctness on forced edges. | High. Silent perf cliff: a destination's per-slot kernel time can jump 10× when one of its edges flips. Operator may not notice. |
 | **C. Document-only (status quo)** | Force keeps its current "stored but inert" semantics; v3.1 adds explicit `event=control_force_warning` whenever force=true is observed, plus a counter, plus a doc paragraph naming the inertness. | Trivial. | None. |
 
-My recommendation is **C** for v3 minimal, **A** as the future expansion if the use case actually materialises. **B** is rejected by the same reasoning v2's plan used: silent dispatch flips are dangerous.
+The proposal recommends **C** for v3 minimal, **A** as the future expansion if the use case actually materialises. **B** is rejected by the same reasoning v2's plan used: silent dispatch flips are dangerous.
 
 ### What v3.1 adds (assuming C)
 
@@ -97,9 +100,10 @@ My recommendation is **C** for v3 minimal, **A** as the future expansion if the 
 - New stats counter `force_inert_warnings`.
 - §13 + §21 + the v2 plan get a paragraph naming the inertness explicitly — "force=true does not modify kernel output unless the chain already routes through the per-edge tdl path; use a YAML reload to add the dispatch route".
 
-### If the user picks A or B instead
+(if-the-user-picks-a-or-b-instead)=
+### Alternative implementation scope
 
-Each becomes its own implementation phase (~2 days). Outline available on request; the plan defers committing until the user chooses.
+Each alternative requires a separate implementation phase (estimated at ~2 days). Both were deferred in this proposal.
 
 ## v3.2 — Hardware checks at broker startup
 

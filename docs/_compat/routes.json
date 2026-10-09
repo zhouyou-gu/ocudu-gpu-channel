@@ -308,24 +308,5 @@
     "robot-fight-r7-robustness.png": "reports/experiments/robot-fight-r7/figures/robot-fight-r7-robustness.png"
   },
   "root": "README.html",
-  "source_pointers": [
-    "docs/distributed.md",
-    "docs/main-merge-validation.md",
-    "docs/ocudu-interop.md",
-    "docs/plans/device-channel-pipeline.md",
-    "docs/plans/runtime-mutable-channel-v2.md",
-    "docs/plans/runtime-mutable-channel-v3.md",
-    "docs/plans/runtime-mutable-channel.md",
-    "docs/platforms.md",
-    "docs/project-structure.md",
-    "docs/sionna-integration.md",
-    "docs/sionna-merge-fixes-validation.md",
-    "CROSSTALK_MILESTONES.md",
-    "CUDA_MILESTONES.md",
-    "JETSON_MILESTONES.md",
-    "ROBOT_FIGHT_MILESTONES.md",
-    "SPARK_MILESTONES.md",
-    "ZERO_COPY_MILESTONES.md",
-    "docs/rank1-feasibility-report.en.html"
-  ]
+  "source_pointers": []
 }

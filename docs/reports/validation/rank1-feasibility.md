@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 > Historical report migrated from `docs/rank1-feasibility-report.en.html` at `58d3156`; original findings retain their recorded scope.
 
 Engineering results · feasibility evidence
@@ -191,7 +193,7 @@ The most valuable part of a feasibility result is "**under which conditions** do
 
 - **Sionna RT merge interface** (when its owner joins): this tree's wire-capture / matrix-judgement infrastructure is directly reusable as the scoring tool for the record/replay validation gates, and the per-direction vector channels with atomic activation are the receiver-side structure the coefficient-horizon contract requires.
 - Re-measure real-time margins before extending the gNB side past four ports; add spatial correlation / CDL (assets already exist in the parent tree) if a beam/diversity study requires it.
-- Rank\>1 continues separately in the parent tree (`ocudu-gpu-channel-mimo-claude`, OAI-nrUE workstream) — outside this tree's scope.
+- Rank\>1 continues separately in the parent tree (`ocudu-gpu-channel-mimo`, OAI-nrUE workstream) — outside this tree's scope.
 
 (rank1-feasibility-s8)=
  08 · EVIDENCE INDEX

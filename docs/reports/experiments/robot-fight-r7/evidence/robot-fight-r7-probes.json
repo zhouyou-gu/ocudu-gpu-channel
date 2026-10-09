@@ -1,10 +1,10 @@
 [
   {
     "tag": "corrected-awgn24",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn24",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-awgn24",
     "gate": {
       "result": "passed",
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn24/report/attach-summary.json",
+      "path": "results/robot-fight/r7-corrected/corrected-awgn24/report/attach-summary.json",
       "run_parameters": {
         "broker_sched": {
           "a": "protected",
@@ -278,10 +278,10 @@
   },
   {
     "tag": "corrected-awgn27",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn27",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-awgn27",
     "gate": {
       "result": "passed",
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn27/report/attach-summary.json",
+      "path": "results/robot-fight/r7-corrected/corrected-awgn27/report/attach-summary.json",
       "run_parameters": {
         "broker_sched": {
           "a": "protected",
@@ -555,10 +555,10 @@
   },
   {
     "tag": "corrected-awgn30",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn30",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-awgn30",
     "gate": {
       "result": "passed",
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn30/report/attach-summary.json",
+      "path": "results/robot-fight/r7-corrected/corrected-awgn30/report/attach-summary.json",
       "run_parameters": {
         "broker_sched": {
           "a": "protected",
@@ -832,10 +832,10 @@
   },
   {
     "tag": "corrected-awgn34",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn34",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-awgn34",
     "gate": {
       "result": "passed",
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-awgn34/report/attach-summary.json",
+      "path": "results/robot-fight/r7-corrected/corrected-awgn34/report/attach-summary.json",
       "run_parameters": {
         "broker_sched": {
           "a": "protected",
@@ -1109,10 +1109,10 @@
   },
   {
     "tag": "corrected-base",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-base",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-base",
     "gate": {
       "result": "passed",
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-base/report/attach-summary.json",
+      "path": "results/robot-fight/r7-corrected/corrected-base/report/attach-summary.json",
       "run_parameters": {
         "broker_sched": {
           "a": "protected",
@@ -1386,7 +1386,7 @@
   },
   {
     "tag": "corrected-k2",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-k2",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-k2",
     "gate": {},
     "ues": {
       "ue0": {
@@ -1405,7 +1405,7 @@
   },
   {
     "tag": "corrected-ran-k1k2",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-ran-k1k2",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-ran-k1k2",
     "gate": {},
     "ues": {
       "ue0": {
@@ -1424,10 +1424,10 @@
   },
   {
     "tag": "corrected-ran-retx1",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-ran-retx1",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-ran-retx1",
     "gate": {
       "result": "passed",
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-ran-retx1/report/attach-summary.json",
+      "path": "results/robot-fight/r7-corrected/corrected-ran-retx1/report/attach-summary.json",
       "run_parameters": {
         "broker_sched": {
           "a": "protected",
@@ -1701,10 +1701,10 @@
   },
   {
     "tag": "corrected-ran-sr40",
-    "log_dir": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-ran-sr40",
+    "log_dir": "results/robot-fight/r7-corrected/corrected-ran-sr40",
     "gate": {
       "result": "passed",
-      "path": "/home/minwoo/ocudu-work/ocudu-integration/results/robot-fight/r7-corrected/corrected-ran-sr40/report/attach-summary.json",
+      "path": "results/robot-fight/r7-corrected/corrected-ran-sr40/report/attach-summary.json",
       "run_parameters": {
         "broker_sched": {
           "a": "protected",

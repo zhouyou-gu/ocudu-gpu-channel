@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Rank-1 MISO/SIMO 구현 결과 보고 — Feasibility 실증 중심
 
 > Historical record; its claims apply to the original date, revision and setup. Korean original retained; current English guidance is in the documentation navigation. Migrated from `docs/rank1-feasibility-report.md` at `58d3156` without changing recorded measurements.
@@ -39,7 +41,7 @@ pre-MIMO baseline (공개 스냅샷 a801155 계열)
   · 노드당 1 스트림(scalar), 방향 엣지당 스칼라 TDL 채널
   · 1×1 OCUDU↔srsUE 라이브 attach, TR 38.901 TDL-A..E, GPU 커널(183×), 런타임 컨트롤
         │
-        ▼  MIMO 재구축 (부모 트리 ocudu-gpu-channel-mimo-claude, M0~M5)
+        ▼  MIMO 재구축 (부모 트리 ocudu-gpu-channel-mimo, M0~M5)
   · M0  RadioNode 오버레이: Device를 leaf 포트로, 노드당 producer 1스레드가
         공통 샘플 윈도를 단독 소유 → 포트 간 커서 정렬이 "프로토콜"이 아닌 "구조적 불변식"
   · M1  차원 도입: radio_nodes의 tx_ports/rx_ports 작성 순서 = 행렬 인덱스, fixed_mimo 희소 계수
@@ -199,7 +201,7 @@ Feasibility 평가에서 가장 중요한 부분은 "되긴 되는데, **어떤 
 
 1. **Sionna RT 병합 접점** (담당 팀원 합류 시): 본 트리의 wire-capture/행렬판정 인프라가 Sionna record/replay 검증 게이트의 그대로 쓸 수 있는 채점 도구이며, 방향별 벡터 채널 + 원자 활성화(M4)가 보고서의 coefficient-horizon 계약이 요구하는 수신측 구조다.
 2. gNB측 4포트+ 확장 시 실시간 재측정, 필요 시 공간상관/CDL(부모 트리 자산 보유).
-3. rank>1은 부모 트리(`ocudu-gpu-channel-mimo-claude`)의 OAI-nrUE 워크스트림에서 별도 진행 중 — 본 트리의 범위 밖.
+3. rank>1은 부모 트리(`ocudu-gpu-channel-mimo`)의 OAI-nrUE 워크스트림에서 별도 진행 중 — 본 트리의 범위 밖.
 
 ---
 

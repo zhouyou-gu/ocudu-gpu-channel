@@ -1,9 +1,11 @@
+> Editorial note (2026-10-09): workflow references were normalized for this public edition; measurements and conclusions are unchanged.
+
 # M0 — 단일 엔진 리팩터 상세 설계
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/m0-single-engine-refactor.md` at `58d3156` without changing recorded measurements.
 
 
-상위 문서: [`MIMO_MILESTONES.md`](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/5ffd73ea4afa2295b9a588b0b03a411329e81d9b/MIMO_MILESTONES.md) · 미션: [`AGENT_GOAL.md`](../../../AGENT_GOAL.md)
+상위 문서: [`MIMO_MILESTONES.md`](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/5ffd73ea4afa2295b9a588b0b03a411329e81d9b/MIMO_MILESTONES.md)
 
 **M0의 목표는 MIMO 기능이 아니다. 브로커 스레드 구조를 producer/ring 모델로 바꾸고, 그 변경만 단독으로 라이브 검증하는 것이다.** 이 마일스톤이 끝난 시점에 `Nt = Nr = 1`이고 출력은 여전히 행 하나이며, 관측 가능한 동작은 pre-MIMO와 같아야 한다.
 
@@ -269,6 +271,6 @@ M0은 아래를 **전부** 통과해야 M1으로 넘어간다.
 3. `ocudu-attach-smoke.sh` — `rrc_connected=1`, `pdu_session_established=1`, `ping_ok=1`, gNB `Real-time failure in RF: overflow` 0
 4. `ocudu-multi-ue-smoke.sh`, `ocudu-multi-gnb-smoke.sh` 통과
 5. strict counter 전부 0 (`tx_queue_overflows`, `tx_sequence_gaps`, `zmq_errors`)
-6. **신규**: RX ring 정상 상태 점유와 추가 단방향/왕복 지연 실측치 기록. 하드웨어·sample rate·topology·model chain·backend·run duration 라벨 포함 (`AGENT_HARNESS.md`의 measured-envelope 규칙)
+6. **신규**: RX ring 정상 상태 점유와 추가 단방향/왕복 지연 실측치 기록. 하드웨어·sample rate·topology·model chain·backend·run duration 라벨 포함 (측정 환경을 함께 기록)
 
 3~5는 pre-MIMO에서 이미 green이었던 항목이다. **M0에서 red가 나면 그것은 producer/ring 전환이 만든 회귀이고, 다른 어떤 것도 아니다.** 이 원인 분리 가능성이 M0을 단독 마일스톤으로 두는 이유 전부다.

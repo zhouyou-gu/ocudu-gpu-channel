@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Plan — runtime-mutable channel parameters
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/runtime-mutable-channel.md` at `58d3156` without changing recorded measurements.
@@ -224,7 +226,7 @@ This makes every experiment reproducible from `event=control_update` traces alon
 
 ## Bit-exact parity contract
 
-The project invariant ([CLAUDE.md / AGENT_HARNESS.md](../../../AGENT_HARNESS.md)) is **CPU↔CUDA bit-exact at 1e-3 tolerance** for all scalar steps, statistical parity for fading. v1 preserves this:
+The recorded validation criterion is **CPU↔CUDA bit-exact at 1e-3 tolerance** for all scalar steps, statistical parity for fading. v1 preserves this:
 
 - Every v1 param flows through the same `apply_chain()` device function and the same host `apply_step()` helper. The shadow → live snap is host-side, before the device function runs. Both backends consume an identical `live` snapshot for the same slot.
 - New ctest `test_runtime_update_parity` runs a 100-slot scripted update sequence on both backends in lockstep, asserts max abs deviation < 1e-3 per IQ sample (same threshold as today's chain-step parity).

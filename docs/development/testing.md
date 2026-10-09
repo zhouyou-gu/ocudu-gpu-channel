@@ -64,7 +64,7 @@ The locked-in remote validation. **Must pass before any change to the broker or 
 
 ### Live OCUDU + srsRAN smoke
 
-Docker gNB + Open5GS core + srsUE through the CUDA broker, attach + IP ping verification. Three variants exist on the remote box: `ocudu-attach-smoke.sh` (1 gNB + 1 UE, Milestone A), `ocudu-multi-ue-smoke.sh` (1 gNB + 2 UEs, Milestone B), `ocudu-multi-gnb-smoke.sh` (2 gNBs + 2 UEs with ICI, Milestone C). Detailed runbook at [`docs/ocudu-interop.md`](../guides/live-stacks.md).
+Docker gNB + Open5GS core + srsUE through the CUDA broker, attach + IP ping verification. Three variants exist on the remote box: `ocudu-attach-smoke.sh` (1 gNB + 1 UE, Milestone A), `ocudu-multi-ue-smoke.sh` (1 gNB + 2 UEs, Milestone B), `ocudu-multi-gnb-smoke.sh` (2 gNBs + 2 UEs with ICI, Milestone C). Detailed runbook at [live-stack operations](../guides/live-stacks.md).
 
 (test-layer-mimo)=
 

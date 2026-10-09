@@ -404,7 +404,7 @@ unset leaves the stock behaviour, so the patched binary is a drop-in.
 OCUDU forces the lower PHY into its blocking/sequential profile whenever the
 radio is ZMQ (one worker runs lower-PHY TX, RX and the whole upper PHY), so the
 lock-step loop with the UE is strictly serial. The patch
-(`patches/ocudu-zmq-lower-phy-profile.patch`) keeps a threaded profile and
+(`integrations/ocudu/patches/ocudu-zmq-lower-phy-profile.patch`) keeps a threaded profile and
 fixes what then breaks:
 
 | Variable | Effect |
@@ -431,12 +431,12 @@ defaults), real-time factor stock -> patched: 100 MHz idle 0.65-0.67 ->
 0.82-0.85, 100 MHz under load 0.25 -> 0.32, 50 MHz idle 0.99 -> 1.00, 20 MHz
 under load 0.89 -> 0.98, 100 MHz 1x1 1.00 -> 1.00. What remains is the
 per-message REQ/REP round trip on both ends and the OAI UE's decode time under
-load, not the broker. `SPARK_MILESTONES.md` S17 has the runs, the hop traces
+load, not the broker. [SPARK_MILESTONES.md](../../docs/history/milestones/SPARK_MILESTONES.md) S17 has the runs, the hop traces
 and the run-queue probe that found the starvation.
 
-`patches/oai-zmq-neon-convert.patch` (NEON cf32<->int16 conversion for the
+`integrations/oai/patches/oai-zmq-neon-convert.patch` (NEON cf32<->int16 conversion for the
 OAI ZMQ module on aarch64) is recorded as an optional entry in
-`oai-local-patches.lock.json`: it halves the UE's per-message ingest time but
+`integrations/oai/oai-local-patches.lock.json`: it halves the UE's per-message ingest time but
 does not move the real-time factor, so the default module does not carry it.
 
 ## Demo gates

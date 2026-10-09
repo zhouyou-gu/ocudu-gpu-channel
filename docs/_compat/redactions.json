@@ -1,0 +1,134 @@
+{
+  "date": "2026-10-09",
+  "reason": "Remove personal workspace prefixes from path metadata; measurements are unchanged.",
+  "files": [
+    {
+      "path": "docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-robustness.json",
+      "original_sha256": "e0f3bcebec230e443fb426aceafb84d32a866132682122fc751a2c4df1e9e80c",
+      "public_sha256": "d0b4193db7021a63c5483f5a592c383923054a6c3318b6dee226122b4530a074",
+      "path_fields": [
+        {
+          "pointer": "/runs/base-comp0/path",
+          "value_sha256": "60ab3045a93bfed05917413c7aba6abc4923860b6a20d48801fa258d5c27cdd4"
+        },
+        {
+          "pointer": "/runs/base-comp1/path",
+          "value_sha256": "07816ddaf42b7503ea433876d0d17754c9dbe468d91a35757509e3be046a9f63"
+        },
+        {
+          "pointer": "/runs/out100-comp0/path",
+          "value_sha256": "dc4462a3ef7cad123ebcb665add46ecc4c5ff53ebff4b2a176ac2d6c65cd99dc"
+        },
+        {
+          "pointer": "/runs/out100-comp1/path",
+          "value_sha256": "aa150c8da97df20fce6eb3cf6f94cd492bafb879f48d2d9bff0575944bb5f83e"
+        },
+        {
+          "pointer": "/runs/out300-comp0/path",
+          "value_sha256": "7f7f092d255150f0a268a7a86f81d25732dfc8f4bd2d75aefe61dad6b3990d40"
+        },
+        {
+          "pointer": "/runs/out300-comp1/path",
+          "value_sha256": "26f6c42753f74e87a277e83cd5c3304c054ff0bfe029f53c3150bd9c04eb4308"
+        },
+        {
+          "pointer": "/runs/loss10-comp0/path",
+          "value_sha256": "d99d999bf3cb46740d3afb980fc57e548cc6abc0350548d7eb69d1e9407d2cdc"
+        },
+        {
+          "pointer": "/runs/loss10-comp1/path",
+          "value_sha256": "0259e0cceb02975ec2e7251a5d77c6c26ffc0ae49ac4db2b20087d2f16c37e7f"
+        }
+      ],
+      "measurement_sha256": "4d3f0c5fd85e9a2cfe490dda3f3c918ff50697e871c4fa97e016b62630de273e"
+    },
+    {
+      "path": "docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-probes.json",
+      "original_sha256": "bfcff37ff642b0faeaf9b04e76815ad66cc02b745ad2e4fbc6ec102fdad59475",
+      "public_sha256": "302ce1be7ad7a5c7d5f326b2c325159daf65fe823080112d6ab59f30f4b66eb2",
+      "path_fields": [
+        {
+          "pointer": "/0/log_dir",
+          "value_sha256": "aff5409860e29aec833a469a287a297d314a536a9ea8a099a4b234790a39f28b"
+        },
+        {
+          "pointer": "/0/gate/path",
+          "value_sha256": "d0dd615484a0d592c60e95b83880725b33b7613a9b530d67af05871b650a7af8"
+        },
+        {
+          "pointer": "/1/log_dir",
+          "value_sha256": "bc8157ff80c9feea6703603134d7b1416e67b241c9a71af987d9708950b94c4e"
+        },
+        {
+          "pointer": "/1/gate/path",
+          "value_sha256": "508fc80e05fd87c4efcb3e688daf37062f6ffa2020eb2139cb7899d3f8adcaab"
+        },
+        {
+          "pointer": "/2/log_dir",
+          "value_sha256": "212485b299058d86a9ba5d39a61dc333c6ae37bc35d95589883e3d198db00d01"
+        },
+        {
+          "pointer": "/2/gate/path",
+          "value_sha256": "0ff2a8b32f131ad276dc24e8eca1f745f0706f55f63d0087ef6cf375ab951e66"
+        },
+        {
+          "pointer": "/3/log_dir",
+          "value_sha256": "66709d3f00cb409b7466e1808351b529503859c08d57baf59ed30ab9a538f6b9"
+        },
+        {
+          "pointer": "/3/gate/path",
+          "value_sha256": "fdd046c8ddb4ea6a6a65d3174327884dbd31daf1f2fcd2569ee894a12397f8c2"
+        },
+        {
+          "pointer": "/4/log_dir",
+          "value_sha256": "ee4b2fbadd82bd92ae78c93b2e2e3edd433eb0eb5702030a3f9e2b17c83dcaad"
+        },
+        {
+          "pointer": "/4/gate/path",
+          "value_sha256": "ed200ce50acc23a5282d275c7411622d14001d94fda2dbe35d79a33c916ba9ef"
+        },
+        {
+          "pointer": "/5/log_dir",
+          "value_sha256": "5f589a1ba74a72b72959d5ffe053c4b2f8584a354a5fe0a74c1324166682215f"
+        },
+        {
+          "pointer": "/6/log_dir",
+          "value_sha256": "5d4c0ae5683612f25a90133d6edd8120f0efc641c13b735e3347d6788f540a55"
+        },
+        {
+          "pointer": "/7/log_dir",
+          "value_sha256": "1b8c2f7c9e9fb921561e2c5302325eee4b8fa7c72391e6abf97cfbc20e584ac7"
+        },
+        {
+          "pointer": "/7/gate/path",
+          "value_sha256": "af240a44c512f8a261f6654fbea9d5acce45fca2b97b6aed4170cce4886449f8"
+        },
+        {
+          "pointer": "/8/log_dir",
+          "value_sha256": "a46ddd99f20162759410cb84c09a5481f59b5b98b8eda8c43b375acdee716a86"
+        },
+        {
+          "pointer": "/8/gate/path",
+          "value_sha256": "fd588c9130e28a881297abf74b5ed468ac93ff74c70e363f64d5418624fda7ee"
+        }
+      ],
+      "measurement_sha256": "44cfb9cfd51bff8964c6acff435ed2119ae1650295d9d30e1cf1200608e1b387"
+    },
+    {
+      "path": "docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-audit.json",
+      "original_sha256": "57a703d9c7a3ccb29d0e73457450f05024e417503a5518d94388797b80c0a1d0",
+      "public_sha256": "e2043694eff09e26cc5f57c35b63071afc616136765c4ccb14e4a4352aa7faf9",
+      "path_fields": [
+        {
+          "pointer": "/corrected_probes/corrected-k2/failure_evidence/0/path",
+          "value_sha256": "3bcca0974bf57e46e956597e00d444dc4defa3476b6136773ab6cd632d94b55c"
+        },
+        {
+          "pointer": "/corrected_probes/corrected-ran-k1k2/failure_evidence/0/path",
+          "value_sha256": "db4f45bcc829a10f055fca9bded250be0b527191a085865f3e9caea6811d42a4"
+        }
+      ],
+      "measurement_sha256": "4fcaf2038fbb8e6417a2bcce1742497fbe8e68ad790d87519769c95298a7a52e"
+    }
+  ]
+}

@@ -19,9 +19,15 @@ Link to canonical definitions instead of copying tables. A capability's implemen
 
 ## Migration inventory
 
-`docs/_compat/inventory.json` records the pre-migration revision, every source document and evidence asset, SHA-256 hashes, and technical-reference section destinations. `docs/_compat/routes.json` records published file and fragment destinations. Evidence hashes must remain unchanged; editorial notes may explain later findings without changing historical results.
+`docs/_compat/inventory.json` records the pre-migration revision, every source document and evidence asset, SHA-256 hashes, and technical-reference section destinations. `docs/_compat/routes.json` records published file and fragment destinations. Preserve the original evidence hashes in the inventory; declare any sanitized public derivative as described below. Editorial notes may explain later findings without changing historical results.
 
-The approved sequence is inventory, publishing foundation, current guidance, reports/history, and validation. Each stage is a separate commit. Preserve old public routes through generated aliases; keep only short forwarding files for explicitly published repository document paths. Root milestone filenames remain forwarding entrypoints.
+Preserve old documentation-site routes through generated aliases. The six root milestone stubs and twelve documentation source stubs were retired on 9 October 2026; their old GitHub file URLs are no longer supported. Link directly to canonical documents, including [milestone history](../history/milestones/README.md). Keep `docs/index.html` and the file, fragment and asset mappings; `source_pointers` is empty. The historical migration inventory remains unchanged.
+
+## Public editions
+
+Use portable workspace paths and technical descriptions in public records. Local account names, private endpoints and conversation-specific narration do not establish a result. Retain dates, revisions, authorship, measurements and limitations when editing historical prose; label such edits with a dated note.
+
+Evidence published with normalized path metadata is listed in `docs/_compat/redactions.json`. Each entry retains the inventory’s original SHA-256, the public file’s SHA-256 and the exact JSON fields whose path values changed. Original artifacts are retained in private validation storage. The checker verifies public hashes and all aliases; measurement values and diagnostic patch bytes must remain unchanged. Historical hashes describe the original artifacts, not their public derivatives.
 
 ## Publication contract
 

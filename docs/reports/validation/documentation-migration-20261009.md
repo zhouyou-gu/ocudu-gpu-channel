@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Documentation migration validation — 2026-10-09
 
 ## Scope and revisions
@@ -21,7 +23,7 @@ Validation ran on the RTX workstation in `~/ocudu-gpu-channel-workspace/validati
 | Responsive review | Landing page, tutorial, architecture, glossary, channel equations, configuration, control API, backends and measured boundaries reviewed at 1440 px and 390 px; no horizontal page overflow |
 | Navigation and search | Mobile navigation and full-size diagram links work; setup and control queries find current pages; historical records are excluded from default search |
 | Interface traceability | CLI reference exactly matches the source-derived generator; configuration, scene resolution, control acknowledgment/application and telemetry semantics reviewed against source |
-| Fresh-reader review | Setup, reference rules, measured limits and proposed work were findable without conversation context; identified gaps were corrected |
+| Fresh-reader review | Setup, reference rules, measured limits and proposed work were findable from the documentation alone; identified gaps were corrected |
 
 The SVG extraction initially exposed case-sensitive attribute and HTML-entity issues. The final checker validates standalone XML and preserved drawing bodies, so a counted but broken image cannot pass. Mobile review also led to stacked architecture cells, scrollable wide tables and full-size SVG links. Historical measurements and diagram contents were preserved.
 
@@ -63,4 +65,4 @@ The remote evidence directory retains `build.log`, `check.json`, `browser.log`, 
 
 These checks establish documentation build integrity and the exercised synthetic commands. They do not qualify continuous moving traffic, strict live real-time operation, OAI, CMX/X310, GB10 or Orin. The prior [structure-migration report](structure-migration-20261009.md) remains the authority for its nine-stage GPU sequence, deterministic IQ comparison and targeted live run, including its two receive starvations.
 
-The generated artifact was previewed before handoff. The five migration stages are local commits; no push or Pages deployment was performed for this task. Pull requests build and validate without deployment; main and manual main-branch runs deploy the complete artifact. Publication rollback is a normal revert of the documentation migration followed by the Pages workflow, preserving the prior revision and contributor history.
+The generated artifact was previewed after the five migration stages. Validation did not deploy the site. Pull requests build and validate without deployment; main and manual main-branch runs deploy the complete artifact. Publication rollback is a normal revert of the documentation migration followed by the Pages workflow, preserving the prior revision and contributor history.

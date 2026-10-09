@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): workflow references were normalized for this public edition; measurements and conclusions are unchanged.
+
 # M4 — physical link 단위 runtime control 상세 설계
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/m4-physical-link-runtime-control.md` at `58d3156` without changing recorded measurements.
@@ -167,4 +169,4 @@ M4.2의 게이트가 M3.3과 같은 형태인 것에 주의 — **소유권 이�
 
 ## 7. 비고 — M0 부채는 그대로다
 
-multi-UE / multi-gNB 라이브 게이트는 여전히 환경 차단 상태다(unprivileged LXC; `AGENT_PROGRESS.md` M0 섹션). M4의 exit 게이트는 합성·단위 테스트와 로컬 브로커로 판정되므로 이 제약에 걸리지 않지만, **M4가 그 부채를 줄여주지도 않는다.**
+multi-UE / multi-gNB 라이브 게이트는 여전히 환경 차단 상태다(unprivileged LXC; M0 검증 기록). M4의 exit 게이트는 합성·단위 테스트와 로컬 브로커로 판정되므로 이 제약에 걸리지 않지만, **M4가 그 부채를 줄여주지도 않는다.**

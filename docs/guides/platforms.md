@@ -16,7 +16,7 @@ milestone logs hold the measurements.
 | `cudaDevAttrIntegrated` / `ConcurrentManagedAccess` / `PageableMemoryAccessUsesHostPageTables` | 0 / 1 / 0 | 1 / 1 / 1 | 1 / 0 / 0 |
 | OS | Ubuntu 24.04 | DGX OS 7.5 (Ubuntu 24.04) host, Ubuntu 24.04 container | JetPack 6.x host, Ubuntu 22.04 container |
 | Role | reference and regression host, C track (CUDA gNB) | S and Z tracks, OAI MIMO gates, X track, S17 | J track, Z6 |
-| Milestone logs | `CUDA_MILESTONES.md`, [multi-port design history](../history/designs/README.md) | `SPARK_MILESTONES.md`, `ZERO_COPY_MILESTONES.md`, `CROSSTALK_MILESTONES.md` | `JETSON_MILESTONES.md` |
+| Milestone logs | [CUDA_MILESTONES.md](../history/milestones/CUDA_MILESTONES.md), [multi-port design history](../history/designs/README.md) | [SPARK_MILESTONES.md](../history/milestones/SPARK_MILESTONES.md), [ZERO_COPY_MILESTONES.md](../history/milestones/ZERO_COPY_MILESTONES.md), [CROSSTALK_MILESTONES.md](../history/milestones/CROSSTALK_MILESTONES.md) | [JETSON_MILESTONES.md](../history/milestones/JETSON_MILESTONES.md) |
 
 ## What differs per platform
 
@@ -29,7 +29,7 @@ kernels also read the caller's input spans and write the output rows in place
 are zero-copy (`PageableMemoryAccess=0`), and the managed-memory path is never
 used because `ConcurrentManagedAccess=0`. On the 5090 `auto` stays on `copy`:
 every zero-copy access would cross PCIe. Output is bit-identical in all modes.
-Evidence: `ZERO_COPY_MILESTONES.md` Z3 (GB10), Z6 (Orin), Z7 (default).
+Evidence: [ZERO_COPY_MILESTONES.md](../history/milestones/ZERO_COPY_MILESTONES.md) Z3 (GB10), Z6 (Orin), Z7 (default).
 
 ### CPU placement (`scripts/native/platform-profiles.json`)
 
@@ -106,7 +106,7 @@ converts every sample in a scalar cleanup loop on the UE's receive thread.
 
 On the GB10 the remaining bound at 100 MHz is the per-message REQ/REP round
 trip on both ends and the OAI UE's decode time under load, not the broker
-(`SPARK_MILESTONES.md` S15, S17).
+([SPARK_MILESTONES.md](../history/milestones/SPARK_MILESTONES.md) S15, S17).
 
 ## Setting a host up
 
@@ -137,7 +137,7 @@ host-wide privileges beyond that (`scripts/native/README.md`).
   `NET_ADMIN`, `SYS_ADMIN` (for `ip netns add`), `SYS_NICE`, `/dev/net/tun`,
   `ulimit -r 99`, unlimited memlock and AppArmor unconfined.
 - Work root `/workspace/ocudu-spark` (`OCUDU_NATIVE_ROOT`); the CUDA gNB locks
-  are selected with `OCUDU_CUDA_WORKSPACE_LOCK=scripts/cuda/cuda-workspace.spark*.lock.json`.
+  are selected with `OCUDU_CUDA_WORKSPACE_LOCK=integrations/ocudu/cuda-workspace.spark*.lock.json`.
 - The GB10 is a shared device: the gates take a gate lock, and every milestone
   run records that no other GPU process was running.
 - `scripts/cuda/spark/s3-build-stack.sh` builds the aarch64 stack; the OAI
@@ -159,20 +159,20 @@ host-wide privileges beyond that (`scripts/native/README.md`).
   `scripts/cuda/jetson/sctp-oot/prepare-sctp-oot.py` builds it out of tree
   from the kernel's own `net/sctp` sources.
 - Disk is a single 59 GB eMMC; the whole workspace fits in about 10 GB
-  (`JETSON_MILESTONES.md` J0-3).
+  ([JETSON_MILESTONES.md](../history/milestones/JETSON_MILESTONES.md) J0-3).
 - Work root `/workspace/ocudu-jetson`; locks
-  `scripts/cuda/cuda-workspace.jetson*.lock.json`; platform profile
+  `integrations/ocudu/cuda-workspace.jetson*.lock.json`; platform profile
   `jetson-orin-30w`.
 
 ## Where the evidence is
 
-- `CUDA_MILESTONES.md`: C0-C5 on the 5090 (vendor validation, C1 patch,
+- [CUDA_MILESTONES.md](../history/milestones/CUDA_MILESTONES.md): C0-C5 on the 5090 (vendor validation, C1 patch,
   staged acceleration, BLER/SINR, measurement).
-- `SPARK_MILESTONES.md`: S0-S17 on the GB10 (vendor validation, stack build,
+- [SPARK_MILESTONES.md](../history/milestones/SPARK_MILESTONES.md): S0-S17 on the GB10 (vendor validation, stack build,
   live gates 20-100 MHz, lock-step round analysis, D8-D10, S17 pipelining).
-- `ZERO_COPY_MILESTONES.md`: Z0-Z8, zero-copy on both integrated GPUs.
-- `JETSON_MILESTONES.md`: J0-J9 on the Orin (container, vendor validation,
+- [ZERO_COPY_MILESTONES.md](../history/milestones/ZERO_COPY_MILESTONES.md): Z0-Z8, zero-copy on both integrated GPUs.
+- [JETSON_MILESTONES.md](../history/milestones/JETSON_MILESTONES.md): J0-J9 on the Orin (container, vendor validation,
   D6/D7, live OAI 1x1 and 2x2, CPU placement, D10).
-- `CROSSTALK_MILESTONES.md` and [X-track reports](../reports/experiments/README.md): UE-to-UE
+- [CROSSTALK_MILESTONES.md](../history/milestones/CROSSTALK_MILESTONES.md) and [X-track reports](../reports/experiments/README.md): UE-to-UE
   interference and gNB real time under load on the GB10.
 - [M6 rank-2 evidence](../history/designs/m6-rank2-su-mimo-live.md): OAI 2x2 rank 2 on the 5090.

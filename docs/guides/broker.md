@@ -20,7 +20,7 @@ Expect broker startup and a final `event=stop` record with nonzero receive reque
 - **Reading the latency gate**: green = p99 added latency ≤ 25 % of the NR slot; yellow = stable, ≤ one slot; red = \> one slot or unstable. A benchmark band does not qualify a live radio run; retain the complete integrity counters and the live gate verdict.
 - **Sample rates other than 23.04 MS/s** work as long as the topology declares them consistently. The slot batch defaults to `auto` (= 1 ms worth of samples).
 - **If `rx_starvations` climbs** in production: usually the host CPU is slower than the sample-rate cadence on whichever node started missing deadlines. Check the kernel timings first (`event=gpu_timings`); the GPU is rarely the bottleneck.
-- **Distributed IQ across machines** over Wi-Fi or VPN is not viable — see [`docs/distributed.md`](distributed.md). Prefer the same host; qualify any wired transport against the measured latency and throughput budget.
+- **Distributed IQ across machines** over Wi-Fi or VPN is not viable — see [distributed operation](distributed.md). Prefer the same host; qualify any wired transport against the measured latency and throughput budget.
 
 (latency-gate)=
 

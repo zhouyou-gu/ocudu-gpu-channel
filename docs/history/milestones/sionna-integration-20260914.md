@@ -1,3 +1,5 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # Sionna integration and current validation
 
 > Historical record; its claims apply to the original date, revision and setup. Migrated from `docs/sionna-integration.md` at `58d3156` without changing recorded measurements.
@@ -37,7 +39,7 @@ and Sionna argument forwarding. No contribution was squashed or rebased. See
 | Hyunsoo Lee's moving SUTD scene, arrays, viewer and four-antenna scenario | `9722ef2`, `9309087`, `edd89ec`, `066a702` |
 | Zhouyou Gu's integration corrections and validation | History fix `88cbe6d`; delay capacity `260e8c6`; fallback rejection `66173e2`; launcher correction `549803a`; freshness `576def5`; preparation coverage `b621b12`; HTTP-loss handling `16af288` |
 | Zhouyou Gu's unified RAN panel and metrics recovery | `5c6cafd`, `d6637f7`; [validation report](../../reports/validation/metrics-recovery-validation.md) |
-| Zhouyou Gu's UE recovery follow-up | Separate user-owned srsRAN fork, tested at `daa167ae3`; [results below](sionna-integration-20260914.md#ue-recovery-validation) |
+| Zhouyou Gu's UE recovery follow-up | Separate srsRAN fork, tested at `daa167ae3`; [results below](sionna-integration-20260914.md#ue-recovery-validation) |
 
 These corrections build on the contributors' work; they do not replace its
 history or imply that the Sionna contributor implemented the later UE fixes.
@@ -300,7 +302,7 @@ run also executed the radio stack and broker. The historical/live difference
 does not isolate a cause, and motion alone is not established as its cause.
 
 Raw summaries and samples are under `/workspace/gpuch/sionna-profile-0930/`
-on Spark, copied to `/home/minwoo/ocudu-work/sionna-profile-0930/`. The active
+on Spark, copied to `${HOME}/ocudu-work/sionna-profile-0930/`. The active
 R7 source tree and launchers were not changed. Focused adapter, external-position
 and Web UI tests passed 83/83 on Spark; a four-update bridge dry run exercised
 the new JSON timing fields. Live profiling under radio load remains unmeasured.

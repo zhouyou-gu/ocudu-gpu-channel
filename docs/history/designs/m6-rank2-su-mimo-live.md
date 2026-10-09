@@ -1,9 +1,11 @@
+> Editorial note (2026-10-09): local paths and workflow narration were normalized for this [public edition](../../development/documentation.md#public-editions); measurements and conclusions are unchanged.
+
 # M6 — rank-2 SU-MIMO 라이브 acceptance 상세 설계
 
 > Historical record; its claims apply to the original date, revision and setup. Closed or historical design: consult current reference and validation before treating a proposal as implemented. Migrated from `docs/plans/m6-rank2-su-mimo-live.md` at `58d3156` without changing recorded measurements.
 
 
-상위 문서: [`MIMO_MILESTONES.md`](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/5ffd73ea4afa2295b9a588b0b03a411329e81d9b/MIMO_MILESTONES.md) §2 M6 · 미션: [`AGENT_GOAL.md`](../../../AGENT_GOAL.md)
+상위 문서: [`MIMO_MILESTONES.md`](https://github.com/zhouyou-gu/ocudu-gpu-channel/blob/5ffd73ea4afa2295b9a588b0b03a411329e81d9b/MIMO_MILESTONES.md) §2 M6
 선행: [`m5-live-integration.md`](m5-live-integration.md) · 배경: [`why-radionode-and-srsue-rank1-ko.md`](../translations/ko/why-radionode-and-srsue-rank1.md)
 
 ---
@@ -242,7 +244,7 @@ RadioNode는 "ZMQ 엔드포인트 쌍 N개가 한 라디오"라고만 말하고,
 
 ```bash
 docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HOME=/root \
-  OCUDU_NATIVE_ROOT=/home/user-a/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
+  OCUDU_NATIVE_ROOT=${HOME}/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
   OAI2X2_PATH=broker OAI2X2_MAX_RANK=2 OAI2X2_TX_BACKOFF_DB=24 \
   OAI2X2_TOPOLOGY=$PWD/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
   "OAI2X2_BROKER_EXTRA=--wire-capture-dir WIRECAP --wire-capture-samples 2304000 --wire-capture-skip 69120000" \
@@ -286,8 +288,8 @@ M6.4가 벽시계의 0.275배로 흐른 원인은 Spark S9에서 찾은 것과 �
 
 ```bash
 docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HOME=/root \
-  OCUDU_NATIVE_ROOT=/home/user-a/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
-  OCUDU_NATIVE_OAI_SHLIBPATH=/home/user-a/ocudu-native-workspace/builds/oai-zmq-s9 \
+  OCUDU_NATIVE_ROOT=${HOME}/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
+  OCUDU_NATIVE_OAI_SHLIBPATH=${HOME}/ocudu-native-workspace/builds/oai-zmq-s9 \
   OAI2X2_PATH=broker OAI2X2_MAX_RANK=2 OAI2X2_TX_BACKOFF_DB=24 OAI2X2_IPERF_RATE=200M \
   OAI2X2_TOPOLOGY=$PWD/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
   "OAI2X2_BROKER_EXTRA=--wire-capture-dir WIRECAP --wire-capture-samples 2304000 --wire-capture-skip 69120000" \
@@ -456,8 +458,8 @@ docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-oai-mimo && env HO
 
 ```bash
 docker exec ocudu-minwoo bash -c 'cd ~minwoo/ocudu-work/ocudu-ulmimo && env HOME=/root \
-  OCUDU_NATIVE_ROOT=/home/user-a/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
-  OCUDU_NATIVE_CHANNEL_BUILD=/home/user-a/ocudu-native-workspace/builds/ocudu-gpu-channel-ulmimo-cuda-release \
+  OCUDU_NATIVE_ROOT=${HOME}/ocudu-native-workspace CUDACXX=/usr/local/cuda/bin/nvcc \
+  OCUDU_NATIVE_CHANNEL_BUILD=${HOME}/ocudu-native-workspace/builds/ocudu-gpu-channel-ulmimo-cuda-release \
   OAI2X2_PATH=broker OAI2X2_MAX_RANK=2 OAI2X2_UL_MAX_RANK=2 OAI2X2_IPERF_DIR=both \
   OAI2X2_IPERF_RATE=200M OAI2X2_IPERF_UL_RATE=200M OAI2X2_IPERF_SECONDS=15 \
   OAI2X2_TOPOLOGY=$PWD/use_cases/configs/topologies/ocudu_native/topology.ocudu.oai-2x2-unitary.cuda.yaml \
