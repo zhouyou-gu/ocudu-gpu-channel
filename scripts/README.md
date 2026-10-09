@@ -13,6 +13,7 @@ milestone gates build on.
 | `cuda/spark/` | DGX Spark containers and the `s2`–`s15` milestone scripts. | `cuda/spark/README.md`, [SPARK_MILESTONES.md](../docs/history/milestones/SPARK_MILESTONES.md) |
 | `remote/` | Workflows that run on the RTX workstation over SSH and use `.config` through `common.sh`: toolchain bootstrap, GPU test sequence, Docker-based OCUDU smokes, perf sweeps. | `remote/README.md` |
 | `local/` | Local launch orchestration: Sionna bridge + dashboard (`run_web_ui.sh`), synthetic dashboard loop and remote-smoke wrappers. | [Applications](../apps/README.md) |
+| `docs/` | Documentation site: `serve.sh` (build and serve locally), `check_site.py` (publication checks), and the Sphinx support module. | [Documentation](../docs/development/documentation.md) |
 | `figures/` | Regenerate committed figures: `regen_fading_figures.py` (`docs/assets/figures/`), `regen_perf_figures.py` (`docs/reports/performance/2026-05-sweeps/` from a perf `sweep.json`). | — |
 | `tools/` | Standalone helpers: `gen_topology.py` (synthetic one-to-N / M-to-N topologies for the perf sweeps), `check_feed.py` (verify that the broker telemetry feed carries the expected links). | — |
 

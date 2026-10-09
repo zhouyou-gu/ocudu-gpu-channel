@@ -33,3 +33,10 @@ development/README
 reports/README
 history/README
 ```
+
+```{toctree}
+:hidden:
+:caption: Project
+
+GitHub repository <https://github.com/zhouyou-gu/ocudu-gpu-channel>
+```

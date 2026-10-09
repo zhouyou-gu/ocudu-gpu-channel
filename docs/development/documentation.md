@@ -46,7 +46,9 @@ Run the strict build and compatibility checker on the RTX workstation. Review th
 
 ## Build and verify
 
-From the repository root on the RTX workstation:
+To read the site on any machine, run `scripts/docs/serve.sh` and open `http://127.0.0.1:19492/README.html`. It creates `.venv-docs` with Python 3.12, the same version as CI (fetching it with `uv` when `python3.12` is not installed), runs the strict build into `.build/docs/html` and serves it on loopback; `--build-only` skips serving and `--port N` changes the port. The site needs a build because the Markdown is the source: Sphinx renders it to HTML and generates the navigation, cross-references, search index and legacy routes.
+
+For publication checks, from the repository root on the RTX workstation:
 
 ```sh
 python3.12 -m venv .venv-docs
