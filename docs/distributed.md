@@ -1,3 +1,3 @@
-# Distributed operation
+# Documentation moved
 
-Moved to [the distributed guide](guides/distributed.md).
+Continue at [distributed](guides/distributed.md).

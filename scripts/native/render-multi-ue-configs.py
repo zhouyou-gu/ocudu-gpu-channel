@@ -26,7 +26,7 @@ from typing import NoReturn
 
 PLACEHOLDER_RE = re.compile(r"\$\{[A-Z0-9_]+\}|@[A-Z0-9_]+@")
 
-# X6 (docs/plans/x6-gnb-realtime-traffic.md): the OCUDU gNB's lower-PHY thread
+# X6 (docs/reports/experiments/x6-gnb-realtime-traffic/README.md): the OCUDU gNB's lower-PHY thread
 # profile. Unset (the default) renders the fixture untouched, so every run so
 # far is unchanged. `single`, `dual` or `triple` append
 #   expert_execution.threads.lower_phy.execution_profile

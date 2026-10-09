@@ -6,7 +6,7 @@
 // value into the corresponding BrokerLinkControl::shadow, bumps seqno, and
 // replies with a JSON REP. The per-link server thread observes the seqno
 // advance at the next slot boundary and snaps shadow → live before the
-// kernel runs. See docs/plans/runtime-mutable-channel.md for the full design.
+// kernel runs. See docs/history/designs/runtime-mutable-channel.md for the full design.
 //
 // Threading: ControlServer owns a dedicated background thread for the REP
 // socket loop; it is the only writer to each BrokerLinkControl::shadow.
@@ -30,7 +30,7 @@ namespace ocg {
 
 struct ControlServerConfig {
   // ZMQ endpoint to bind the REP socket to. Conventional default:
-  // "tcp://*:5559" — see docs/plans/runtime-mutable-channel.md decision #1.
+  // "tcp://*:5559" — see docs/history/designs/runtime-mutable-channel.md decision #1.
   std::string endpoint;
 
   // Total receive timeout per loop iteration (milliseconds). Lower values

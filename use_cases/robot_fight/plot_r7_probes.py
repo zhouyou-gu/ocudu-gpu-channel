@@ -129,7 +129,7 @@ def render(data, output, steady_after):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, default=Path('results/robot-fight/r7-corrected/table.json'))
-    parser.add_argument('--output', type=Path, default=Path('docs/robot-fight-r7-probes.png'))
+    parser.add_argument('--output', type=Path, default=Path('docs/reports/experiments/robot-fight-r7/figures/robot-fight-r7-probes.png'))
     parser.add_argument('--steady-after', type=float, default=20, help='analyzer steady-window setting, for annotation')
     args = parser.parse_args()
     render(json.loads(args.input.read_text()), args.output, args.steady_after)

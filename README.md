@@ -2,7 +2,7 @@
 
 Project lead: **[Zhouyou Gu](https://github.com/zhouyou-gu)** (SUTD)<br>
 Steering: **[Jihong Park](https://www.sutd.edu.sg/profile/park-jihong/)** (SUTD)<br>
-Contributors: **[Minwoo Eun](https://github.com/MinwooEun)** (Yonsei University) · **[Hyunsoo Lee](https://github.com/ehs0)** (Yonsei University) ([contributions](#contributors))
+Contributors: **[Minwoo Eun](https://github.com/MinwooEun)** (Yonsei University) · **[Hyunsoo Lee](https://github.com/ehs0)** (Yonsei University) ([contributions](README.md#contributors))
 
 **GPU-accelerated, ZMQ-native channel emulator for live srsRAN and OCUDU stacks.**
 Routes `cf32` IQ between radio endpoints and applies CUDA channel models

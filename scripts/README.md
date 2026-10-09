@@ -16,7 +16,7 @@ milestone gates build on.
 | `figures/` | Regenerate committed figures: `regen_fading_figures.py` (`docs/figures/`), `regen_perf_figures.py` (`docs/blueprint-generated/` from a perf `sweep.json`). | — |
 | `tools/` | Standalone helpers: `gen_topology.py` (synthetic one-to-N / M-to-N topologies for the perf sweeps), `check_feed.py` (verify that the broker telemetry feed carries the expected links). | — |
 
-Runtime code lives in [`apps/sionna_bridge/`](../apps/sionna_bridge/) and [`apps/dashboard/`](../apps/dashboard/). External-stack patches and revision pins live in [`integrations/`](../integrations/README.md).
+Runtime code lives in [`apps/sionna_bridge/`](../apps/sionna_bridge) and [`apps/dashboard/`](../apps/dashboard). External-stack patches and revision pins live in [`integrations/`](../integrations/README.md).
 
 Conventions:
 

@@ -194,7 +194,7 @@ def render_topology_2x2(source: str, ue_scale_db: float | None = None) -> str:
 
     The per-port level behind the shared OAI_UE_TX_POWER was measured for this
     gate (X7, oai-2x2/20261001T114323Z, 3 s wire capture after a 2 s skip,
-    docs/plans/x7-oai-levels-prach.md): the UE's port 0 carries every uplink
+    docs/reports/experiments/x7-oai-levels-prach/README.md): the UE's port 0 carries every uplink
     channel at the 1x1 per-channel level (0.3 ms PUCCH -60.5 dB vs -60.2 dB,
     1 ms narrow bursts -57.4/-57.6 vs -57.2 dB; the nrUE's digital amplitude per
     resource element is the same whatever the antenna count) and port 1 is

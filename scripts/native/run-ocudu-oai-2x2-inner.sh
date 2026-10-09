@@ -409,7 +409,7 @@ PY
     # <log_dir>/wire-capture (one <port>.{tx_in,rx_out}.cf32 per gNB/UE port);
     # wire-capture-power.py gives the per-port levels. X7 measured the UE's
     # port 0 at the 1x1 per-channel level and port 1 silent (1-layer UL), see
-    # docs/plans/x7-oai-levels-prach.md; a 2 s skip here lands in the
+    # docs/reports/experiments/x7-oai-levels-prach/README.md; a 2 s skip here lands in the
     # connected-mode PUCCH / early DL-iperf phase, so the traffic-weighted
     # level is not comparable with the 1x1 calibration window without a
     # per-burst breakdown.

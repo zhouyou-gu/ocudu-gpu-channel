@@ -67,7 +67,7 @@ mue_wire_capture_samples="${OCUDU_NATIVE_MUE_WIRE_CAPTURE_SAMPLES:-0}"
 mue_wire_capture_skip_seconds="${OCUDU_NATIVE_MUE_WIRE_CAPTURE_SKIP_SECONDS:-60}"
 # X6: the gNB lower-PHY thread profile the renderer writes into gnb.yaml
 # (single|dual|triple; empty = fixture untouched). See
-# docs/plans/x6-gnb-realtime-traffic.md: on OCUDU a1916edc the zmq driver
+# docs/reports/experiments/x6-gnb-realtime-traffic/README.md: on OCUDU a1916edc the zmq driver
 # forces the sequential profile after parsing, so this is accepted but inert
 # until the gNB source is patched; the summary records the mode it printed.
 gnb_lower_phy_profile="${OCUDU_NATIVE_GNB_LOWER_PHY_PROFILE:-}"

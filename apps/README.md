@@ -11,4 +11,4 @@ Install from the repository root with `python3 -m pip install '.[dashboard]'` or
 
 Installed commands resolve relative input/output paths from the launch directory. The dashboard bundles its HTML and vendor modules; Sionna scenes and scenarios remain in [`use_cases/configs/`](../use_cases/configs/README.md). Supply absolute scene/scenario paths when launching outside the checkout. Source entrypoints preserve checkout-relative defaults.
 
-The launchers [`run_web_ui.sh`](../scripts/local/run_web_ui.sh) and [`run_synthetic_web_ui.sh`](../scripts/local/run_synthetic_web_ui.sh) orchestrate the components. See the [integration guide](../docs/sionna-integration.md) for live setup and qualification limits.
+The launchers [`run_web_ui.sh`](../scripts/local/run_web_ui.sh) and [`run_synthetic_web_ui.sh`](../scripts/local/run_synthetic_web_ui.sh) orchestrate the components. See the [integration guide](../docs/history/milestones/sionna-integration-20260914.md) for live setup and qualification limits.

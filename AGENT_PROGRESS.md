@@ -42,11 +42,13 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 | Moving SUTD, UE `daa167ae3`, 600.049 s | UE0: 58/58 perfect traffic batches; UE1: 19/58, with 36 zero-reply batches; final pings 10/10 and 0/10 | Continuous moving connectivity failed |
 | UE `daa167ae3` | 18/18 focused tests; controlled UE0 loss recovered with new PDU and 10/10 replies in 3.974 s; three UE1 PCI 2 returning sessions passed | One PCI 1 return failed 1/10; no uninterrupted-connectivity claim |
 
-Reports: [integration guide](docs/sionna-integration.md), [merge validation](docs/main-merge-validation.md), [channel fix validation](docs/sionna-merge-fixes-validation.md), [metrics recovery](docs/metrics-recovery-validation.md), and [rank-1 results](docs/rank1-feasibility-report.md).
+Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
 
 ### Documentation migration — 2026-10-09
+
+- Organized reports, evidence bundles, historical designs, milestone ledgers and Korean originals; retained published source pointers and updated figure destinations. Original evidence bytes are preserved; strict build, compatibility and operational walkthrough checks are next.
 
 - Split the technical reference into focused concepts, interfaces and guides; added the CUDA newcomer path, qualification table and concise README gateway. Preserved diagrams and added source-backed configuration, control and telemetry definitions; historical relocation and validation remain.
 
@@ -56,7 +58,7 @@ Reports: [integration guide](docs/sionna-integration.md), [merge validation](doc
 
 ### Structure migration — 2026-10-09
 
-- Completed remote CPU/CUDA, GPU, Python/frontend, package, Docker, patch and path validation; deterministic IQ output matches the baseline byte for byte. Details: [migration report](docs/reports/structure-migration-20261009.md).
+- Completed remote CPU/CUDA, GPU, Python/frontend, package, Docker, patch and path validation; deterministic IQ output matches the baseline byte for byte. Details: [migration report](docs/reports/validation/structure-migration-20261009.md).
 - Live rank-1 attachment, PDU, 250/250 pings and independent matrix capture passed using pinned prebuilt images; two receive starvations still fail strict real-time qualification. Recorded provisioning limits and restored the original container inventory.
 
 - Added application/integration indexes and documentation navigation for guides, reports, plans and milestone history, preserving published document locations. Recorded the approved responsibility boundaries in the harness and added patch-lock relocation regressions.
@@ -69,7 +71,7 @@ Reports: [integration guide](docs/sionna-integration.md), [merge validation](doc
 
 - Renamed `examples/` to `use_cases/` and updated operational references, Docker paths and native fixture pins. The pinned driver differs only by the intended directory substitution; remote checks remain pending.
 
-- Recorded the approved destination map and command interfaces in `docs/project-structure.md`; preserved the earlier planning note. Migration and isolated RTX validation are in progress.
+- Recorded the approved destination map and command interfaces in `docs/development/project-structure.md`; preserved the earlier planning note. Migration and isolated RTX validation are in progress.
 
 ### Structure planning — 2026-10-09
 

@@ -3,10 +3,10 @@
 // snap-at-slot-boundary helper.
 //
 // v1 (landed): per-link scalar shadow + atomic seqno + snap helper. See
-//   docs/plans/runtime-mutable-channel.md.
+//   docs/history/designs/runtime-mutable-channel.md.
 // v2 (in-progress): adds ProfileShadow (multi-tap), take_effect_at_slot
 //   deterministic timing, and per-link current_slot counter. See
-//   docs/plans/runtime-mutable-channel-v2.md.
+//   docs/history/designs/runtime-mutable-channel-v2.md.
 //
 // Concurrency model (unchanged across v1 → v2):
 //   - The ZMQ control plane runs on a dedicated thread.

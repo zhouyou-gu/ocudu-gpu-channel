@@ -151,7 +151,7 @@ def make_figure_W(rows, out_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("sweep_json", type=Path)
-    ap.add_argument("--out", type=Path, default=Path("docs/blueprint-generated"))
+    ap.add_argument("--out", type=Path, default=Path("docs/reports/performance/2026-05-sweeps"))
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     rows = load_sweep(args.sweep_json)

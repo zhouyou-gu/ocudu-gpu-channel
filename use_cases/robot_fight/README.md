@@ -273,7 +273,7 @@ A brain exits when a STATE carries the over flag or after `--max-seconds`.
 
 ## R7 validation artifacts
 
-The [R7 report](../../docs/robot-fight-r7.md) explains the controller comparison,
+The [R7 report](../../docs/reports/experiments/robot-fight-r7/README.md) explains the controller comparison,
 radio conditions, local blackout/loss tests and their limits. It links the
 machine-readable results and figures. Use the [launch guide](launch/README.md)
 for side swaps, fixed-parameter repeats, probe sweeps and artifact collection.

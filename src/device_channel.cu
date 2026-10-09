@@ -7,7 +7,7 @@
 // of a destination node has a leading tdl step. Mixed nodes fall back to
 // host-side stage_link.
 //
-// Plan and rationale: docs/plans/device-channel-pipeline.md.
+// Plan and rationale: docs/history/designs/device-channel-pipeline.md.
 
 #include "ocudu_gpu_channel/device_channel.h"
 #include <algorithm>

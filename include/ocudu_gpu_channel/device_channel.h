@@ -10,7 +10,7 @@
 // host-side stage_link path. The dispatch decision is observable via
 // ProcessorTimings.used_device_channel.
 //
-// See docs/plans/device-channel-pipeline.md for the staging plan and the
+// See docs/history/designs/device-channel-pipeline.md for the staging plan and the
 // measured pre/post numbers.
 //
 // Memory model:

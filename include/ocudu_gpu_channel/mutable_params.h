@@ -7,7 +7,7 @@
 // In subsequent commits the ZMQ control plane writes to a per-link shadow
 // of this struct; a snap-at-slot-boundary step copies shadow → live before
 // the H2D so the kernel reads consistent values for the whole slot. See
-// docs/plans/runtime-mutable-channel.md for the full design.
+// docs/history/designs/runtime-mutable-channel.md for the full design.
 //
 // POD layout: cudaMemcpy-safe, no padding surprises. The 32-byte size is
 // asserted so future field additions don't silently break the binary copy

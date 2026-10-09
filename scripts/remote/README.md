@@ -33,7 +33,7 @@ Reproducible workflows that run on the RTX workstation. Every script sources
 | `ocudu-rank1-2x1-quad-ue-smoke.sh` | — | 2T2R + **four** srsUEs. **Blocked**: only the last-started UE attaches |
 
 Measured results for every gate above, including why the three- and four-UE
-gates are blocked, are recorded in [`docs/live-gate-results.md`](../../docs/live-gate-results.md).
+gates are blocked, are recorded in [`docs/reports/validation/live-gate-results.md`](../../docs/reports/validation/live-gate-results.md).
 The three- and four-UE scripts are committed as reproducible investigations, not
 as passing gates; **two UEs per cell is the supported multi-user configuration.**
 | `ocudu-multi-ue-smoke.sh` | B | 1 gNB + 2 UEs on one cell |
@@ -124,4 +124,4 @@ carried the attach. The two directions do not carry the same weight:
 
 ## Notes
 
-Use Wi-Fi only for SSH/control unless a wired low-latency data path has been validated. Distributed IQ transport requires the network criteria in [`docs/distributed.md`](../../docs/distributed.md).
+Use Wi-Fi only for SSH/control unless a wired low-latency data path has been validated. Distributed IQ transport requires the network criteria in [`docs/guides/distributed.md`](../../docs/guides/distributed.md).

@@ -50,7 +50,7 @@ DEFAULT_UE_COUNT = 2
 # (-19.5 dB, peak amplitude 0.39) on the wire; srsUE (srsue_zmq_multi_ue.conf.in,
 # whose [rf] tx_gain = 50 dB the ZMQ radio applies numerically, peak 313)
 # 2.8e4-3.3e4 (+44..45 dB) while sending PUCCH/SRS/ping-sized PUSCH.
-# Under traffic (X6, docs/plans/x6-gnb-realtime-traffic.md, runs 20261001T114501Z
+# Under traffic (X6, docs/reports/experiments/x6-gnb-realtime-traffic/README.md, runs 20261001T114501Z
 # and T115125Z, two UEs at 20 Mbit/s UL, capture at run-second 20): the gNB's
 # PDSCH-filled slots measure 3.4e-3..3.7e-3 (-24.7..-24.3 dB) and a UE sending
 # full-rate PUSCH 9.7e3..9.9e3 (+39.9 dB), both ~5 dB below the idle-regime

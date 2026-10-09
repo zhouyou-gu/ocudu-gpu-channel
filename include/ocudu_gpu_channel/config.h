@@ -330,7 +330,7 @@ struct ModelConfig {
 
   // M3. `fixed_mimo` states what H IS; `spatial_correlation` states the
   // covariance of a random H. Declaring both says H twice, so the validator
-  // rejects the combination (docs/plans/m3-spatial-correlation-and-los.md
+  // rejects the combination (docs/history/designs/m3-spatial-correlation-and-los.md
   // section 2.6).
   SpatialCorrelationConfig spatial_correlation;
   LosMatrixConfig los_matrix;

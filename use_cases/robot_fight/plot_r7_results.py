@@ -179,7 +179,7 @@ def controls_plot(data, path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--input', type=Path, default=Path('docs/robot-fight-r7-results.json'))
+    parser.add_argument('--input', type=Path, default=Path('docs/reports/experiments/robot-fight-r7/evidence/robot-fight-r7-results.json'))
     parser.add_argument('--out-dir', type=Path, default=Path('docs'))
     args = parser.parse_args()
     data = json.loads(args.input.read_text())

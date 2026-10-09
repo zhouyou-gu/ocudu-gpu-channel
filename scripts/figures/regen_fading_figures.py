@@ -2,7 +2,7 @@
 """Regenerate the §19 fading/multipath/Doppler figures.
 
 Three matplotlib SVGs in the doc's dark-theme palette, written to
-docs/figures/:
+docs/assets/figures/:
 
   diag-P-tdl-pdp.svg            5-panel power-delay profile (TDL-A..E)
   diag-Q-jakes-spectrum.svg     Jakes' U-shaped S(f) + Bessel J_0 autocorrelation
@@ -14,7 +14,7 @@ ship as use_cases/configs/topologies/channel_models/topology.tdl-{a..e}.cuda.yam
 rate 23.04 MS/s -> normalised_delay * 2.304 samples).
 
 Usage:
-  python3 scripts/figures/regen_fading_figures.py [--out docs/figures]
+  python3 scripts/figures/regen_fading_figures.py [--out docs/assets/figures]
 """
 import argparse
 from pathlib import Path
@@ -280,7 +280,7 @@ def make_diag_R(out_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=Path("docs/figures"))
+    ap.add_argument("--out", type=Path, default=Path("docs/assets/figures"))
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     make_diag_P(args.out / "diag-P-tdl-pdp.svg")
