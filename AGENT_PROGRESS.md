@@ -4,7 +4,7 @@
 
 ## Current Objective
 
-Project review and corrections are complete; [validation and remaining limits](docs/reports/validation/project-review-20261016.md) are recorded. Git records the commit and publication state.
+Integrate the open performance-report PRs, preserving contributor history; PR #9 is merged and PR #10's documentation fix passes combined RTX validation, with CI and merge pending.
 
 ## Repository State
 
@@ -64,6 +64,12 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Pull-request integration — 2026-11-03
+
+- Merged [PR #9](https://github.com/zhouyou-gu/ocudu-gpu-channel/pull/9) through a normal merge after its documentation CI passed; the dated GB10 broker report, datasets and measurement tools preserve contributor history.
+- Replaced PR #10's unresolved directory links with its data-and-reproduction section link; the failed CI identified exactly those two warnings. Strict Sphinx and publication checks pass on RTX with both reports: 120 pages, 18,606 links, zero errors.
+- Merged updated main into PR #10's integration branch and resolved the shared performance-index conflict by retaining both report entries. Contributor history remains intact; evidence: `validation/pr-10-merge-20261103/` on RTX.
 
 ### Project review — 2026-10-16
 
@@ -289,4 +295,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-No further review fixes are queued. Strict zero-starvation qualification remains failed; the existing scheduler reports retain the unresolved IQ handoff pauses and separately confirmed full-RLC-queue packet drops.
+Wait for PR #10's documentation CI, then merge and synchronize main. Strict zero-starvation qualification remains failed; the existing scheduler reports retain the unresolved IQ handoff pauses and separately confirmed full-RLC-queue packet drops.

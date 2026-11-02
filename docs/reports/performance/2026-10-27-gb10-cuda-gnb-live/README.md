@@ -1,6 +1,6 @@
 # CUDA-accelerated OCUDU gNB on the DGX Spark GB10: live scaling measurements (2026-10-26/27)
 
-Author: minwoo. Measured on one DGX Spark (GB10) with the broker of `ehs0/ocudu-gpu-channel` branch `RAN_benchmark` at 364391b (source identical to upstream main 5f11fd2 except the opt-in sample-indexed control) and real OCUDU gNBs and srsUE / OAI nrUE radios over ZMQ. Data: [`data/`](data/); runners, summarisers and local patches: [`tools/`](tools/).
+Author: minwoo. Measured on one DGX Spark (GB10) with the broker of `ehs0/ocudu-gpu-channel` branch `RAN_benchmark` at 364391b (source identical to upstream main 5f11fd2 except the opt-in sample-indexed control) and real OCUDU gNBs and srsUE / OAI nrUE radios over ZMQ. Data, runners, summarisers and local patches are listed in [Data and reproduction](#data-and-reproduction).
 
 On one DGX Spark (GB10) the CUDA-accelerated OCUDU gNB (all PHY stages on the GPU) reproduces the CPU-PHY gNB's live scaling curves within ±0.03 on every axis measured on 2026-10-26/27, with one exception: a four-antenna gNB at 100 MHz, where the CPU PHY itself is the wall (0.16–0.17) and the CUDA gNB reaches 0.45–0.46. Everywhere else the live loop is bound by CPU work the offload does not touch (the gNB's MAC and upper layers, the UE's per-slot processing), and GPU sharing without MPS or a second GPU-heavy cell makes the CUDA gNB slower, not faster.
 
