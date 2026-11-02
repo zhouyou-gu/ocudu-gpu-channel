@@ -1,0 +1,127 @@
+p2-P-100-n1/broker.log event=stop tx_pulls=44340 rx_requests=44274 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-100-n16/broker.log event=stop tx_pulls=122376 rx_requests=151926 rx_starvations=10708 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-100-n4/broker.log event=stop tx_pulls=118044 rx_requests=122468 rx_starvations=61 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-2x2-n16/broker.log event=stop tx_pulls=299706 rx_requests=288662 rx_starvations=218 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-2x2-n4/broker.log event=stop tx_pulls=200182 rx_requests=199847 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-50-n16/broker.log event=stop tx_pulls=122488 rx_requests=148675 rx_starvations=227 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-50-n4/broker.log event=stop tx_pulls=100147 rx_requests=99978 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n1/broker.log event=stop tx_pulls=40066 rx_requests=40000 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n128/broker.log event=stop tx_pulls=241016 rx_requests=244877 rx_starvations=118537 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n16/broker.log event=stop tx_pulls=325689 rx_requests=315008 rx_starvations=9 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n2/broker.log event=stop tx_pulls=60098 rx_requests=59999 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n32/broker.log event=stop tx_pulls=283835 rx_requests=301850 rx_starvations=914 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n4/broker.log event=stop tx_pulls=100128 rx_requests=99968 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n64/broker.log event=stop tx_pulls=244039 rx_requests=257071 rx_starvations=28968 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P-n8/broker.log event=stop tx_pulls=180164 rx_requests=179877 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-req0-100-bigsinks-n1/broker.log event=stop tx_pulls=80012 rx_requests=79946 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-req0-100-n1/broker.log event=stop tx_pulls=44751 rx_requests=44685 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-req0-100-n4/broker.log event=stop tx_pulls=117990 rx_requests=122490 rx_starvations=68 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-req0-100-n8/broker.log event=stop tx_pulls=132400 rx_requests=155148 rx_starvations=302 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-req0-20-n16/broker.log event=stop tx_pulls=324832 rx_requests=317389 rx_starvations=29 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-req0-20-n32/broker.log event=stop tx_pulls=269865 rx_requests=319499 rx_starvations=792 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-req500-100-bigsinks-n1/broker.log event=stop tx_pulls=80024 rx_requests=79958 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin0-10big-n16/broker.log event=stop tx_pulls=311493 rx_requests=303222 rx_starvations=6 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin0-10big-n24/broker.log event=stop tx_pulls=313559 rx_requests=312863 rx_starvations=2 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin0-10big-n32/broker.log event=stop tx_pulls=307845 rx_requests=301071 rx_starvations=39 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin0-20all-n16/broker.log event=stop tx_pulls=309389 rx_requests=297348 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin0-20all-n24/broker.log event=stop tx_pulls=284653 rx_requests=317159 rx_starvations=13 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin0-20all-n32/broker.log event=stop tx_pulls=294062 rx_requests=286452 rx_starvations=73 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin1-10big-n16/broker.log event=stop tx_pulls=324247 rx_requests=258165 rx_starvations=14 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin1-10big-n24/broker.log event=stop tx_pulls=357808 rx_requests=317080 rx_starvations=3875 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin1-10big-n32/broker.log event=stop tx_pulls=313982 rx_requests=318524 rx_starvations=1929 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin2-10big-n16/broker.log event=stop tx_pulls=323831 rx_requests=315783 rx_starvations=8 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin2-10big-n24/broker.log event=stop tx_pulls=308970 rx_requests=303911 rx_starvations=779 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin2-10big-n32/broker.log event=stop tx_pulls=262098 rx_requests=316492 rx_starvations=754 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin2-20all-n16/broker.log event=stop tx_pulls=333766 rx_requests=330272 rx_starvations=28 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin2-20all-n24/broker.log event=stop tx_pulls=129437 rx_requests=127167 rx_starvations=13261 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2b-spin2-20all-n32/broker.log event=stop tx_pulls=131492 rx_requests=130848 rx_starvations=16137 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-100-n1/broker.log event=stop tx_pulls=80025 rx_requests=79959 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-100-n2/broker.log event=stop tx_pulls=120070 rx_requests=119975 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-100-n4/broker.log event=stop tx_pulls=153142 rx_requests=153152 rx_starvations=45 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-100-n6/broker.log event=stop tx_pulls=150232 rx_requests=151459 rx_starvations=1575 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-100-n8/broker.log event=stop tx_pulls=129752 rx_requests=143582 rx_starvations=2441 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-20-n16/broker.log event=stop tx_pulls=291980 rx_requests=297838 rx_starvations=15 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-20-n8/broker.log event=stop tx_pulls=180297 rx_requests=180000 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-50-n12/broker.log event=stop tx_pulls=150490 rx_requests=131536 rx_starvations=208 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-50-n16/broker.log event=stop tx_pulls=121559 rx_requests=120484 rx_starvations=484 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-50-n4/broker.log event=stop tx_pulls=100165 rx_requests=100000 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2c-50-n8/broker.log event=stop tx_pulls=144066 rx_requests=133786 rx_starvations=27 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-100-spin0-n2/broker.log event=stop tx_pulls=120028 rx_requests=119936 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-100-spin0-n4/broker.log event=stop tx_pulls=150284 rx_requests=150981 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-100-spin0-n6/broker.log event=stop tx_pulls=162758 rx_requests=163622 rx_starvations=7 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-100-spin2-n2/broker.log event=stop tx_pulls=118503 rx_requests=119024 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-100-spin2-n4/broker.log event=stop tx_pulls=158322 rx_requests=161032 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-100-spin2-n6/broker.log event=stop tx_pulls=169603 rx_requests=176835 rx_starvations=53 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-20-spin0-n16/broker.log event=stop tx_pulls=340537 rx_requests=339943 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-20-spin2-n16/broker.log event=stop tx_pulls=322901 rx_requests=312623 rx_starvations=71 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-50-spin0-n12/broker.log event=stop tx_pulls=137324 rx_requests=163822 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-50-spin0-n4/broker.log event=stop tx_pulls=100164 rx_requests=99999 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-50-spin0-n8/broker.log event=stop tx_pulls=159785 rx_requests=162876 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-50-spin2-n12/broker.log event=stop tx_pulls=115216 rx_requests=146033 rx_starvations=13 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-50-spin2-n4/broker.log event=stop tx_pulls=100165 rx_requests=100000 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p2-P2d-50-spin2-n8/broker.log event=stop tx_pulls=160791 rx_requests=167051 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p3-M-100-2ue-b1/broker-b0.log event=stop tx_pulls=112869 rx_requests=114446 rx_starvations=8 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-M-100-2ue-b2/broker-b0.log event=stop tx_pulls=79114 rx_requests=80091 rx_starvations=22 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-100-2ue-b2/broker-b1.log event=stop tx_pulls=79099 rx_requests=80274 rx_starvations=19 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-20-4ue-b2/broker-b0.log event=stop tx_pulls=99695 rx_requests=99542 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b2/broker-b1.log event=stop tx_pulls=99727 rx_requests=99545 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b3/broker-b0.log event=stop tx_pulls=93016 rx_requests=92840 rx_starvations=7 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b3/broker-b1.log event=stop tx_pulls=93515 rx_requests=92871 rx_starvations=9 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b3/broker-b2.log event=stop tx_pulls=93062 rx_requests=92719 rx_starvations=9 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b4/broker-b0.log event=stop tx_pulls=88660 rx_requests=88681 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b4/broker-b1.log event=stop tx_pulls=89340 rx_requests=89080 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b4/broker-b2.log event=stop tx_pulls=89206 rx_requests=89351 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b4/broker-b3.log event=stop tx_pulls=89100 rx_requests=89165 rx_starvations=2 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_b
+p3-M-20-4ue-b5/broker-b0.log event=stop tx_pulls=70884 rx_requests=70038 rx_starvations=11 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-20-4ue-b5/broker-b1.log event=stop tx_pulls=67216 rx_requests=66575 rx_starvations=13 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-20-4ue-b5/broker-b2.log event=stop tx_pulls=67694 rx_requests=67825 rx_starvations=15 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-20-4ue-b5/broker-b3.log event=stop tx_pulls=67584 rx_requests=67376 rx_starvations=23 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-20-4ue-b5/broker-b4.log event=stop tx_pulls=67792 rx_requests=67163 rx_starvations=22 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-20-8ue-b2/broker-b0.log event=stop tx_pulls=167263 rx_requests=166684 rx_starvations=7 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-M-20-8ue-b2/broker-b1.log event=stop tx_pulls=167221 rx_requests=166692 rx_starvations=3 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-M-50-4ue-b1/broker-b0.log event=stop tx_pulls=100045 rx_requests=99831 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-50-4ue-b2/broker-b0.log event=stop tx_pulls=100014 rx_requests=99900 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control_
+p3-M-50-4ue-b2/broker-b1.log 
+p3-S-smoke/broker-b0.log event=stop tx_pulls=24099 rx_requests=24000 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=600 control_updates_applied=200 control_updates_rejected=0 contr
+p3-U-100-n4-upd0/broker-b0.log event=stop tx_pulls=149273 rx_requests=150112 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-U-100-n4-upd10/broker-b0.log event=stop tx_pulls=156468 rx_requests=162705 rx_starvations=5 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=4080 control_updates_applied=1360 control_updates_rejected=0 c
+p3-U-20-n16-upd0/broker-b0.log event=stop tx_pulls=337084 rx_requests=337803 rx_starvations=2 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-U-20-n16-upd10/broker-b0.log event=stop tx_pulls=340552 rx_requests=339917 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=16320 control_updates_applied=5440 control_updates_rejected=0 
+p3-U-20-n20-upd0/broker-b0.log event=stop tx_pulls=342155 rx_requests=361946 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-U-20-n20-upd10/broker-b0.log event=stop tx_pulls=335850 rx_requests=365963 rx_starvations=9 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=20400 control_updates_applied=6800 control_updates_rejected=0 
+p3-U-20-n24-upd0/broker-b0.log event=stop tx_pulls=298902 rx_requests=375303 rx_starvations=9 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-U-20-n24-upd10/broker-b0.log event=stop tx_pulls=327704 rx_requests=358568 rx_starvations=2 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=24480 control_updates_applied=8160 control_updates_rejected=0 
+p3-U-50-n8-upd0/broker-b0.log event=stop tx_pulls=160658 rx_requests=158456 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p3-U-50-n8-upd10/broker-b0.log event=stop tx_pulls=155287 rx_requests=156850 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=8160 control_updates_applied=2720 control_updates_rejected=0 c
+p4-A-16-ctrl/broker.log event=stop tx_pulls=340554 rx_requests=339943 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p4-A-16-hop/broker.log event=stop tx_pulls=340554 rx_requests=339927 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-A-16-hopctrl/broker.log event=stop tx_pulls=340554 rx_requests=339955 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0 control_msgs_received=0 control_updates_applied=0 control_updates_rejected=0 control
+p4-A-16-plain/broker.log event=stop tx_pulls=340536 rx_requests=339912 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-100-4-io2/broker.log event=stop tx_pulls=156682 rx_requests=162777 rx_starvations=2 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-100-4-io4/broker.log event=stop tx_pulls=166751 rx_requests=182427 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-100-4-io8/broker.log event=stop tx_pulls=177377 rx_requests=177609 rx_starvations=5 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-24-io1/broker.log event=stop tx_pulls=235098 rx_requests=237005 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-24-io2/broker.log event=stop tx_pulls=333914 rx_requests=350124 rx_starvations=6 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-24-io4/broker.log event=stop tx_pulls=437230 rx_requests=435847 rx_starvations=5 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-24-io8/broker.log event=stop tx_pulls=437781 rx_requests=439164 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-50-12-io2/broker.log event=stop tx_pulls=147041 rx_requests=181209 rx_starvations=5 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-50-12-io4/broker.log event=stop tx_pulls=150440 rx_requests=154931 rx_starvations=15 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-B-50-12-io8/broker.log event=stop tx_pulls=162876 rx_requests=172297 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-C-100-4-ipc-io4/broker.log event=stop tx_pulls=162201 rx_requests=180890 rx_starvations=3 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-C-100-8-ipc-io4/broker.log event=stop tx_pulls=146822 rx_requests=167927 rx_starvations=20 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-C-24-ipc-io2/broker.log event=stop tx_pulls=403736 rx_requests=397990 rx_starvations=7 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-C-24-ipc-io4/broker.log event=stop tx_pulls=415601 rx_requests=407834 rx_starvations=16 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-C-32-ipc-io4/broker.log event=stop tx_pulls=397188 rx_requests=384583 rx_starvations=114 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-C-50-12-ipc-io4/broker.log event=stop tx_pulls=144674 rx_requests=159519 rx_starvations=2 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-100-4-io4-b/broker.log event=stop tx_pulls=166300 rx_requests=181903 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-100-6-io4/broker.log event=stop tx_pulls=158437 rx_requests=162271 rx_starvations=1 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-20-io4/broker.log event=stop tx_pulls=418353 rx_requests=415418 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-24-io4-base/broker.log event=stop tx_pulls=437268 rx_requests=436193 rx_starvations=4 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-24-io4-base2/broker.log event=stop tx_pulls=440562 rx_requests=434268 rx_starvations=2 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-24-io4-broker15/broker.log event=stop tx_pulls=397262 rx_requests=392132 rx_starvations=24 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-24-io4-spin2/broker.log event=stop tx_pulls=338089 rx_requests=324362 rx_starvations=2681 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-24-io4-srcLittle/broker.log event=stop tx_pulls=255284 rx_requests=299599 rx_starvations=6 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-28-io4/broker.log event=stop tx_pulls=406794 rx_requests=405887 rx_starvations=19 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-32-io4/broker.log event=stop tx_pulls=391381 rx_requests=393618 rx_starvations=53 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-50-12-io4-b/broker.log event=stop tx_pulls=150142 rx_requests=153395 rx_starvations=20 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
+p4-R-50-8-io4/broker.log event=stop tx_pulls=153072 rx_requests=161045 rx_starvations=0 tx_queue_overflows=0 tx_sequence_gaps=0 zmq_errors=0
