@@ -1,0 +1,203 @@
+diff --git a/scripts/native/render-oai-multi-ue-configs.py b/scripts/native/render-oai-multi-ue-configs.py
+index 2f1685d..0c359ca 100755
+--- a/scripts/native/render-oai-multi-ue-configs.py
++++ b/scripts/native/render-oai-multi-ue-configs.py
+@@ -67,23 +67,45 @@ def _load(name: str, filename: str):
+ legacy = _load("render_multi_ue_configs", "render-multi-ue-configs.py")
+ sionna = _load("render_sionna_multi_ue_configs", "render-sionna-multi-ue-configs.py")
+ 
+-UE_COUNT = 2
++import os as _os
++UE_COUNT = int(_os.environ.get("OAIMUE_UE_COUNT", "2"))
++if UE_COUNT not in (2, 4):
++    raise SystemExit("OAIMUE_UE_COUNT must be 2 or 4")
++# Local knob: the TDD n78 30 kHz cell at 20 (audited), 50 or 100 MHz. PRB, sample rate and the SSB ARFCN the
++# audited OCUDU gNB derives for dl_arfcn (printed at start-up: 20 MHz 632628->632256, 50 MHz 632628->631296,
++# 100 MHz 637212->634464, the 100 MHz pair is scripts/native/render-1x1-bw-configs.py TDD_100). The nrUE runs
++# without -E above 20 MHz (133 PRB -> 2048-point FFT = 61.44 MS/s, 273 -> 4096 = 122.88, as the 1x1 gate).
++_CELLS = {
++    20: dict(prb=51, dl_arfcn=632628, ssb_arfcn=632256, srate_msps="23.04", ue_e=True),
++    50: dict(prb=133, dl_arfcn=632628, ssb_arfcn=631296, srate_msps="61.44", ue_e=False),
++    100: dict(prb=273, dl_arfcn=637212, ssb_arfcn=634464, srate_msps="122.88", ue_e=False),
++}
++_BW = int(_os.environ.get("OAIMUE_BW_MHZ", "20"))
++if _BW not in _CELLS:
++    raise SystemExit(f"OAIMUE_BW_MHZ must be one of {sorted(_CELLS)}")
++_CELL = _CELLS[_BW]
++
++
++def _nr_arfcn_hz(arfcn: int) -> float:
++    return arfcn * 5e3 if arfcn < 600000 else 3000e6 + (arfcn - 600000) * 15e3
+ 
+ # --- the TDD cell -----------------------------------------------------------
+ BAND = 78
+-BANDWIDTH_MHZ = 20
++BANDWIDTH_MHZ = _BW
+ SCS_KHZ = 30
+-PRB = 51
+-DL_ARFCN = 632628
++PRB = _CELL["prb"]
++DL_ARFCN = _CELL["dl_arfcn"]
+ # NR-ARFCN -> Hz above 3 GHz: 3000 MHz + (N - 600000) * 15 kHz.
+-CARRIER_HZ = int(3000e6 + (DL_ARFCN - 600000) * 15e3)  # 3489420000
++CARRIER_HZ = int(_nr_arfcn_hz(DL_ARFCN))  # 3489420000 at 20/50 MHz
+ # What the audited OCUDU gNB (a1916ed) derives for this cell and prints at
+ # start-up ("SSB derived parameters ... SSB offset pointA:0, k_SSB:0, SSB
+ # arfcn:632256, Coreset index:0"). The nrUE's --ssb is the SSB's first
+ # subcarrier counted from point A in 30 kHz subcarriers: 0 * 12 + 0.
+-SSB_ARFCN = 632256
+-SSB_OFFSET_SUBCARRIERS = 0
+-SAMPLE_RATE_HZ = 23_040_000
++SSB_ARFCN = _CELL["ssb_arfcn"]
++# OAI --ssb: first SSB subcarrier counted from point A in 30 kHz subcarriers (0 for the audited 20 MHz cell).
++SSB_OFFSET_SUBCARRIERS = round(((_nr_arfcn_hz(SSB_ARFCN) - 120 * 30e3) - (CARRIER_HZ - PRB * 12 * 30e3 / 2)) / 30e3)
++SRATE_MSPS = _CELL["srate_msps"]
++SAMPLE_RATE_HZ = int(round(float(SRATE_MSPS) * 1e6))
+ # 10-slot (5 ms at 30 kHz) period, 7 DL + special (6 DL / 4 UL symbols) + 2 UL.
+ TDD_PATTERN = {
+     "dl_ul_tx_period": 10,
+@@ -93,7 +115,7 @@ TDD_PATTERN = {
+     "nof_ul_symbols": 4,
+ }
+ PRACH_CONFIG_INDEX = 159
+-NRUE_RADIO_ARGS = f"-E -r {PRB} --numerology 1 --band {BAND} -C {CARRIER_HZ} --ssb {SSB_OFFSET_SUBCARRIERS}"
++NRUE_RADIO_ARGS = (("-E " if _CELL["ue_e"] else "") + f"-r {PRB} --numerology 1 --band {BAND} -C {CARRIER_HZ} --ssb {SSB_OFFSET_SUBCARRIERS}")
+ CARRIER_LABEL = "n78"
+ 
+ # --- transmit levels --------------------------------------------------------
+@@ -119,6 +141,8 @@ TX_POWER_DL = sionna.TX_POWER_DL
+ VETH = {
+     "ue0": ("10.201.0.1", "10.201.0.2"),
+     "ue1": ("10.201.1.1", "10.201.1.2"),
++    "ue2": ("10.201.2.1", "10.201.2.2"),
++    "ue3": ("10.201.3.1", "10.201.3.2"),
+ }
+ 
+ 
+@@ -156,9 +180,23 @@ def render_gnb_tdd(source: str, log_dir: Path) -> str:
+     )
+     tdd = "  tdd_ul_dl_cfg:\n" + "".join(f"    {key}: {value}\n" for key, value in TDD_PATTERN.items())
+     rendered = legacy.insert_before_exact(rendered, "  prach:\n", tdd, "gNB TDD pattern insertion")
+-    for required in (f"  channel_bandwidth_MHz: {BANDWIDTH_MHZ}\n", "  srate: 23.04\n", "base_srate=23.04e6"):
++    for required in ("  channel_bandwidth_MHz: 20\n", "  srate: 23.04\n", "base_srate=23.04e6"):
+         if rendered.count(required) != 1:
+             legacy.fail(f"gNB fixture invariant missing or ambiguous: {required!r}")
++    if BANDWIDTH_MHZ != 20:
++        rendered = legacy.replace_exact(rendered, "  channel_bandwidth_MHz: 20\n", f"  channel_bandwidth_MHz: {BANDWIDTH_MHZ}\n", 1, "gNB bandwidth")
++        rendered = legacy.replace_exact(rendered, "  srate: 23.04\n", f"  srate: {SRATE_MSPS}\n", 1, "gNB srate")
++        rendered = legacy.replace_exact(rendered, "base_srate=23.04e6", f"base_srate={SRATE_MSPS}e6", 1, "gNB base_srate")
++    stage = _os.environ.get("OCUDU_NATIVE_GNB_ACCELERATION")
++    if stage:
++        # Same stanza render-cuda-1x1-configs.py appends for the CUDA gNB (cumulative stages, grid-mode override).
++        import importlib.util
++        spec = importlib.util.spec_from_file_location("render_cuda_1x1_configs", Path(__file__).resolve().parent.parent / "cuda" / "render-cuda-1x1-configs.py")
++        cuda = importlib.util.module_from_spec(spec); spec.loader.exec_module(cuda)
++        ru, phy = cuda.acceleration_block(stage)
++        if rendered.count("ru_sdr:\n") != 1 or "expert_phy:" in rendered:
++            legacy.fail("CUDA stanza: expected exactly one ru_sdr section and no expert_phy")
++        rendered = rendered.replace("ru_sdr:\n", "ru_sdr:\n  expert_cfg:\n" + ru + "\n", 1) + "\nexpert_phy:\n" + phy + "\n"
+     return rendered
+ 
+ 
+@@ -196,8 +234,30 @@ def render_topology_tdd(shape, rx_noise: dict[str, float] | None, ue_scale_db: f
+         text = legacy.replace_exact(
+             text, f"    rx_endpoint: tcp://127.0.0.1:{rx_port}\n",
+             f"    rx_endpoint: tcp://{host_ip}:{rx_port}\n", 1, f"{ue.node_id} REP veth endpoint")
+-    if text.count(f"    sample_rate_hz: {SAMPLE_RATE_HZ}\n") != len(shape.nodes) or "  batch_samples: 23040\n" not in text:
+-        legacy.fail("broker sample rate / batch are not the 23.04 MS/s this cell runs at")
++    if text.count("    sample_rate_hz: 23040000\n") != len(shape.nodes) or text.count("  batch_samples: 23040\n") != 1:
++        legacy.fail("broker sample rate / batch are not the 23.04 MS/s the fixture renders")
++    if SAMPLE_RATE_HZ != 23_040_000:
++        text = text.replace("    sample_rate_hz: 23040000\n", f"    sample_rate_hz: {SAMPLE_RATE_HZ}\n")
++        text = text.replace("  batch_samples: 23040\n", f"  batch_samples: {SAMPLE_RATE_HZ // 1000}\n", 1)
++    return text
++
++
++def uecap_with_30khz_cell(text: str, bw: int) -> str:
++    """Make sure the capability has 30 kHz DL and UL per-CC feature sets for the cell bandwidth.
++
++    20 MHz: the audited UL edit. 100 MHz: the stock file already has both. Otherwise copy the 30 kHz 40 MHz
++    DL/UL entries with the bandwidth tag changed (the nrUE picks the per-CC set whose SCS and bandwidth
++    equal the cell's, config_ue.c)."""
++    if bw == 20:
++        return uecap_with_ul_30khz_20mhz(text)
++    for tag in ("FeatureSetDownlinkPerCC", "FeatureSetUplinkPerCC"):
++        blocks = re.findall(rf"<{tag}>.*?</{tag}>", text, re.S)
++        if any("<kHz30/>" in b and f"<mhz{bw}/>" in b for b in blocks):
++            continue
++        source = [b for b in blocks if "<kHz30/>" in b and "<mhz40/>" in b]
++        if not source:
++            raise ValueError(f"no 30 kHz 40 MHz {tag} to copy for {bw} MHz")
++        text = text.replace(source[0], source[0] + "\n" + source[0].replace("<mhz40/>", f"<mhz{bw}/>"), 1)
+     return text
+ 
+ 
+@@ -366,7 +426,7 @@ def main() -> int:
+     uecap_source = legacy.read_regular(
+         native_root / "src/oai/targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml", "stock OAI UE capability")
+     try:
+-        uecap = uecap_with_ul_30khz_20mhz(uecap_source)
++        uecap = uecap_with_30khz_cell(uecap_source, BANDWIDTH_MHZ)
+     except ValueError as error:
+         legacy.fail(str(error))
+ 
+diff --git a/scripts/native/run-ocudu-oai-multi-ue-inner.sh b/scripts/native/run-ocudu-oai-multi-ue-inner.sh
+index 16d260b..b54f38a 100755
+--- a/scripts/native/run-ocudu-oai-multi-ue-inner.sh
++++ b/scripts/native/run-ocudu-oai-multi-ue-inner.sh
+@@ -84,13 +84,13 @@ done
+ 
+ # Must agree with render-multi-ue-configs.py UES (ports, IPs) and with
+ # render-oai-multi-ue-configs.py VETH (veth addresses). Two UEs.
+-ue_ids=(ue0 ue1)
+-ue_netns=(ue1 ue2)
+-ue_ipv4=(10.45.1.2 10.45.1.3)
+-ue_tx_port=(2101 2103)
+-ue_rx_port=(2100 2102)
+-ue_veth_host=(10.201.0.1 10.201.1.1)
+-ue_veth_ue=(10.201.0.2 10.201.1.2)
++# Local knob OAIMUE_UE_COUNT (2 or 4): the same sequence render-multi-ue-configs.py UES follows.
++ue_ids=() ue_netns=() ue_ipv4=() ue_tx_port=() ue_rx_port=() ue_veth_host=() ue_veth_ue=()
++for ((i = 0; i < ${OAIMUE_UE_COUNT:-2}; i++)); do
++  ue_ids+=("ue${i}"); ue_netns+=("ue$((i + 1))"); ue_ipv4+=("10.45.1.$((i + 2))")
++  ue_tx_port+=("$((2101 + 2 * i))"); ue_rx_port+=("$((2100 + 2 * i))")
++  ue_veth_host+=("10.201.${i}.1"); ue_veth_ue+=("10.201.${i}.2")
++done
+ ue_gateway="10.45.1.1"
+ # Per-UE CPU lists from the outer gate ("cpus0;cpus1"), empty = unpinned.
+ IFS=';' read -r -a ue_cpus <<<"${OCUDU_NATIVE_OAI_MUE_UE_CPUS:-}"
+diff --git a/scripts/native/run-ocudu-oai-multi-ue.sh b/scripts/native/run-ocudu-oai-multi-ue.sh
+index 7140ea1..dbb857a 100755
+--- a/scripts/native/run-ocudu-oai-multi-ue.sh
++++ b/scripts/native/run-ocudu-oai-multi-ue.sh
+@@ -140,13 +140,13 @@ if [[ -z "${mue_ue_cpus}" ]]; then
+   fi
+ fi
+ if [[ -n "${mue_ue_cpus}" ]]; then
+-  [[ "${mue_ue_cpus}" =~ ^[0-9,-]+\;[0-9,-]+$ ]] || usage_error "OCUDU_NATIVE_OAI_MUE_UE_CPUS must be two taskset lists separated by ';'"
++  [[ "${mue_ue_cpus}" =~ ^[0-9,-]+(\;[0-9,-]+){1,3}$ ]] || usage_error "OCUDU_NATIVE_OAI_MUE_UE_CPUS must be one taskset list per UE separated by ';'"
+ fi
+ export OCUDU_NATIVE_OAI_MUE_UE_CPUS="${mue_ue_cpus}"
+ # The stack runs in its own network namespace; host listeners cannot collide.
+ # The check stays on unless OCUDU_NATIVE_ALLOW_HOST_PORTS=1.
+ [[ "${OCUDU_NATIVE_ALLOW_HOST_PORTS:-0}" == "1" ]] || \
+-for port in 2000 2001 2100 2101 2102 2103 27017 38412 7777; do
++for port in 2000 2001 2100 2101 2102 2103 2104 2105 2106 2107 27017 38412 7777; do
+   ss -H -ltn "sport = :${port}" | grep -q . && usage_error "TCP port ${port} is already listening"
+ done
+ 
+@@ -195,8 +195,12 @@ cmake -S "${repo_root}" -B "${channel_build}" -DCMAKE_BUILD_TYPE=Release \
+   >"${log_dir}/cmake-configure.log" 2>&1 || { tail -20 "${log_dir}/cmake-configure.log" >&2; usage_error "cmake configure"; }
+ cmake --build "${channel_build}" -j"$(nproc)" >"${log_dir}/cmake-build.log" 2>&1 \
+   || { tail -20 "${log_dir}/cmake-build.log" >&2; usage_error "cmake build"; }
+-CUDA_VISIBLE_DEVICES="${physical_gpu}" ctest --test-dir "${channel_build}" --output-on-failure \
+-  >"${log_dir}/ctest.log" 2>&1 || { tail -20 "${log_dir}/ctest.log" >&2; usage_error "ctest"; }
++if [[ "${OCUDU_NATIVE_MUE_SKIP_CTEST:-0}" == "1" ]]; then
++  echo "event=skip channel_ctest" | tee "${log_dir}/ctest.log"
++else
++  CUDA_VISIBLE_DEVICES="${physical_gpu}" ctest --test-dir "${channel_build}" --output-on-failure \
++    >"${log_dir}/ctest.log" 2>&1 || { tail -20 "${log_dir}/ctest.log" >&2; usage_error "ctest"; }
++fi
+ 
+ parent_netns="$(readlink /proc/self/ns/net)"
+ parent_mntns="$(readlink /proc/self/ns/mnt)"

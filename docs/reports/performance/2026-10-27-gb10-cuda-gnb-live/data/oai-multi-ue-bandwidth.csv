@@ -1,0 +1,14 @@
+tag,report_ts,bw_mhz,ue_count,gnb,gate_status,rt_broker_heartbeat_median,rx_starvations
+m20-2-cpu,20261027T064204Z,20,2,cpu,passed,0.994,9
+m50-2-cpu,20261027T064505Z,50,2,cpu,failed,0.986,5
+m100-2-cpu,20261027T064626Z,100,2,cpu,passed,0.844,7
+m20-2-cuda,20261027T064927Z,20,2,cuda,passed,0.994,27
+m50-2-cuda,20261027T065229Z,50,2,cuda,passed,0.988,14
+m100-2-cuda,20261027T065531Z,100,2,cuda,passed,0.852,8
+m20-4-cpu,20261027T065832Z,20,4,cpu,passed,0.95,59
+m50-4-cpu,20261027T070134Z,50,4,cpu,passed,0.793,30
+m100-4-cpu,20261027T070429Z,100,4,cpu,passed,0.5,74
+m20-4-cuda,20261027T070725Z,20,4,cuda,passed,0.975,30
+m50-4-cuda,20261027T071021Z,50,4,cuda,passed,0.822,61
+m100-4-cuda,20261027T071325Z,100,4,cuda,passed,0.496,56
+m50-2-cpu-r2,20261027T071639Z,50,2,cpu,passed,0.986,233

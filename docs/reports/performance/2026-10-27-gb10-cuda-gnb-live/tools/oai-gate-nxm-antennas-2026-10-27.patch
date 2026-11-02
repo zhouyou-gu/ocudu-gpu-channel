@@ -1,0 +1,159 @@
+--- render-oai-2x2-configs.py.pre-nxm	2026-09-29 05:17:19.968538432 +0000
++++ render-oai-2x2-configs.py	2026-10-27 09:02:27.326905843 +0000
+@@ -49,6 +49,20 @@
+ bw_configs = load_module("render_1x1_bw_configs", "render-1x1-bw-configs.py")
+ legacy = oai.legacy
+ 
++import os as _os
++# Local knobs: gNB and UE antenna (= ZMQ port) counts. 2/2 = the audited 2x2 gate.
++GNB_ANT = int(_os.environ.get("OAI2X2_GNB_ANT", "2"))
++UE_ANT = int(_os.environ.get("OAI2X2_UE_ANT", "2"))
++if GNB_ANT not in (2, 4) or UE_ANT not in (1, 2, 4):
++    raise SystemExit("OAI2X2_GNB_ANT must be 2 or 4 and OAI2X2_UE_ANT 1, 2 or 4")
++
++
++def broker_device_args(n: int) -> str:
++    tx = [f"tx_port{i}=tcp://127.0.0.1:{2000 + 2 * i}" for i in range(n)]
++    rx = [f"rx_port{i}=tcp://127.0.0.1:{2001 + 2 * i}" for i in range(n)]
++    return "  device_args: " + ",".join(tx + rx) + ",base_srate=23.04e6\n"
++
++
+ VETH_HOST_IP = oai.VETH_HOST_IP
+ VETH_UE_IP = oai.VETH_UE_IP
+ 
+@@ -80,7 +94,7 @@
+     rendered = legacy.replace_exact(
+         rendered,
+         LEGACY_DEVICE_ARGS,
+-        BROKER_DEVICE_ARGS if path == "broker" else DIRECT_DEVICE_ARGS,
++        broker_device_args(GNB_ANT) if path == "broker" else DIRECT_DEVICE_ARGS,
+         1,
+         "gNB 2-port ZMQ endpoints",
+     )
+@@ -99,7 +113,7 @@
+     rendered = legacy.replace_exact(
+         rendered,
+         "cell_cfg:\n  dl_arfcn: 368500\n",
+-        "cell_cfg:\n  nof_antennas_dl: 2\n  nof_antennas_ul: 2\n  dl_arfcn: 368500\n",
++        f"cell_cfg:\n  nof_antennas_dl: {GNB_ANT}\n  nof_antennas_ul: {GNB_ANT}\n  dl_arfcn: 368500\n",
+         1,
+         "gNB 2T2R antenna count",
+     )
+@@ -158,16 +172,14 @@
+ 
+ 
+ def validate_topology(source: str) -> str:
+-    for required in (
+-        "  - id: gnb0\n    tx_ports:\n      - gnb0_p0\n      - gnb0_p1\n",
+-        "  - id: ue0\n    tx_ports:\n      - ue0_p0\n      - ue0_p1\n",
+-        f"    tx_endpoint: tcp://{VETH_UE_IP}:2101\n",
+-        f"    tx_endpoint: tcp://{VETH_UE_IP}:2103\n",
+-        f"    rx_endpoint: tcp://{VETH_HOST_IP}:2100\n",
+-        f"    rx_endpoint: tcp://{VETH_HOST_IP}:2102\n",
+-        "    tx_endpoint: tcp://127.0.0.1:2000\n",
+-        "    tx_endpoint: tcp://127.0.0.1:2002\n",
+-    ):
++    required = [
++        "  - id: gnb0\n    tx_ports:\n" + "".join(f"      - gnb0_p{i}\n" for i in range(GNB_ANT)),
++        "  - id: ue0\n    tx_ports:\n" + "".join(f"      - ue0_p{i}\n" for i in range(UE_ANT)),
++    ]
++    required += [f"    tx_endpoint: tcp://{VETH_UE_IP}:{2101 + 2 * i}\n" for i in range(UE_ANT)]
++    required += [f"    rx_endpoint: tcp://{VETH_HOST_IP}:{2100 + 2 * i}\n" for i in range(UE_ANT)]
++    required += [f"    tx_endpoint: tcp://127.0.0.1:{2000 + 2 * i}\n" for i in range(GNB_ANT)]
++    for required in required:
+         if source.count(required) != 1:
+             legacy.fail(f"2x2 topology invariant is missing or ambiguous: {required!r}")
+     return source
+@@ -252,7 +264,7 @@
+         legacy.write_new(output_dir / name, text)
+     prb, srate = bw_configs.apply_bandwidth(
+         output_dir, args.bw_mhz, "oai", args.cuda_host_memory or "", native_root,
+-        sample_rate_entries=4, uecap_name="uecap_ports2.xml",
++        sample_rate_entries=GNB_ANT + UE_ANT, uecap_name=f"uecap_ports{UE_ANT}.xml",
+     )
+     print(f'event=native_oai_2x2_configs_rendered output_dir="{output_dir}" path={args.path} max_rank={args.max_rank} '
+           f'ul_max_rank={args.ul_max_rank} bw_mhz={args.bw_mhz} prb={prb} srate_msps={srate} cuda_host_memory={args.cuda_host_memory or "default"}')
+--- run-ocudu-oai-2x2.sh.pre-nxm	2026-09-29 08:22:56.000000000 +0000
++++ run-ocudu-oai-2x2.sh	2026-10-27 09:02:27.327684659 +0000
+@@ -86,6 +86,9 @@
+ 
+ export OAI2X2_PATH="${OAI2X2_PATH:-broker}"
+ max_rank="${OAI2X2_MAX_RANK:-2}"
++# Local knobs OAI2X2_GNB_ANT / OAI2X2_UE_ANT: a one-antenna side caps the DL rank at 1.
++[[ "${OAI2X2_UE_ANT:-2}" == 1 || "${OAI2X2_GNB_ANT:-2}" == 1 ]] && max_rank=1
++export OAI2X2_GNB_ANT="${OAI2X2_GNB_ANT:-2}" OAI2X2_UE_ANT="${OAI2X2_UE_ANT:-2}"
+ csi_rs="${OAI2X2_CSI_RS:-on}"
+ topology="${OAI2X2_TOPOLOGY:-${repo_root}/examples/native/topology.ocudu.oai-2x2.cuda.yaml}"
+ 
+--- run-ocudu-oai-2x2-inner.sh.pre-nxm	2026-09-29 08:22:56.000000000 +0000
++++ run-ocudu-oai-2x2-inner.sh	2026-10-27 09:02:27.327362067 +0000
+@@ -337,7 +337,7 @@
+   [[ -f "${zmq_module_dir}/liboai_zmqdevif.so" ]] || usage_error "missing OAI ZMQ radio module"
+   # ports2 = the UE advertises 2 DL MIMO layers (maxMIMO-Layers 2) and 2-port
+   # SRS/PUSCH; OAI's own 2x2 ZMQ CI job uses this same file.
+-  local uecap_file="${native_root}/src/oai/targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports2.xml"
++  local uecap_file="${native_root}/src/oai/targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports${OAI2X2_UE_ANT:-2}.xml"
+   # OAI2X2_UL_MAX_RANK: the renderer wrote a band-3, 2-layer-PUSCH derivative.
+   [[ -f "${config_dir}/uecap.xml" ]] && uecap_file="${config_dir}/uecap.xml"
+   [[ -f "${uecap_file}" ]] || usage_error "missing OAI UE capability file: ${uecap_file}"
+@@ -431,6 +431,13 @@
+   [[ -f "${config_dir}/nrue-radio.args" ]] && read -r -a oai_radio <"${config_dir}/nrue-radio.args"
+   [[ -f "${config_dir}/uecap.xml" ]] && uecap_file="${config_dir}/uecap.xml"
+   printf 'event=nrue_radio_args %s uecap=%s\n' "${oai_radio[*]}" "${uecap_file}" >"${log_dir}/nrue-radio.log"
++  # Local knob OAI2X2_UE_ANT: one ZMQ channel pair per UE antenna (2101/2100, 2103/2102, 2105/2104, 2107/2106).
++  local ue_tx_channels="" ue_rx_channels="" ant
++  for ((ant = 0; ant < ${OAI2X2_UE_ANT:-2}; ant++)); do
++    ue_tx_channels+="${ue_tx_channels:+,}tcp://10.201.0.2:$((2101 + 2 * ant))"
++    ue_rx_channels+="${ue_rx_channels:+,}tcp://10.201.0.1:$((2100 + 2 * ant))"
++  done
++  printf 'event=nrue_antennas ue_ant=%s gnb_ant=%s tx=%s rx=%s\n' "${OAI2X2_UE_ANT:-2}" "${OAI2X2_GNB_ANT:-2}" "${ue_tx_channels}" "${ue_rx_channels}" >>"${log_dir}/nrue-radio.log"
+   pushd "${log_dir}" >/dev/null
+   # shellcheck disable=SC2086
+   # The gate's UE RX gain (oai-gate-defaults.sh oai_gate_ue_rx_gain), if any.
+@@ -445,12 +452,12 @@
+     "${nrue_pin[@]}" ${OCUDU_NATIVE_NRUE_WRAPPER:-} "${nrue}" -O "${config_dir}/nrue.conf" \
+     "${oai_radio[@]}" \
+     --ue-fo-compensation \
+-    --ue-nb-ant-rx 2 --ue-nb-ant-tx 2 \
++    --ue-nb-ant-rx "${OAI2X2_UE_ANT:-2}" --ue-nb-ant-tx "${OAI2X2_UE_ANT:-2}" \
+     --uecap_file "${uecap_file}" \
+     --device.name oai_zmqdevif \
+     --loader.oai_zmqdevif.shlibpath "${zmq_module_dir}" \
+-    --zmq.'[0]'.tx_channels tcp://10.201.0.2:2101,tcp://10.201.0.2:2103 \
+-    --zmq.'[0]'.rx_channels tcp://10.201.0.1:2100,tcp://10.201.0.1:2102 \
++    --zmq.'[0]'.tx_channels "${ue_tx_channels}" \
++    --zmq.'[0]'.rx_channels "${ue_rx_channels}" \
+     "${ue_rx_gain[@]}" "${ue_fo[@]}" \
+     ${OAI2X2_UE_EXTRA:-}
+   popd >/dev/null
+#!/usr/bin/env python3
+"""NxM topology for the OAI 2x2 gate family: gNB with N ports (loopback 2000+2i / 2001+2i), one OAI nrUE with M ports
+over the veth pair (UE REP TX 2101+2i, broker REP RX 2100+2i), fixed MIMO matrices taken from the 4x4 DFT matrix so
+the DL (M x N) rows and the UL (N x M) columns are orthogonal (well conditioned, rank min(N, M)); column norm 0.8."""
+import argparse, cmath, math
+ap = argparse.ArgumentParser(); ap.add_argument("--gnb-ant", type=int, required=True); ap.add_argument("--ue-ant", type=int, required=True); ap.add_argument("--out", required=True)
+a = ap.parse_args(); N, M = a.gnb_ant, a.ue_ant
+W = [[cmath.exp(-2j * math.pi * r * c / 4) / 2 for c in range(4)] for r in range(4)]  # unitary 4x4
+def coeffs(rows, cols, name):
+    scale = 0.8 / math.sqrt(rows) / 0.5  # column norm 0.8
+    out = [f"  {name}:\n    fixed_mimo:\n      coefficients:\n"]
+    for r in range(rows):
+        for c in range(cols):
+            z = W[r][c] * scale
+            out.append(f"        - tap: 0\n          rx: {r}\n          tx: {c}\n          real: {z.real:.4f}\n          imag: {z.imag:.4f}\n")
+    out.append("    chain:\n      - type: tdl\n        taps:\n          - delay_samples: 0.0\n            gain_db: 0.0\n            phase_rad: 0.0\n")
+    return "".join(out)
+dev = []
+for i in range(N):
+    dev.append(f"  - id: gnb0_p{i}\n    role: port\n    sample_rate_hz: 23040000\n    tx_endpoint: tcp://127.0.0.1:{2000 + 2 * i}\n    rx_endpoint: tcp://127.0.0.1:{2001 + 2 * i}\n")
+for i in range(M):
+    dev.append(f"  - id: ue0_p{i}\n    role: port\n    sample_rate_hz: 23040000\n    tx_endpoint: tcp://10.201.0.2:{2101 + 2 * i}\n    rx_endpoint: tcp://10.201.0.1:{2100 + 2 * i}\n")
+def node(nid, k):
+    ports = "".join(f"      - {nid}_p{i}\n" for i in range(k))
+    return f"  - id: {nid}\n    tx_ports:\n{ports}    rx_ports:\n{ports}"
+y = (f"# {N}x{M} topology for the OAI gate family (local): gNB {N} ports, OAI nrUE {M} ports, DFT-based fixed MIMO.\n"
+     "runtime:\n  backend: cuda\n  gpu_device: 0\n  batch_samples: 23040\n  queue_samples: 2457600\n\n"
+     f"devices:\n{''.join(dev)}\nradio_nodes:\n{node('gnb0', N)}{node('ue0', M)}\n"
+     f"links:\n  - from: gnb0\n    to: ue0\n    model: dl_{N}x{M}\n  - from: ue0\n    to: gnb0\n    model: ul_{M}x{N}\n\n"
+     f"models:\n{coeffs(M, N, f'dl_{N}x{M}')}\n{coeffs(N, M, f'ul_{M}x{N}')}")
+open(a.out, "w").write(y); print(a.out, "gnb_ports", N, "ue_ports", M)

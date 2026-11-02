@@ -1,0 +1,4 @@
+report,gnb,mps,cell0_slots_per_s,cell1_slots_per_s,realtime_ratio
+20261026T131042Z,cuda,on,532,526,0.53
+20261026T131405Z,cuda,off,376,394,0.38
+(2026-10-26 final recipe),cpu,n/a,877,884,0.88

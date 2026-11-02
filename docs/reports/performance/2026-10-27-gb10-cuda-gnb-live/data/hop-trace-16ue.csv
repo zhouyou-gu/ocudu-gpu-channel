@@ -1,0 +1,3 @@
+trace,gnb,gnb_turnaround_p50_ms,ue_turnaround_p50_ms,little_core_ue_turnaround_p50_ms,realtime_ratio
+hop-hop-cd10-16ue,cuda,1.10,1.13,1.4,0.443
+hop-hop-cpu-16ue,cpu,1.05,1.10,1.4,0.468

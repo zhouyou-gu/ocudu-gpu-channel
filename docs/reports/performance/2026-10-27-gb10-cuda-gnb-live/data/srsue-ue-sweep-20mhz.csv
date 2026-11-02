@@ -1,0 +1,13 @@
+session,dir,ue_count,gnb,mps,note,rt_run1,rt_run2,gates_trace_align_traffic_valid
+g105,tagged-final-1ue-20261026T070910Z-g105,1,cpu,n/a,recipe (run-ahead),0.996,0.997,PPPP
+g106,tagged-final-2ue-20261026T071140Z-g106,2,cpu,n/a,recipe (run-ahead),0.997,0.997,PPPP
+g117,tagged-cd10-1ue-20261026T123416Z-g117,1,cuda,on,,0.998,0.998,PPPP
+g118,tagged-cd10-2ue-20261026T123705Z-g118,2,cuda,on,,0.997,0.997,PPPP
+g119,tagged-cd10-4ue-20261026T124005Z-g119,4,cuda,on,,0.995,0.995,PPPP
+g120,tagged-cd10-8ue-20261026T124334Z-g120,8,cuda,on,,0.913,0.928,PPPP
+g121,tagged-cd10-16ue-20261026T124817Z-g121,16,cuda,on,,0.453,0.442,FFPF
+g122,tagged-cd10-8ue-nomps-20261026T125601Z-g122,8,cuda,off,,0.713,0.713,PPPP
+g123,tagged-cd10-16ue-nomps-20261026T130109Z-g123,16,cuda,off,,0.350,0.333,PFPP
+g124,tagged-cpu-noahead-8ue-20261026T131738Z-g124,8,cpu,n/a,"stock, no run-ahead",0.934,0.921,PPPP
+g125,tagged-cpu-noahead-16ue-20261026T132210Z-g125,16,cpu,n/a,"stock, no run-ahead",0.453,0.445,PFPP
+g116,tagged-cd10-all-1ue-20261026T123054Z-g116,1,cuda,on,broker outside MPS,0.964,0.928,PFPP
