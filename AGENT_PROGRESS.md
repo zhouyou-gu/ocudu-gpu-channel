@@ -4,7 +4,7 @@
 
 ## Current Objective
 
-Integrate the open performance-report PRs, preserving contributor history; PR #9 is merged and PR #10's documentation fix passes combined RTX validation, with CI and merge pending.
+Performance-report PRs #9 and #10 are merged, contributor history is preserved, and local main is synchronized. The documentation fix passes RTX validation and GitHub CI.
 
 ## Repository State
 
@@ -24,7 +24,7 @@ Integrate the open performance-report PRs, preserving contributor history; PR #9
 
 - Approved structure migration is published: `use_cases/`, runtime apps, grouped integrations/tests, Python packaging and documentation navigation. Validation evidence is in `validation/structure-20261009/`.
 
-- Checkout: `main` in `${HOME}/Documents/GitHub/ocudu-gpu-channel`. PRs #2–#6 are integrated through normal merges; Git records the current commit and publication state.
+- Checkout: `main` in `${HOME}/Documents/GitHub/ocudu-gpu-channel`. PRs #2–#6, #9 and #10 are integrated through normal merges; Git records the current commit and publication state.
 - Integration and cleanup were published on 2026-09-14. Normal merges `22a51ba` and `e59e095` retain contributor tips `066a702` and `e31fe51`; no history rewrite or release tag.
 - Only this channel worktree and local `main` remain. Origin branch cleanup was verified on 2026-09-14; contributor remotes `ehs0` and `fork` remain.
 - Agent-file updates: concise harness/progress, full historical archive, short-entry rules and the user-requested mission reset. Pre-existing runtime/publication notes are preserved in the archive and summarized below.
@@ -70,6 +70,7 @@ Reports: [integration guide](docs/history/milestones/sionna-integration-20260914
 - Merged [PR #9](https://github.com/zhouyou-gu/ocudu-gpu-channel/pull/9) through a normal merge after its documentation CI passed; the dated GB10 broker report, datasets and measurement tools preserve contributor history.
 - Replaced PR #10's unresolved directory links with its data-and-reproduction section link; the failed CI identified exactly those two warnings. Strict Sphinx and publication checks pass on RTX with both reports: 120 pages, 18,606 links, zero errors.
 - Merged updated main into PR #10's integration branch and resolved the shared performance-index conflict by retaining both report entries. Contributor history remains intact; evidence: `validation/pr-10-merge-20261103/` on RTX.
+- Merged [PR #10](https://github.com/zhouyou-gu/ocudu-gpu-channel/pull/10) after its corrected documentation CI passed, then fast-forwarded local main and verified both original contributor tips are ancestors. No open PRs remain.
 
 ### Project review — 2026-10-16
 
@@ -295,4 +296,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-Wait for PR #10's documentation CI, then merge and synchronize main. Strict zero-starvation qualification remains failed; the existing scheduler reports retain the unresolved IQ handoff pauses and separately confirmed full-RLC-queue packet drops.
+No pull-request integration work remains queued. Strict zero-starvation qualification remains failed; the existing scheduler reports retain the unresolved IQ handoff pauses and separately confirmed full-RLC-queue packet drops.
