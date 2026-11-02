@@ -1,0 +1,557 @@
+# boundary sweep: cells=1 ues=24 gnb_ports=1 ue_ports=1 srate=23040000 scs=15 taps=8
+runtime:
+  backend: cuda
+  gpu_device: 0
+  batch_samples: 23040
+  queue_samples: 737280
+devices:
+  - id: gnb0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20000
+    rx_endpoint: tcp://127.0.0.1:20001
+    rx_model: rx_noise_gnb0
+  - id: ue0_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20002
+    rx_endpoint: tcp://127.0.0.1:20003
+    rx_model: rx_noise_ue0
+  - id: ue1_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20004
+    rx_endpoint: tcp://127.0.0.1:20005
+    rx_model: rx_noise_ue1
+  - id: ue2_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20006
+    rx_endpoint: tcp://127.0.0.1:20007
+    rx_model: rx_noise_ue2
+  - id: ue3_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20008
+    rx_endpoint: tcp://127.0.0.1:20009
+    rx_model: rx_noise_ue3
+  - id: ue4_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20010
+    rx_endpoint: tcp://127.0.0.1:20011
+    rx_model: rx_noise_ue4
+  - id: ue5_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20012
+    rx_endpoint: tcp://127.0.0.1:20013
+    rx_model: rx_noise_ue5
+  - id: ue6_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20014
+    rx_endpoint: tcp://127.0.0.1:20015
+    rx_model: rx_noise_ue6
+  - id: ue7_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20016
+    rx_endpoint: tcp://127.0.0.1:20017
+    rx_model: rx_noise_ue7
+  - id: ue8_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20018
+    rx_endpoint: tcp://127.0.0.1:20019
+    rx_model: rx_noise_ue8
+  - id: ue9_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20020
+    rx_endpoint: tcp://127.0.0.1:20021
+    rx_model: rx_noise_ue9
+  - id: ue10_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20022
+    rx_endpoint: tcp://127.0.0.1:20023
+    rx_model: rx_noise_ue10
+  - id: ue11_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20024
+    rx_endpoint: tcp://127.0.0.1:20025
+    rx_model: rx_noise_ue11
+  - id: ue12_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20026
+    rx_endpoint: tcp://127.0.0.1:20027
+    rx_model: rx_noise_ue12
+  - id: ue13_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20028
+    rx_endpoint: tcp://127.0.0.1:20029
+    rx_model: rx_noise_ue13
+  - id: ue14_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20030
+    rx_endpoint: tcp://127.0.0.1:20031
+    rx_model: rx_noise_ue14
+  - id: ue15_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20032
+    rx_endpoint: tcp://127.0.0.1:20033
+    rx_model: rx_noise_ue15
+  - id: ue16_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20034
+    rx_endpoint: tcp://127.0.0.1:20035
+    rx_model: rx_noise_ue16
+  - id: ue17_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20036
+    rx_endpoint: tcp://127.0.0.1:20037
+    rx_model: rx_noise_ue17
+  - id: ue18_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20038
+    rx_endpoint: tcp://127.0.0.1:20039
+    rx_model: rx_noise_ue18
+  - id: ue19_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20040
+    rx_endpoint: tcp://127.0.0.1:20041
+    rx_model: rx_noise_ue19
+  - id: ue20_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20042
+    rx_endpoint: tcp://127.0.0.1:20043
+    rx_model: rx_noise_ue20
+  - id: ue21_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20044
+    rx_endpoint: tcp://127.0.0.1:20045
+    rx_model: rx_noise_ue21
+  - id: ue22_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20046
+    rx_endpoint: tcp://127.0.0.1:20047
+    rx_model: rx_noise_ue22
+  - id: ue23_p0
+    role: port
+    sample_rate_hz: 23040000
+    tx_endpoint: tcp://127.0.0.1:20048
+    rx_endpoint: tcp://127.0.0.1:20049
+    rx_model: rx_noise_ue23
+radio_nodes:
+  - id: gnb0
+    tx_ports:
+      - gnb0_p0
+    rx_ports:
+      - gnb0_p0
+  - id: ue0
+    tx_ports:
+      - ue0_p0
+    rx_ports:
+      - ue0_p0
+  - id: ue1
+    tx_ports:
+      - ue1_p0
+    rx_ports:
+      - ue1_p0
+  - id: ue2
+    tx_ports:
+      - ue2_p0
+    rx_ports:
+      - ue2_p0
+  - id: ue3
+    tx_ports:
+      - ue3_p0
+    rx_ports:
+      - ue3_p0
+  - id: ue4
+    tx_ports:
+      - ue4_p0
+    rx_ports:
+      - ue4_p0
+  - id: ue5
+    tx_ports:
+      - ue5_p0
+    rx_ports:
+      - ue5_p0
+  - id: ue6
+    tx_ports:
+      - ue6_p0
+    rx_ports:
+      - ue6_p0
+  - id: ue7
+    tx_ports:
+      - ue7_p0
+    rx_ports:
+      - ue7_p0
+  - id: ue8
+    tx_ports:
+      - ue8_p0
+    rx_ports:
+      - ue8_p0
+  - id: ue9
+    tx_ports:
+      - ue9_p0
+    rx_ports:
+      - ue9_p0
+  - id: ue10
+    tx_ports:
+      - ue10_p0
+    rx_ports:
+      - ue10_p0
+  - id: ue11
+    tx_ports:
+      - ue11_p0
+    rx_ports:
+      - ue11_p0
+  - id: ue12
+    tx_ports:
+      - ue12_p0
+    rx_ports:
+      - ue12_p0
+  - id: ue13
+    tx_ports:
+      - ue13_p0
+    rx_ports:
+      - ue13_p0
+  - id: ue14
+    tx_ports:
+      - ue14_p0
+    rx_ports:
+      - ue14_p0
+  - id: ue15
+    tx_ports:
+      - ue15_p0
+    rx_ports:
+      - ue15_p0
+  - id: ue16
+    tx_ports:
+      - ue16_p0
+    rx_ports:
+      - ue16_p0
+  - id: ue17
+    tx_ports:
+      - ue17_p0
+    rx_ports:
+      - ue17_p0
+  - id: ue18
+    tx_ports:
+      - ue18_p0
+    rx_ports:
+      - ue18_p0
+  - id: ue19
+    tx_ports:
+      - ue19_p0
+    rx_ports:
+      - ue19_p0
+  - id: ue20
+    tx_ports:
+      - ue20_p0
+    rx_ports:
+      - ue20_p0
+  - id: ue21
+    tx_ports:
+      - ue21_p0
+    rx_ports:
+      - ue21_p0
+  - id: ue22
+    tx_ports:
+      - ue22_p0
+    rx_ports:
+      - ue22_p0
+  - id: ue23
+    tx_ports:
+      - ue23_p0
+    rx_ports:
+      - ue23_p0
+links:
+  - from: gnb0
+    to: ue0
+    model: tdl
+  - from: ue0
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue1
+    model: tdl
+  - from: ue1
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue2
+    model: tdl
+  - from: ue2
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue3
+    model: tdl
+  - from: ue3
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue4
+    model: tdl
+  - from: ue4
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue5
+    model: tdl
+  - from: ue5
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue6
+    model: tdl
+  - from: ue6
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue7
+    model: tdl
+  - from: ue7
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue8
+    model: tdl
+  - from: ue8
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue9
+    model: tdl
+  - from: ue9
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue10
+    model: tdl
+  - from: ue10
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue11
+    model: tdl
+  - from: ue11
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue12
+    model: tdl
+  - from: ue12
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue13
+    model: tdl
+  - from: ue13
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue14
+    model: tdl
+  - from: ue14
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue15
+    model: tdl
+  - from: ue15
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue16
+    model: tdl
+  - from: ue16
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue17
+    model: tdl
+  - from: ue17
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue18
+    model: tdl
+  - from: ue18
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue19
+    model: tdl
+  - from: ue19
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue20
+    model: tdl
+  - from: ue20
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue21
+    model: tdl
+  - from: ue21
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue22
+    model: tdl
+  - from: ue22
+    to: gnb0
+    model: tdl
+  - from: gnb0
+    to: ue23
+    model: tdl
+  - from: ue23
+    to: gnb0
+    model: tdl
+models:
+  tdl:
+    chain:
+      - type: tdl
+        taps:
+          - delay_samples: 0.000
+            gain_db: -3.00
+            phase_rad: 0.0000
+          - delay_samples: 8.229
+            gain_db: -5.43
+            phase_rad: 2.3990
+          - delay_samples: 16.457
+            gain_db: -7.86
+            phase_rad: 4.7980
+          - delay_samples: 24.686
+            gain_db: -10.29
+            phase_rad: 0.9138
+          - delay_samples: 32.914
+            gain_db: -12.71
+            phase_rad: 3.3128
+          - delay_samples: 41.143
+            gain_db: -15.14
+            phase_rad: 5.7118
+          - delay_samples: 49.371
+            gain_db: -17.57
+            phase_rad: 1.8276
+          - delay_samples: 57.600
+            gain_db: -20.00
+            phase_rad: 4.2266
+  rx_noise_gnb0:
+    chain:
+      - type: awgn
+        noise_power: 3.0e-02
+  rx_noise_ue0:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue1:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue2:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue3:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue4:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue5:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue6:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue7:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue8:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue9:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue10:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue11:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue12:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue13:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue14:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue15:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue16:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue17:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue18:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue19:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue20:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue21:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue22:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06
+  rx_noise_ue23:
+    chain:
+      - type: awgn
+        noise_power: 1.12e-06

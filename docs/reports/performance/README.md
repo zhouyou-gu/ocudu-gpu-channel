@@ -9,5 +9,6 @@ Measured envelopes, methods and datasets. Results do not transfer to other hardw
 2026-10-13-tdl-a/README
 2026-10-13-fanin/README
 2026-10-13-cpu-24/README
+2026-10-26-gb10-broker-boundary/README
 measured-boundaries
 ```
