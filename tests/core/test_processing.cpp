@@ -3272,8 +3272,7 @@ int main()
       sp.fading_enabled = false;
       sp.force = false;
       // As ControlServer::handle_profile_swap does: a scalar swap supersedes
-      // a pending matrix (the pending flags are sticky and are not cleared
-      // by the snap itself).
+      // a pending matrix; the active profile is retained separately after snap.
       it->second->profile_pending = true;
       it->second->matrix_profile_pending = false;
       it->second->seqno.fetch_add(1, std::memory_order_release);

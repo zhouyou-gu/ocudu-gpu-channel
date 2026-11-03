@@ -4,7 +4,7 @@
 
 ## Current Objective
 
-Performance-report PRs #9 and #10 are merged, contributor history is preserved, and local main is synchronized. The documentation fix passes RTX validation and GitHub CI.
+The profile-activation fix is validated on RTX 5090. Git records the implementation, regression tests and validation report's delivery revision and publication state.
 
 ## Repository State
 
@@ -64,6 +64,10 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+- Prepared the validated profile-activation fix, regression coverage and validation report for the user-requested commit and push to main. RTX CPU/CUDA suites passed 13/13 each and GPU sequence 9/9; no implementation changes followed validation.
+
+- Consumed pending profile replacements after activation, preventing unrelated updates from resetting delayed samples. The regression failed before the fix; RTX CPU/CUDA suites passed 13/13 each and GPU sequence 9/9; see the [report](docs/reports/validation/profile-activation-20261103.md).
 
 ### Pull-request integration — 2026-11-03
 
@@ -296,4 +300,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-No pull-request integration work remains queued. Strict zero-starvation qualification remains failed; the existing scheduler reports retain the unresolved IQ handoff pauses and separately confirmed full-RLC-queue packet drops.
+No further implementation work is queued after the profile-activation delivery. Strict zero-starvation qualification remains failed, with IQ handoff pauses and full-RLC-queue packet drops recorded in the existing scheduler reports.

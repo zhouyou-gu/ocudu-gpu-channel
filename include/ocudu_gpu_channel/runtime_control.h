@@ -194,8 +194,8 @@ struct BrokerLinkControl {
 
   // v2 profile-swap shadow. `profile_pending` is set by the control
   // thread when shadow_profile holds a new profile to apply; cleared by
-  // the snap path after the refresh runs. Both writes are paired with
-  // seqno's release-store.
+  // the snap path after copying it to live storage. The active profile is
+  // retained separately by PhysicalLinkRuntime.
   ProfileShadow              shadow_profile;
   bool                       profile_pending = false;
 
@@ -327,15 +327,14 @@ inline bool snap_mutable_params(MutableParams& live,
 // helper because the chain shape lives on the backend's per-link state,
 // not on BrokerLinkControl.
 //
-// Returns true if the profile was copied. ctl.profile_pending is NOT
-// cleared — it remains a "this link has been profile-swapped at least
-// once" marker. Subsequent snap calls re-copy idempotently when seqno
-// advances; cost is one ~1KB memcpy on the rare seqno-bump path.
+// Consume the pending replacement once. The live profile remains active, but
+// later scalar or correlation updates must not reactivate it and reset history.
 inline bool snap_profile_from_shadow(ProfileShadow& live_profile,
                                      BrokerLinkControl& ctl)
 {
   if (!ctl.profile_pending) return false;
   live_profile = ctl.shadow_profile;
+  ctl.profile_pending = false;
   return true;
 }
 
@@ -344,6 +343,7 @@ inline bool snap_matrix_profile_from_shadow(MatrixProfileShadow& live_profile,
 {
   if (!ctl.matrix_profile_pending) return false;
   live_profile = ctl.shadow_matrix_profile;
+  ctl.matrix_profile_pending = false;
   return true;
 }
 

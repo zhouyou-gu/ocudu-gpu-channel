@@ -1,6 +1,7 @@
 #include "ocudu_gpu_channel/config.h"
 #include "ocudu_gpu_channel/processing.h"
 #include "ocudu_gpu_channel/physical_link.h"
+#include "ocudu_gpu_channel/control_server.h"
 #if OCUDU_GPU_CHANNEL_HAS_CUDA
 #include "ocudu_gpu_channel/cuda_backend.h"
 #endif
@@ -29,7 +30,8 @@ struct Fixture {
   std::vector<ocg::IqBuffer> inputs;
   std::vector<ocg::SuperpositionInput> lanes;
 
-  Fixture(int tx, int rx, ocg::Backend backend, bool mixed = false, double initial_delay = 5.0) : nt(tx), nr(rx), inputs(tx, ocg::IqBuffer(8))
+  Fixture(int tx, int rx, ocg::Backend backend, bool mixed = false, double initial_delay = 5.0,
+          bool runtime_updates = false) : nt(tx), nr(rx), inputs(tx, ocg::IqBuffer(8))
   {
     config.runtime.backend = backend;
     config.runtime.batch_samples_auto = false;
@@ -57,6 +59,11 @@ struct Fixture {
                            .params = {},
                            .taps = {{.delay_samples = initial_delay}},
                            .taps_declared = true});
+    if (runtime_updates) {
+      model.spatial_correlation.declared = true;
+      model.chain.push_back({.type = ocg::ModelStepType::PathLoss,
+                             .params = {{"path_loss_db", 0.0}}});
+    }
     config.models.emplace(model.id, model);
     config.links = {{.from = "tx", .to = "rx", .model = model.id},
                     {.from = "rx", .to = "tx", .model = model.id}};
@@ -239,9 +246,9 @@ void check_echoes(int nt, int nr, ocg::Backend backend)
   require(f.telemetry().warmup_event_seq == 3, "tap-count change must start warmup");
   // The existing scalar profile_swap still resets, including when resent.
   f.control->matrix_profile_pending = false;
-  f.control->profile_pending = true;
   f.control->shadow_profile = f.matrix.lanes[0];
   for (int i = 0; i < 2; ++i) {
+    f.control->profile_pending = true;
     f.control->seqno.fetch_add(1, std::memory_order_release);
     f.run();
     require(f.telemetry().warmup_event_seq == std::uint64_t(4 + i),
@@ -249,6 +256,100 @@ void check_echoes(int nt, int nr, ocg::Backend backend)
   }
   f.apply(); f.run();
   require(f.telemetry().warmup_event_seq == 6, "returning from scalar to matrix must reset");
+}
+
+// Drive the shipping control handler and processing path together. The delayed
+// impulse identifies retained input independently of the warmup telemetry.
+void check_unrelated_updates(int nt, int nr, ocg::Backend backend)
+{
+  Fixture f(nt, nr, backend, false, 5.0, true);
+  ocg::ControlServer server({}, f.processor->collect_control_links());
+  const auto send = [&](const std::string& request) {
+    const auto reply = server.handle_message(request);
+    require(reply.find("\"ok\":true") != std::string::npos, "history update must be accepted");
+  };
+  const std::string profile = R"({"type":"profile_swap","link_id":"tx>rx:dynamic",
+    "taps":[{"delay_samples":5,"gain_db":0,"phase_rad":0}]})";
+  send(profile);
+  f.run(); f.run(); f.run();
+  const auto resets = f.telemetry().warmup_event_seq;
+  require(resets == 1 && f.telemetry().warmup_until_slot == 0,
+          "shared profile must activate and finish its first warmup");
+
+  for (int update = 0; update < 3; ++update) {
+    f.clear_inputs();
+    for (int tx = 0; tx < nt; ++tx) f.inputs[tx][7 - tx] = {float(tx + 1), -0.25F * tx};
+    f.run();
+    f.clear_inputs();
+    const auto before = f.telemetry().live_seqno;
+    if (update == 0) {
+      const std::string side = nt > 1 ? "tx" : "rx";
+      send(std::string(R"({"type":"correlation_swap","link_id":"tx>rx:dynamic","kind":"kronecker")") +
+           (nt * nr > 1 ? ",\"" + side + R"(":[{"i":0,"j":1,"re":0.5,"im":0}])" : "") + "}");
+    } else if (update == 1) {
+      send(R"({"link_id":"tx>rx:dynamic","param":"path_loss_db","value":6})");
+    } else {
+      send(R"({"type":"correlation_swap","link_id":"tx>rx:dynamic","kind":"iid"})");
+    }
+    const auto output = f.run();
+    const double scale = update == 0 ? 1.0 : std::pow(10.0, -6.0 / 20.0);
+    for (const auto& row : output) for (int n = 0; n < 8; ++n) {
+      const int tx = 4 - n;
+      const double re = tx >= 0 && tx < nt ? (tx + 1) * scale : 0.0;
+      const double im = tx >= 0 && tx < nt ? -0.25 * tx * scale : 0.0;
+      require(std::hypot(row[n].i - re, row[n].q - im) < 1e-4,
+              "correlation/scalar updates after shared profile must preserve delayed IQ");
+    }
+    require(f.telemetry().live_seqno == before + 1, "unrelated update must actually activate");
+    require(f.telemetry().warmup_event_seq == resets && f.telemetry().warmup_until_slot == 0,
+            "unrelated update must not reactivate shared profile or restart warmup");
+  }
+
+  // Resending the same profile is a new replacement and must still reset.
+  f.inputs[0][7] = {1, 0}; f.run(); f.clear_inputs();
+  send(profile);
+  for (const auto& row : f.run()) for (const auto& sample : row)
+    require(ocg::power(sample) < 1e-10, "explicit shared replacement must discard the old echo");
+  require(f.telemetry().warmup_event_seq == resets + 1, "explicit shared replacement must reset again");
+}
+
+// Pending replacements survive deferral and are consumed only on activation.
+void check_pending_activation()
+{
+  for (bool matrix : {false, true}) {
+    auto link = std::make_unique<ocg::PhysicalLinkRuntime>();
+    link->chain_has_leading_tdl = true;
+    auto& ctl = link->control;
+    ctl.shadow_profile.n_taps = 1;
+    ctl.shadow_profile.taps[0].delay_samples = 5;
+    ctl.shadow_matrix_profile.nt = ctl.shadow_matrix_profile.nr = 1;
+    ctl.shadow_matrix_profile.lane_count = 1;
+    ctl.shadow_matrix_profile.lanes[0] = ctl.shadow_profile;
+    ctl.profile_pending = !matrix;
+    ctl.matrix_profile_pending = matrix;
+    ctl.take_effect_at_slot = 2;
+    ctl.seqno.fetch_add(1, std::memory_order_release);
+    for (int slot = 0; slot < 2; ++slot) {
+      require(!ocg::snap_physical_link(*link, "scheduled", 8).values_changed,
+              "scheduled profile must wait for its eligible call");
+      require(matrix ? ctl.matrix_profile_pending : ctl.profile_pending,
+              "deferred profile must remain pending");
+    }
+    const auto activation = ocg::snap_physical_link(*link, "scheduled", 8);
+    require(activation.history_reset_required &&
+                (matrix ? activation.matrix_profile_activated : activation.profile_activated),
+            "first eligible profile activation must reset");
+    require(!ctl.profile_pending && !ctl.matrix_profile_pending,
+            "activation must consume its pending profile");
+    ctl.shadow.path_loss_db = 6;
+    ctl.seqno.fetch_add(1, std::memory_order_release);
+    const auto scalar = ocg::snap_physical_link(*link, "scheduled", 8);
+    require(scalar.values_changed && !scalar.profile_activated &&
+                !scalar.matrix_profile_activated && !scalar.history_reset_required,
+            "scalar version change must not reactivate either profile type");
+    require(matrix ? link->live_matrix_profile_active : link->live_profile_active,
+            "consuming a replacement must retain its active profile");
+  }
 }
 
 // Exercise every non-coefficient field at the shared link decision, including
@@ -267,6 +368,7 @@ void check_settings()
     link->control.seqno.fetch_add(1);
     ocg::snap_physical_link(*link, "test", 8);
     mutate(matrix);
+    link->control.matrix_profile_pending = true;
     link->control.seqno.fetch_add(1);
     ocg::snap_physical_link(*link, "test", 8);
     require(ocg::read_telemetry_snapshot(link->control).warmup_event_seq == 2,
@@ -293,10 +395,12 @@ int main()
 {
   try {
     for (const auto& [nt, nr] : {std::pair{1, 1}, {2, 1}, {1, 2}, {4, 1}, {1, 4}}) {
+      check_unrelated_updates(nt, nr, ocg::Backend::Cpu);
       check_echoes(nt, nr, ocg::Backend::Cpu);
       check_delays(nt, nr);
 #if OCUDU_GPU_CHANNEL_HAS_CUDA
       require(ocg::cuda_runtime_probe(), "CUDA build must exercise a real GPU");
+      check_unrelated_updates(nt, nr, ocg::Backend::Cuda);
       check_echoes(nt, nr, ocg::Backend::Cuda);
       Fixture mixed(nt, nr, ocg::Backend::Cuda, true);
       require(!mixed.control->matrix_profile_supported, "mixed CUDA receiver must reject matrix control");
@@ -305,6 +409,7 @@ int main()
       require(ocg::power(static_output[0][5]) > 0.9, "static mixed topology must still work");
 #endif
     }
+    check_pending_activation();
     check_settings();
 #if OCUDU_GPU_CHANNEL_HAS_CUDA
     bool capacity_rejected = false;
