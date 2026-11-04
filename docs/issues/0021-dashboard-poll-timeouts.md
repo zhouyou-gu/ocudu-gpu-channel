@@ -1,6 +1,6 @@
 # #21: Dashboard status polling times out on high-rate telemetry
 
-GitHub: [#21](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/21). Status: **Open; fix validated locally, unpublished**, 4 November 2026.
+GitHub: [#21](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/21). Status: **Closed as completed**, 4 November 2026.
 
 **Component:** Dashboard HTTP polling, payload size and scene framing.
 
@@ -20,9 +20,9 @@ On the same live Spark/SSH path, compressed status was 27,084 bytes in 24 ms and
 
 RTX checks: 44 Python dashboard tests passed, including gzip/identity content integrity and disabled-gzip negotiation. Frontend regressions check disconnect behavior, status polling without raw history, cached chart data surviving status-card rebuilds, and independent RAN feeds. Screenshots and raw run artifacts remain ignored.
 
-## Closure checks
+## Resolution
 
-Publish the implementation and verification links, then close the issue. Preserve actual disconnection behavior; do not mask failed requests with cached readiness. Separate synthetic UI checks from real-radio or strict timing qualification.
+Published in [44deafd](https://github.com/zhouyou-gu/ocudu-gpu-channel/commit/44deafd0846180b3870c112090b44d7865514490) on `main`, with fix and verification links recorded in GitHub before closure. Actual disconnects still clear readiness. Synthetic UI checks remain separate from real-radio or strict timing qualification.
 
 ## Evidence
 

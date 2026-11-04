@@ -4,17 +4,17 @@
 
 ## Repository State
 
-- Reviewing and publishing the demo and dashboard fixes. Review found and fixed chart canvases being cleared by status-card rebuilds; the new functional regression and existing frontend checks pass on RTX.
+- The reviewed demo and dashboard changes are published in `44deafd` on `origin/main`. Review also fixed chart canvases being cleared by status-card rebuilds; the functional regression and existing frontend checks pass on RTX.
 
-- The Spark viewing run now uses the dashboard fixes for #21: lightweight status polls, compressed responses and route-focused framing. Browser screenshots confirm live feeds and visible nodes/rays; changes and the refreshed embedded-patch handoff remain uncommitted.
+- GitHub #21 is closed as completed with the published fix and validation linked. The fresh-Spark handoff now uses the published repository directly; no embedded patch is needed.
 
-- The requested Spark SUTD demo is live at `http://localhost:18080` until approximately 14:30 Singapore time on 4 November 2026. Sionna and all ten telemetry edges are fresh; the demo and forwarding helpers have finite lifetimes.
+- The finite Spark viewing run still has remote listeners, scheduled to end near 14:30 Singapore time on 4 November 2026. The local forwarding tunnel was unavailable at the publication check; another local viewing session requires reopening it.
 
-- The SUTD synthetic crosstalk demo is implemented and Spark-verified on `c775de8` plus local changes. The self-contained handoff prompt embeds the tested patch; demo code remains uncommitted, with a requested viewing run active.
+- The SUTD synthetic crosstalk demo is published and Spark-verified. The self-contained handoff prompt includes fresh-host installation, build, run and verification commands using the published helper scripts.
 
 - The scheduler broker-environment truncation defect (#20) is fixed and published in `fd0e61a` on `origin/main`. All eight mock-child cases and the RTX helper suite pass; GitHub #20 is closed as completed with the fix linked.
 
-- Ten open GitHub issues (#11–#19 and #21) and resolved #20 have numbered technical records in `docs/issues/`. Issue #21 tracks the current unpublished dashboard timeout fix; earlier issue records are published.
+- Nine open GitHub issues (#11–#19) and resolved #20/#21 have numbered technical records in `docs/issues/`. The dashboard timeout fix and its regression checks are linked from closed issue #21.
 
 - Live experiments are stopped and the reviewed changes are published. RTX passes 13/13 core checks; Spark passes 12/13 with an existing CPU-reference failure, and its periodic slot delays remain unresolved.
 
@@ -84,6 +84,8 @@ Reports: [integration guide](docs/history/milestones/sionna-integration-20260914
 ### Demo publication review — 2026-11-04
 
 - Found a chart regression during review: status-card rebuilds replaced cached chart data with empty status history. Routed chart redraws through the dedicated response and verified the functional regression plus disconnect and RAN checks on RTX.
+- Published 14 reviewed source, test and documentation files in `44deafd`, verified the remote hash, and closed #21 with fix and validation links. Logs, raw traces, screenshots and generated artifacts remain ignored and excluded from the commit.
+- Refreshed the self-contained handoff to use the published repository without an embedded patch. Fresh-host provisioning remains untested; the existing Spark runtime/visual checks and RTX regressions support the delivered demo.
 
 ### Live dashboard connection and camera repair — 2026-11-04
 
@@ -551,7 +553,7 @@ Historical ledgers:
 
 ## Next Resume Point
 
-The SUTD demo changes are uncommitted. Share the complete `validation/sutd-crosstalk-handoff/PROMPT.md` text; it embeds the code and clean-Spark commands. A ten-minute viewing run is active at local port 18080; check the recorded sessions before restarting or cleaning its logs.
+The SUTD demo is published in `44deafd`. Share the complete `validation/sutd-crosstalk-handoff/PROMPT.md` text or the published operating guide; no external patch is required. Check the finite remote viewing run before restarting or cleaning its logs; local forwarding needs reopening.
 
 Real-radio experiments remain stopped; only the requested synthetic viewing run is active. RTX causal findings and unresolved Spark periodic gaps are recorded; CUDA-enabled checks pass 13/13 on RTX and 12/13 on Spark, where the old CPU-reference equality failure persists.
 
