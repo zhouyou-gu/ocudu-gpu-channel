@@ -4,15 +4,13 @@
 
 ## Repository State
 
-- Publication of the cleaned runtime, launcher, documentation and issue records is in progress. Source checks are complete; GitHub #20 will close after its fix is pushed and linked.
+- The scheduler broker-environment truncation defect (#20) is fixed and published in `fd0e61a` on `origin/main`. All eight mock-child cases and the RTX helper suite pass; GitHub #20 is closed as completed with the fix linked.
 
-- The scheduler broker-environment truncation defect (#20) is fixed in the working tree. All eight mock-child cases and the RTX helper suite pass; publication is pending, so the issue remains open.
+- Nine open GitHub issues (#11–#19) and resolved #20 have numbered technical records in `docs/issues/`. The published issue index is linked from navigation, developer guidance, status and current runtime findings.
 
-- Ten open GitHub issues (#11–#20) now have numbered technical records in `docs/issues/`. The issue index is linked from navigation, developer guidance, status and current runtime findings; the local documentation remains uncommitted.
+- Live experiments are stopped and the reviewed changes are published. RTX passes 13/13 core checks; Spark passes 12/13 with an existing CPU-reference failure, and its periodic slot delays remain unresolved.
 
-- Live experiments are stopped and the working-tree review is complete. RTX passes 13/13 core checks; Spark passes 12/13 with an existing CPU-reference failure, and its periodic slot delays remain unresolved; no publication was performed.
-
-- Broker clock recovery is implemented in the working tree. Corrected transport placement reached 1000.320 slots/s; strict timing still fails, with traced remaining delays in display kernel work and UE SYNC dispatch.
+- Broker clock recovery and notified ring handoff are published in `fd0e61a`. Corrected transport placement reached 1000.320 slots/s; strict timing still fails, with traced remaining delays in display kernel work and UE SYNC dispatch.
 
 - Local presentation artifacts remain in ignored `slides/`; the directory is also excluded from uploads and Docker builds. Vocabulary contains 96 definitions, including recovery rate and look-ahead/catch-up margins, and six unresolved wording or protected-name records.
 
@@ -74,6 +72,12 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Cleaned publication and issue closure — 2026-11-04
+
+- Committed and pushed 35 reviewed source, test and documentation files as `fd0e61a`; verified the remote `main` hash. Logs, raw traces, IQ captures and generated artifacts were excluded, with existing ignore rules retained.
+- Closed GitHub #20 as completed after linking the published launcher fix and eight-case regression verification. Updated its local record and moved it to the closed-issue index; issues #11–#19 remain open.
+- Removed stale publication notes from issue records and normalized Markdown whitespace. Strict RTX documentation checks passed after closure: 133 pages, 21,107 links and zero errors; live experiments remained stopped.
 
 ### Broker environment tokenization fix — 2026-11-04
 
@@ -510,6 +514,6 @@ Historical ledgers:
 
 Live experiments are stopped. RTX causal findings and unresolved Spark periodic gaps are recorded; CUDA-enabled checks pass 13/13 on RTX and 12/13 on Spark, where the old CPU-reference equality failure persists; no further experiment is queued.
 
-Open problems are tracked in [GitHub-linked issue records](docs/issues/README.md), covering issues #11–#20. Issue #20 is fixed and validated in the working tree, but remains open pending publication; no commit or push is queued.
+Open problems #11–#19 are tracked in [GitHub-linked issue records](docs/issues/README.md). Issue #20 is closed with its fix and verification linked to published commit `fd0e61a`; no further runtime experiment is queued.
 
 The earlier Spark demo is stopped (`gate_exit=1`), and its local tunnel PID is inactive. Pedestrian coverage failure and timing misses remain recorded in `validation/spark-live-demo-20261104/`.

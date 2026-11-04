@@ -17,7 +17,12 @@ Track confirmed defects, regressions, measured limitations and failed qualificat
 | [#17](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/17) | [Qualify live downlink activity on every claimed gNB antenna branch](0017-active-multiport-downlink.md) | Live evidence coverage gap |
 | [#18](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/18) | [Spark: CPU-PHY UE scaling falls below real-time rate at 8 and 16 UEs](0018-spark-cpu-ue-scaling.md) | Measured capacity limitation |
 | [#19](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/19) | [Preserve channel continuity across Sionna delay/layout changes](0019-geometry-update-continuity.md) | Known channel-update limitation |
-| [#20](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/20) | [Scheduler launcher truncates multiline broker environment settings](0020-multiline-broker-environment.md) | Fix validated in working tree; publication pending |
+
+## Recorded closed issues
+
+| GitHub | Local record | Resolution |
+|---|---|---|
+| [#20](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/20) | [Scheduler launcher truncates multiline broker environment settings](0020-multiline-broker-environment.md) | Fixed and verified in [fd0e61a](https://github.com/zhouyou-gu/ocudu-gpu-channel/commit/fd0e61a37c0e4972ef986231088413fac9fa8d7a) |
 
 ## Maintaining a record
 

@@ -1,12 +1,12 @@
 # #20: Scheduler launcher truncates multiline broker environment settings
 
-GitHub: [#20](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/20) · Status snapshot: **Open; fix validated in the working tree, publication pending**, 2026-11-04. GitHub carries the current status.
+GitHub: [#20](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/20) · Status snapshot: **Closed as completed**, 2026-11-04. GitHub carries the current status.
 
 **Component:** Scheduler benchmark broker launch and configuration reporting
 
 **Platform:** Both Linux platforms; reproduced with a mock child on RTX
 
-**Category:** P2 launch-configuration defect in the pending change
+**Category:** Resolved P2 launch-configuration defect
 
 ## Observed and expected behavior
 
@@ -24,7 +24,7 @@ The regression initially covered only empty and single-line settings. The expand
 
 `scripts/native/platform-profile.py` and run-parameter serialization use Python `.split()`, which processes all whitespace. The previous `read -r -a broker_env <<< ...` consumed one line only. The loss was therefore in launch tokenization, after the settings had already been accepted.
 
-The working-tree fix uses the same Python `.split()` and reads its tokens into a Bash array. Quoted array expansion preserves literal values without shell evaluation or glob expansion. This is separate from the open runtime timing failures and the existing ARM CPU-reference equality failure.
+The fix uses the same Python `.split()` and reads its tokens into a Bash array. Quoted array expansion preserves literal values without shell evaluation or glob expansion. This is separate from the open runtime timing failures and the existing ARM CPU-reference equality failure.
 
 ## Fix verification
 
@@ -32,12 +32,12 @@ On RTX, all eight mock-child cases passed after the fix: empty input, whitespace
 
 The scheduler helper suite completed 30 tests: 28 passed and two skipped. Launcher Bash syntax passed. Raw before/after output remains in ignored `validation/runtime-cleanup-20261104/issue20-before.log` and `issue20-after.log` on the validation mirror.
 
-## Closure checks
+## Resolution
 
-Consistent tokenization and child-environment regression checks pass. Publish the launcher and regression changes, link the delivered fix and verification in GitHub, then close the issue; the working-tree fix is currently uncommitted and unpublished.
+Published the launcher and regression in [fd0e61a](https://github.com/zhouyou-gu/ocudu-gpu-channel/commit/fd0e61a37c0e4972ef986231088413fac9fa8d7a) on `main`. Consistent tokenization and all eight child-environment cases pass. GitHub #20 was closed as completed after verifying the remote commit and linking the fix and verification.
 
 ## Evidence
 
-[Launcher](../../use_cases/scheduler_benchmark/run-ocudu-scheduler-benchmark-inner.sh), [profile resolver](../../scripts/native/platform-profile.py), [launch regression](../../tests/use_cases/test_scheduler_benchmark.py). The exact probe results are retained in ignored validation storage; the launch change and this record are uncommitted.
+[Launcher](../../use_cases/scheduler_benchmark/run-ocudu-scheduler-benchmark-inner.sh), [profile resolver](../../scripts/native/platform-profile.py), [launch regression](../../tests/use_cases/test_scheduler_benchmark.py). The exact probe results remain in ignored validation storage; logs and raw traces were excluded from the commit.
 
 [Issue index](README.md)
