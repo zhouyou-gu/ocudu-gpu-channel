@@ -8,6 +8,7 @@ Choose the workflow you need after the first synthetic run. Exact fields and mes
 broker
 live-stacks
 sionna
+sutd-crosstalk
 dashboard
 platforms
 cuda-gnb

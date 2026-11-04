@@ -16,6 +16,7 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 - Deliver UE/gNB fixes as separate local patches with reproducible application and validation; preserve upstream source checkouts.
 
 - Local source is canonical; the RTX 5090 workstation is a reproducible validation mirror. Keep remote builds, dependencies, logs, captures and datasets outside tracked source unless deliberately promoted.
+- For demo handoffs to a fresh machine, assume only its factory OS and vendor driver. Specify installation before first use of each added tool; keep existing-container details separate and distinguish tested runtime steps from untested fresh-host provisioning.
 - Run all validation on the RTX 5090, including CPU reference tests. Do not run backend tests on the user's PC. Run platform-specific benchmarks on the target explicitly requested by the user, matching source revision, workloads and timing definitions across platforms.
 - Keep workstation credentials in ignored `.config`, with placeholders only in `.config.example`. Load settings through `scripts/remote/common.sh`; run helpers with Bash, never source them from zsh or source `.config` directly.
 - Bootstrap remote dependencies in user space; do not use sudo/apt without an explicit change to that constraint.
@@ -75,6 +76,8 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 - Label every performance result with CPU and GPU models, sample rate, topology, model chain, backend and run duration. Publish measured envelopes; keep unmeasured scale claims in planned work.
 
 ## Metrics and UI
+
+- Keep current-state polling separate from retained chart history. Measure response size and end-to-end latency at the producer's actual rate; reduce or compress payloads before increasing timeouts, and preserve visible failure handling.
 
 - On shared metric buses, update only the reporting producer's fields and maintain per-group timestamps. An absent field does not mean zero.
 - Before accepting zero runtime-fault counters, verify that the active backend emits them; corroborate uninstrumented waits with boundary timing.

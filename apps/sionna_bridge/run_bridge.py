@@ -600,6 +600,7 @@ def scenario_environment(args: argparse.Namespace) -> dict[str, Any]:
                 "speed_mps": math.sqrt(sum(value * value for value in item.velocity)),
                 "mobility": item.mobility,
                 "route_x_m": item.x_bounds,
+                "route_m": item.waypoints,
                 "tx_array": definition.nodes[node_id].tx_array.label(),
                 "rx_array": definition.nodes[node_id].rx_array.label(),
                 "tx_antennas": definition.nodes[node_id].tx_array.antenna_count,

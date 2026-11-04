@@ -4,9 +4,17 @@
 
 ## Repository State
 
+- Reviewing and publishing the demo and dashboard fixes. Review found and fixed chart canvases being cleared by status-card rebuilds; the new functional regression and existing frontend checks pass on RTX.
+
+- The Spark viewing run now uses the dashboard fixes for #21: lightweight status polls, compressed responses and route-focused framing. Browser screenshots confirm live feeds and visible nodes/rays; changes and the refreshed embedded-patch handoff remain uncommitted.
+
+- The requested Spark SUTD demo is live at `http://localhost:18080` until approximately 14:30 Singapore time on 4 November 2026. Sionna and all ten telemetry edges are fresh; the demo and forwarding helpers have finite lifetimes.
+
+- The SUTD synthetic crosstalk demo is implemented and Spark-verified on `c775de8` plus local changes. The self-contained handoff prompt embeds the tested patch; demo code remains uncommitted, with a requested viewing run active.
+
 - The scheduler broker-environment truncation defect (#20) is fixed and published in `fd0e61a` on `origin/main`. All eight mock-child cases and the RTX helper suite pass; GitHub #20 is closed as completed with the fix linked.
 
-- Nine open GitHub issues (#11–#19) and resolved #20 have numbered technical records in `docs/issues/`. The published issue index is linked from navigation, developer guidance, status and current runtime findings.
+- Ten open GitHub issues (#11–#19 and #21) and resolved #20 have numbered technical records in `docs/issues/`. Issue #21 tracks the current unpublished dashboard timeout fix; earlier issue records are published.
 
 - Live experiments are stopped and the reviewed changes are published. RTX passes 13/13 core checks; Spark passes 12/13 with an existing CPU-reference failure, and its periodic slot delays remain unresolved.
 
@@ -72,6 +80,37 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Demo publication review — 2026-11-04
+
+- Found a chart regression during review: status-card rebuilds replaced cached chart data with empty status history. Routed chart redraws through the dedicated response and verified the functional regression plus disconnect and RAN checks on RTX.
+
+### Live dashboard connection and camera repair — 2026-11-04
+
+- Reproduced false UI disconnections: two-second history produced a 12.8 MB status response taking 3.88 seconds against a two-second browser timeout. Created GitHub #21 and a local issue record after checking for duplicates.
+- Removed raw chart history from status polling and enabled negotiated HTTP compression. Live status measured 27 KB/24 ms and chart history 92 KB/162 ms; browser reload showed all ten telemetry and CUDA readiness indicators active.
+- Fitted the opening camera to node positions and mobility routes, preserving a Campus view. Visually inspected moving nodes and rays; RTX passed 44 Python dashboard tests plus the frontend disconnect/status-payload regression.
+- The renewed viewing run uses launcher 99844, relay 75161 and SSH tunnel 41352, with finite lifetimes. Logs remain ignored under `/workspace/codex-sutd-demo-20261104/view-fix/`; the browser screenshot is in the local ignored handoff folder.
+- RTX also passed the frontend RAN regression and 28 scheduler/bridge helper tests with two skips. Strict documentation checks passed: 135 pages, 21,461 links and zero errors; the embedded handoff patch now includes the UI fixes.
+- Applied the refreshed handoff patch to clean Spark source and verified all six implementation files match the tested tree. Removed 880 MB of completed viewing logs after saving a compact summary; current viewing logs remain ignored.
+
+### Fresh Spark handoff assumption — 2026-11-04
+
+- Revised the guide and embedded-patch prompt for a factory-initialized Spark host without added software. Installation now precedes cloning and building; Docker is optional, and CUDA toolkit, OptiX, Python and host SSH checks are explicit.
+- Recorded the fresh-machine handoff rule in the harness; strict RTX documentation checks passed with zero errors. Existing-container runtime tests remain valid; factory-reset provisioning has not been executed or claimed as tested.
+
+### Spark demo viewing window — 2026-11-04
+
+- Started the ten-minute synthetic SUTD demo and a finite relay/tunnel to local port 18080. Verified live Sionna updates, fresh telemetry for all ten edges and finite crosstalk power in both directions at 1.9 GHz; requested the browser panel.
+- Viewing sessions are launcher 71020, container relay 76546 and SSH tunnel 72530. Runtime logs remain under `/workspace/codex-sutd-demo-20261104/show/`; existing services are preserved, and real-radio qualification is unchanged.
+
+### Portable SUTD crosstalk demo — 2026-11-04
+
+- Added a ten-edge shared-carrier configuration generator, a synthetic launcher case and a completed-run verifier. Preserved SUTD routes and antenna dimensions; all edges trace at 1.9 GHz, with configurable service ports and occupied-port checks.
+- Fresh GB10 CUDA build and 45-/20-second synthetic runs passed. The final run accepted 196 batches, both UEs moved and both crosstalk paths had finite power; one starvation remained, with zero overflow, sequence gaps or ZMQ errors.
+- Confirmed dashboard HTTP/status data, clean port release and preserved existing services. Browser rendering was not inspected; these checks establish synthetic observability, not scheduled TDD interference, radio attachment or strict real-time qualification.
+- Added the operating guide and an ignored self-contained handoff prompt with the complete patch. Verified clean application on Spark and matching script hashes; removed expanded run logs, retaining a 7 MB compressed evidence bundle and compact summaries.
+- RTX launcher syntax and strict documentation checks passed: 134 pages, 21,282 links and zero errors. The self-contained patch applies to the clean published base; no commit or push was performed.
 
 ### Cleaned publication and issue closure — 2026-11-04
 
@@ -512,7 +551,9 @@ Historical ledgers:
 
 ## Next Resume Point
 
-Live experiments are stopped. RTX causal findings and unresolved Spark periodic gaps are recorded; CUDA-enabled checks pass 13/13 on RTX and 12/13 on Spark, where the old CPU-reference equality failure persists; no further experiment is queued.
+The SUTD demo changes are uncommitted. Share the complete `validation/sutd-crosstalk-handoff/PROMPT.md` text; it embeds the code and clean-Spark commands. A ten-minute viewing run is active at local port 18080; check the recorded sessions before restarting or cleaning its logs.
+
+Real-radio experiments remain stopped; only the requested synthetic viewing run is active. RTX causal findings and unresolved Spark periodic gaps are recorded; CUDA-enabled checks pass 13/13 on RTX and 12/13 on Spark, where the old CPU-reference equality failure persists.
 
 Open problems #11–#19 are tracked in [GitHub-linked issue records](docs/issues/README.md). Issue #20 is closed with its fix and verification linked to published commit `fd0e61a`; no further runtime experiment is queued.
 

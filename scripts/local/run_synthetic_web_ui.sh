@@ -8,12 +8,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 case_name="${1:-}"
 [[ -n "${case_name}" ]] || {
-  echo "usage: $0 {single|multi-ue|graph|multi-gnb|multi-gnb-sutd}" >&2
+  echo "usage: $0 {single|multi-ue|graph|multi-gnb|multi-gnb-sutd|sutd-crosstalk}" >&2
   exit 2
 }
 duration="${OCUDU_SIONNA_DEMO_DURATION_SECONDS:-60}"
 ready_seconds="${OCUDU_SIONNA_READY_SECONDS:-120}"
 web_port="${OCUDU_SIONNA_WEB_PORT:-8080}"
+control_port="${OCUDU_SIONNA_CONTROL_PORT:-5559}"
+telemetry_port="${OCUDU_SIONNA_TELEMETRY_PORT:-5560}"
 python_bin="${OCUDU_SIONNA_PYTHON:-${repo_root}/../venvs/sionna/bin/python}"
 build_dir="${OCUDU_CHANNEL_BUILD:-${repo_root}/build}"
 log_dir="${OCUDU_SIONNA_LOG_DIR:-}"
@@ -26,6 +28,8 @@ else
 fi
 
 declare -a source_ports sink_ports
+bridge_args=()
+web_args=()
 case "${case_name}" in
   single)
     topology="${repo_root}/use_cases/configs/topologies/ocudu_docker/topology.ocudu-docker.cuda.yaml"
@@ -40,14 +44,21 @@ case "${case_name}" in
     scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/graph.json"
     source_ports=(16000 16002 16004); sink_ports=(16001 16003 16005) ;;
   # Both two-cell scenes declare four antennas per gNB and one per UE.
-  multi-gnb|multi-gnb-sutd)
+  multi-gnb|multi-gnb-sutd|sutd-crosstalk)
     topology="${repo_root}/use_cases/configs/topologies/sionna/topology.sionna-multi-gnb.cuda.yaml"
     scenario="${repo_root}/use_cases/configs/sionna/scenarios/simple_street/multi-gnb.json"
-    if [[ "${case_name}" == "multi-gnb-sutd" ]]; then
+    if [[ "${case_name}" == "multi-gnb-sutd" || "${case_name}" == "sutd-crosstalk" ]]; then
       scenario="${repo_root}/use_cases/configs/sionna/scenarios/sutd/multi-gnb-sutd.json"
     fi
     source_ports=(3000 3002 3004 3006 3010 3012 3014 3016 3101 3103)
-    sink_ports=(3001 3003 3005 3007 3011 3013 3015 3017 3100 3102) ;;
+    sink_ports=(3001 3003 3005 3007 3011 3013 3015 3017 3100 3102)
+    if [[ "${case_name}" == "sutd-crosstalk" ]]; then
+      "${python_bin}" "${script_dir}/make_sutd_crosstalk_configs.py" "${log_dir}/config"
+      topology="${log_dir}/config/topology.yaml"
+      scenario="${log_dir}/config/scenario.json"
+      bridge_args=(--carrier-frequency-hz 1900000000)
+      web_args=(--update-hz "${OCUDU_SIONNA_UPDATE_HZ:-10}")
+    fi ;;
   *) echo "unknown case: ${case_name}" >&2; exit 2 ;;
 esac
 
@@ -59,7 +70,23 @@ for executable in ocudu-gpu-channel ocudu-zmq-source ocudu-zmq-sink; do
 done
 [[ -x "${python_bin}" ]] || { echo "missing Sionna Python: ${python_bin}" >&2; exit 2; }
 
-if [[ "${case_name}" == multi-gnb* ]]; then
+if [[ "${case_name}" == sutd-crosstalk ]]; then
+  "${python_bin}" - "${source_ports[@]}" "${sink_ports[@]}" "${control_port}" "${telemetry_port}" "${web_port}" <<'PY'
+import socket, sys
+ports = [int(value) for value in sys.argv[1:]]
+if len(set(ports)) != len(ports) or any(port < 1 or port > 65535 for port in ports):
+    raise SystemExit('demo ports must be distinct and in 1..65535')
+for port in ports:
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(('0.0.0.0', port))
+        except OSError as error:
+            raise SystemExit(f'demo port {port} unavailable: {error}')
+PY
+fi
+
+if [[ "${case_name}" == multi-gnb* || "${case_name}" == sutd-crosstalk ]]; then
   "${python_bin}" "${repo_root}/apps/sionna_bridge/check_demo_topology.py" \
     --topology "${topology}" --scenario "${scenario}" \
     --sources "$(IFS=,; echo "${source_ports[*]}")" \
@@ -98,7 +125,7 @@ for port in "${source_ports[@]}"; do
 done
 
 "${build_dir}/ocudu-gpu-channel" --config "${topology}" \
-  --control-endpoint 'tcp://*:5559' --telemetry-endpoint 'tcp://*:5560' \
+  --control-endpoint "tcp://*:${control_port}" --telemetry-endpoint "tcp://*:${telemetry_port}" \
   --telemetry-rate-hz 500 --duration "${process_duration}s" \
   >"${log_dir}/broker.log" 2>&1 &
 broker_pid="$!"
@@ -119,6 +146,8 @@ done
 "${script_dir}/run_web_ui.sh" --python "${python_bin}" \
   --scenario "${scenario}" --status-jsonl "${log_dir}/sionna-status.jsonl" \
   --duration "${duration}" --ready-seconds "${ready_seconds}" --port "${web_port}" \
+  --control-endpoint "tcp://127.0.0.1:${control_port}" \
+  --telemetry-endpoint "tcp://127.0.0.1:${telemetry_port}" "${web_args[@]}" -- "${bridge_args[@]}" \
   >"${log_dir}/sionna-web-ui.log" 2>&1 &
 sidecar_pid="$!"
 child_pids+=("${sidecar_pid}")

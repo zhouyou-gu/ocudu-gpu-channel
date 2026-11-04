@@ -1629,5 +1629,38 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(usable["state"], "backend_applied")
 
 
+class HttpCompressionTests(unittest.TestCase):
+    def test_gzip_and_identity_responses_preserve_body(self):
+        import gzip
+        import http.client
+        import threading
+        from http.server import ThreadingHTTPServer
+        from server import make_handler
+
+        body = b"scene-data " * 2000
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(StatusStore(), body))
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            for encoding, compressed in (("gzip, deflate", True), ("identity", False), ("gzip;q=0", False)):
+                with self.subTest(encoding=encoding):
+                    connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+                    connection.request("GET", "/", headers={"Accept-Encoding": encoding})
+                    response = connection.getresponse()
+                    wire_body = response.read()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(int(response.getheader("Content-Length")), len(wire_body))
+                    self.assertEqual(response.getheader("Vary"), "Accept-Encoding")
+                    self.assertEqual(response.getheader("Content-Encoding"), "gzip" if compressed else None)
+                    self.assertEqual(gzip.decompress(wire_body) if compressed else wire_body, body)
+                    if compressed:
+                        self.assertLess(len(wire_body), len(body) / 10)
+                    connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ Track confirmed defects, regressions, measured limitations and failed qualificat
 | [#17](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/17) | [Qualify live downlink activity on every claimed gNB antenna branch](0017-active-multiport-downlink.md) | Live evidence coverage gap |
 | [#18](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/18) | [Spark: CPU-PHY UE scaling falls below real-time rate at 8 and 16 UEs](0018-spark-cpu-ue-scaling.md) | Measured capacity limitation |
 | [#19](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/19) | [Preserve channel continuity across Sionna delay/layout changes](0019-geometry-update-continuity.md) | Known channel-update limitation |
+| [#21](https://github.com/zhouyou-gu/ocudu-gpu-channel/issues/21) | [Dashboard status polling times out on high-rate telemetry](0021-dashboard-poll-timeouts.md) | Fix validated locally; publication pending |
 
 ## Recorded closed issues
 
@@ -46,4 +47,5 @@ The initial records cover the documented open failures and evidence limits on th
 0018-spark-cpu-ue-scaling
 0019-geometry-update-continuity
 0020-multiline-broker-environment
+0021-dashboard-poll-timeouts
 ```

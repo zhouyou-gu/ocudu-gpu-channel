@@ -503,6 +503,7 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
             <button type="button" id="sceneRaysToggle" aria-pressed="true">Rays</button>
             <button type="button" id="sceneLabelsToggle" aria-pressed="true">Labels</button>
             <button type="button" id="sceneResetView">Reset view</button>
+            <button type="button" id="sceneCampusView">Campus</button>
           </div>
           <div class="scene-hint">Drag to orbit · scroll to zoom · right-drag to pan</div>
           <div class="scene-credit" id="sceneCredit" hidden></div>
@@ -902,7 +903,7 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
       const deliveryWarmup=(delivery?.links||[]).filter(item=>item.warming_up),warming=delivery?.links?deliveryWarmup:activeWarmupLinks(telemetry),warmupUntil=warming.reduce((value,item)=>Math.max(value,Number(item.warmup_until_slot)||0),0);
       const system=usage?.system||{},gpus=usage?.hardware?.gpus||[],gpuUsed=gpus.length?gpus.reduce((sum,gpu)=>sum+(Number(gpu.memory_used_mib)||0),0):null,gpuTotal=gpus.length?gpus.reduce((sum,gpu)=>sum+(Number(gpu.memory_total_mib)||0),0):null,pcie=usage?.pcie||{};
       $('combinedGpuCard').innerHTML=`${renderHardware(usage)}<div class="system-metrics"><div class="gpu-metric"><b>${fmt(system.cpu_util_percent,0)}%</b><span>Host CPU</span></div><div class="gpu-metric"><b>${fmtMib(system.used_mib)} / ${fmtMib(system.total_mib)}</b><span>Host RAM</span></div><div class="gpu-metric"><b>${fmtMib(gpuUsed)} / ${fmtMib(gpuTotal)}</b><span>GPU VRAM</span></div><div class="gpu-metric"><b>${fmtRate(pcie.h2d_mb_s)}</b><span>PCIe H2D</span></div><div class="gpu-metric"><b>${fmtRate(pcie.d2h_mb_s)}</b><span>PCIe D2H</span></div></div><div class="gpu-processes">${renderGpuProcess('sionna','Sionna RT',usage)}${renderGpuProcess('gpu_channel','GPU Channel',usage)}</div><div class="warmup-banner ${delivery?.backend_usable?'ok':''}">${delivery?.stale_links?'Backend telemetry stale · current output unconfirmed':warming.length?`⚠ ${warming.length} links warming up · output unavailable before slot ${warmupUntil}`:delivery?.backend_usable?'No links warming up · backend output is usable':'Waiting for fresh backend confirmation'}</div><div class="resource-charts"><div class="resource-chart-card"><strong>Estimated nominal-slot processing time (µs) · 1 ms reference</strong><canvas id="slotLatencyChart" class="resource-history"></canvas></div><div class="resource-chart-card"><strong>Application CPU (logical cores)</strong><canvas id="applicationCpuChart" class="resource-history"></canvas></div>${renderMemorySummary(usage)}<div class="resource-chart-card"><strong>PCIe throughput (MB/s)</strong><canvas id="pcieChart" class="resource-history"></canvas></div></div>`;
-      drawResourceHistory(usage,history,runtime,sionna);
+      redrawCharts();
       const phaseLabels={initializing_scene:'initializing scene/solver',ready:'ready to start update loop',waiting_for_next_update:'waiting for next update',tracing_channels:'tracing Sionna RT channels',sending_control:'sending profile batch and waiting for ACK',stopped:'stopped',failed:'failed'};
       const alive=runtime?.process_alive===true,phase=phaseLabels[runtime?.phase]||runtime?.phase||'waiting for runtime';
       $('runtimeTitle').textContent=alive?`Single Sionna process running · ${phase}`:phase;
@@ -1209,9 +1210,9 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
     }
     // Two loops with very different costs. render() rebuilds every card,
     // table and canvas in the page, which is far too expensive to run at
-    // the chart cadence, so it keeps the slow interval and now asks for a
-    // bounded history slice — at 500 Hz telemetry the unbounded retained
-    // buffer would otherwise dominate the response.
+    // the chart cadence, so it keeps the slow interval and now asks for
+    // current state only. Chart history is fetched separately: even two
+    // seconds of full telemetry at 500 Hz can exceed the status timeout.
     let statusInFlight=false,chartsInFlight=false;
     function markStatusUnavailable(){
       if(lastStatus){
@@ -1229,7 +1230,7 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
     }
     async function poll(){
       if(statusInFlight)return; statusInFlight=true;
-      try{const r=await fetch(`/api/status?history_ms=${CHART_HISTORY_MS}`,{cache:'no-store',signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error(r.status);render(await r.json())}
+      try{const r=await fetch('/api/status?history_ms=0',{cache:'no-store',signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error(r.status);render(await r.json())}
       catch(e){markStatusUnavailable()}
       finally{statusInFlight=false}
     }
@@ -1238,7 +1239,7 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
     // the in-flight guard prevents a slow response from queueing another.
     async function pollCharts(){
       if(chartsInFlight)return; chartsInFlight=true;
-      try{const r=await fetch(`/api/realtime?history_ms=${CHART_HISTORY_MS}`,{cache:'no-store'});if(!r.ok)throw Error(r.status);lastRealtime=await r.json();redrawCharts()}
+      try{const r=await fetch(`/api/realtime?history_ms=${CHART_HISTORY_MS}`,{cache:'no-store',signal:AbortSignal.timeout(5000)});if(!r.ok)throw Error(r.status);lastRealtime=await r.json();redrawCharts()}
       catch(e){/* keep the last drawn frame; poll() owns feed-error reporting */}
       finally{chartsInFlight=false}
     }
@@ -1261,7 +1262,7 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
     let sceneInFlight=false;
     async function pollScene(){
       if(sceneInFlight)return; sceneInFlight=true;
-      try{const r=await fetch('/api/status?history_ms=0',{cache:'no-store'});if(!r.ok)throw Error(r.status);
+      try{const r=await fetch('/api/status?history_ms=0',{cache:'no-store',signal:AbortSignal.timeout(2000)});if(!r.ok)throw Error(r.status);
         const data=await r.json(); if(data.sionna){lastStatus={...(lastStatus||{}),...data}; sceneRender(data.sionna)}}
       catch(e){/* poll() owns feed-error reporting */}
       finally{sceneInFlight=false}
@@ -1532,19 +1533,30 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
       }
     }
 
-    function frameScene() {
+    function frameScene(campus = false) {
       if (!sceneBounds) return;
-      const center = sceneBounds.getCenter(new THREE.Vector3());
-      const size = sceneBounds.getSize(new THREE.Vector3());
+      let bounds = sceneBounds;
+      if (!campus && lastSionna?.positions) {
+        bounds = new THREE.Box3();
+        for (const point of Object.values(lastSionna.positions)) bounds.expandByPoint(new THREE.Vector3(...point));
+        for (const node of Object.values(lastSionna.environment?.nodes || {})) {
+          if (node.start_m) bounds.expandByPoint(new THREE.Vector3(...node.start_m));
+          for (const point of node.route_m || []) bounds.expandByPoint(new THREE.Vector3(...point));
+        }
+        bounds.expandByScalar(20);
+      }
+      const center = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
       const radius = Math.max(size.x, size.y, size.z) * 0.5;
-      const distance = radius / Math.sin((camera.fov * Math.PI) / 360) * 1.35;
+      const halfFov = Math.atan(Math.tan(camera.fov * Math.PI / 360) * Math.min(1, camera.aspect));
+      const distance = radius / Math.sin(halfFov) * 1.1;
       controls.target.copy(center);
-      // Look in from the -Y quadrant and about 34 degrees up: high enough to
+      // Look in from the -Y quadrant and about 58 degrees up: high enough to
       // read the street layout, low enough that the buildings have height.
       camera.position.set(
-        center.x + distance * 0.62,
-        center.y - distance * 0.66,
-        center.z + distance * 0.56,
+        center.x + distance * 0.35,
+        center.y - distance * 0.4,
+        center.z + distance * 0.85,
       );
       // Depth precision is set by the near:far ratio, and a 600 m scene whose
       // ground cover sits a centimetre off the ground has none to spare. Both
@@ -1758,7 +1770,8 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
       nodeGroup.traverse(item => { if (item.userData.isLabel) item.visible = showLabels; });
       event.currentTarget.setAttribute('aria-pressed', String(showLabels));
     });
-    document.getElementById('sceneResetView').addEventListener('click', frameScene);
+    document.getElementById('sceneResetView').addEventListener('click', () => frameScene());
+    document.getElementById('sceneCampusView').addEventListener('click', () => frameScene(true));
 
     function resize() {
       const width = host.clientWidth || 1;
@@ -1788,7 +1801,7 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
         if (!mesh.objects?.length) return;
         buildWorld(mesh);
         meshLoaded = true;
-        if (!framedOnce) { frameScene(); framedOnce = true; }
+        if (!framedOnce && lastSionna) { frameScene(); framedOnce = true; }
       } catch (error) {
         if (statusOverlay) statusOverlay.textContent = `Scene mesh unavailable: ${error}`;
       }
@@ -1800,6 +1813,7 @@ bash scripts/native/run-ocudu-rank1-4x1.sh   # 4×1 DL MISO + 1×4 UL SIMO</div>
         if (!sionna) return;
         lastSionna = sionna;
         if (!meshLoaded) loadMesh();
+        if (meshLoaded && !framedOnce) { frameScene(); framedOnce = true; }
         buildNodes(sionna);
         buildRays(sionna);
       },

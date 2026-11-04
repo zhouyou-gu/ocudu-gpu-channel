@@ -13,6 +13,7 @@ import base64
 import csv
 import ctypes
 import ctypes.util
+import gzip
 import hashlib
 import io
 import json
@@ -2438,10 +2439,19 @@ def make_handler(
         server_version = "ocudu-channel-status/1"
 
         def send_bytes(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
+            encodings = self.headers.get("Accept-Encoding", "").split(",")
+            use_gzip = len(body) >= 1024 and any(
+                part.strip().lower() == "gzip" for part in encodings
+            )
+            if use_gzip:
+                body = gzip.compress(body, compresslevel=1)
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Vary", "Accept-Encoding")
+            if use_gzip:
+                self.send_header("Content-Encoding", "gzip")
             self.end_headers()
             self.wfile.write(body)
 
