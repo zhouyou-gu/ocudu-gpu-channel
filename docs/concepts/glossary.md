@@ -41,13 +41,28 @@ The diagrams below name buffers, indices, and struct fields directly from `src/c
 |----|----|
 | pacing | control of sample release times to match the sample rate |
 | look-ahead margin | the maximum processed IQ samples held ready for RX-port requests, measured as represented signal time |
-| catch-up margin | the maximum accumulated delay that pacing may recover by releasing samples without waiting |
+| catch-up margin | the maximum represented signal time that pacing may release without waiting after a delay |
+| recovery rate | the maximum rate above the sample rate allowed while making up a delay, stated in parts per million |
 | deadline | the latest time a stated operation may finish |
 | starvation | a wait for required samples that lasts beyond the stated limit; the broker counts an input wait after five maximum-batch durations, or 5 ms for a 1 ms maximum batch |
 | overflow | an attempt to put more data into a buffer than it has room to hold |
 | underflow | an attempt to read more data from a buffer than it holds |
 
 A ZMQ radio can wait for samples without reporting a hardware-style underflow. Measure sample progress against wall time as well as checking fault counters; the [live-runtime limitation record](../reports/validation/live-runtime-limitations-20261104.md) distinguishes delivery from timing.
+
+### CPU scheduling
+
+| Term | Meaning |
+|----|----|
+| OS scheduler | the part of the operating system that decides when each thread runs on a CPU |
+| MAC scheduler | the part of a gNB that decides which UE may use each radio resource in a slot |
+| thread priority | a thread's stated preference for CPU time under the OS scheduler's rules |
+| CPU affinity | the set of CPUs on which a thread is allowed to run |
+| FIFO scheduling | Linux rules that run ready threads ahead of normal threads by priority; equal priorities keep arrival order until a thread waits or gives up the CPU |
+| nice value | a Linux setting that gives a normal thread more preference for CPU time when lower, or less preference when higher |
+| real-time CPU budget | the CPU time Linux allows FIFO threads to use during a stated interval |
+
+Raising the priority of a receiving thread does not raise the priority of threads that supply its IQ. CPU affinity also does not exclude kernel work from those CPUs; see the [captured remaining delays](../reports/validation/live-runtime-limitations-20261104.md#remaining-delay-causes-after-transport-separation).
 
 ### Buffers (per RX node — CudaSuperposeState )
 

@@ -33,13 +33,22 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 - Keep CUDA as the primary target; label CPU use as reference, baseline, development or unported-model fallback.
 - Prefer configurable topologies and per-edge models. Assume a single link only when the task requires it.
 - Follow the srsRAN GRC broker: independent per-direction REQ pullers and REP servers with symmetric throttling. Hold requests until processed IQ exists; never zero-fill replies.
-- Bound pacing debt to one publication unit so blocked time cannot become a later burst.
+- Bound immediate catch-up credit to one publication unit; limit sustained recovery separately from the retained clock delay, and account at actual publication after late wakes.
 - Treat a peer's IQ request as demand, not proof of available buffer space; inspect its receive loop before using requests to control pacing.
 - Before blaming peer back pressure, inspect executor sharing: a retry can deadlock when its thread also services the drain.
+- When replacing polling with notifications, count late wakeups even when data is ready; preserve a predicate or generation ticket that prevents lost notifications.
 - When moving ownership, preserve values that differed per old owner. Share the decision without accidentally sharing distinct lane coefficients.
 - Check where foreign-stack parameters bind: CLI, initialization, signaling or relative files. Do not assume later signaling repairs initialization defaults.
 - Check antenna dimensions and published endpoints against each launcher's selected topology in every supported mode; validate corrected live paths with real peers.
 - In rootless namespaces, capability probes may promise privileges the kernel refuses. Drop misleading capabilities, such as `CAP_SYS_NICE` via `setpriv --bounding-set -sys_nice`, so foreign binaries use their fallback; do not patch or grant privilege blindly.
+
+## Issue Tracking
+
+- Track confirmed defects, regressions, measured limitations and failed qualification in GitHub Issues for the project's origin repository. Search existing open and closed issues before creating one; update the existing issue when its scope matches.
+- Keep one concise record per issue in `docs/issues/NNNN-short-name.md`, linked from `docs/issues/README.md`. Include the GitHub URL, dated status, affected component/platform, observed and expected behavior, reproduction, findings versus unknowns, evidence and closure checks.
+- GitHub owns live status, assignments and discussion; local records preserve technical context. Update both when findings, fixes or validation change; link the fix and verification before closing, and distinguish unpublished changes from delivered fixes.
+- Record issues as part of the work rather than leaving them only in progress notes or logs. Keep planned features in design documents unless an issue is explicitly requested or a measured limitation needs tracking.
+- Keep issue bodies and local records free of bulk logs, raw traces, private host details and credentials. Link concise reports and evidence identifiers; retain raw artifacts in ignored validation storage. If GitHub is unavailable, record the pending issue locally and report the blocker without inventing an issue number.
 
 ## Validation and Evidence
 
@@ -48,6 +57,7 @@ Reusable workflow and preferences. File ownership and update rules are defined i
 - Observe shared-host activity outside the test container; its process namespace cannot reveal work in other containers.
 - Keep diagnostic tests short and traces bounded. Archive detailed evidence outside Git; publish concise results, exclude logs/raw captures from new commits, and record cleanup.
 - Trace timer expiry, CPU dispatch and the transport/queue threads feeding a consumer before changing priority. Use the observer's cgroup namespace and verify effective CPU placement; restore temporary IRQ and workqueue settings.
+- Distinguish CPU-bound kernel work from unbound workqueues: IRQ affinity and the unbound workqueue mask do not exclude bound callbacks from a radio CPU. Keep continuously polling radio workers out of FIFO scheduling when evaluating transport priority.
 - Inspect every pacing layer in a software-radio path. A per-block relative sleep adds processing and wake-up overhead to radio time; when the broker supplies the clock, test removal of redundant peer pacing without disabling the broker's rate limit.
 - Prove live connectivity with real gNB, UE and core processes, antenna mappings, registration, PDU sessions and traffic. Synthetic peers prove broker behavior only. Check both UEs, actual serving PCIs and both scheduler feeds in multi-gNB cases.
 - Exercise capabilities through the shipping top-level path and add regression coverage or mark them unproven. Inspect actual stack construction and event dispatch; component or alternate-stack tests alone are insufficient.

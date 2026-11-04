@@ -1204,8 +1204,9 @@
       "destination": "docs/assets/diagrams/reference-06.svg",
       "viewBox": "0 0 1000 295",
       "original_body_sha256": "ea90342eb654c8f234bbe5ebfadcdfbd0e2607d1efc6122ef3e29626ecbb52b5",
-      "xml_body_sha256": "ea90342eb654c8f234bbe5ebfadcdfbd0e2607d1efc6122ef3e29626ecbb52b5",
-      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling."
+      "xml_body_sha256": "0a5ab05464e38c240e9e3e32df7e9eed426343f268534f6cefc2fadb4f1203f5",
+      "normalization": "HTML-only named entities become numeric XML entities; root receives namespace and standalone styling.",
+      "revision": "2026-11-04: timing labels describe the nominal schedule and retained elapsed time with bounded recovery; geometry and original-body provenance retained."
     },
     {
       "source": "docs/index.html SVG 7",

@@ -71,6 +71,7 @@ models:
   require(ocg::validate_config(config).empty(), "config should validate");
   require(config.runtime.cpu_threads == 1, "CPU defaults to the serial reference");
   require(config.runtime.pacing, "existing topologies must keep pacing enabled");
+  require(config.runtime.pacing_recovery_ppm == 10000, "recovery defaults to at most 1% above nominal");
   require(config.devices[0].tx_queue_samples == 0 && config.devices[1].tx_queue_samples == 0,
           "existing devices must inherit the runtime queue size");
 
@@ -80,13 +81,20 @@ models:
   std::ifstream baseline(path);
   std::string live_radio_text((std::istreambuf_iterator<char>(baseline)), std::istreambuf_iterator<char>());
   const auto runtime_pos = live_radio_text.find("  backend: cpu\n");
-  live_radio_text.insert(runtime_pos, "  cpu_threads: 24\n  pacing: false\n  cuda_host_memory: copy\n  cuda_stream_priority: high\n");
+  live_radio_text.insert(runtime_pos, "  cpu_threads: 24\n  pacing: false\n  pacing_recovery_ppm: 0\n  cuda_host_memory: copy\n  cuda_stream_priority: high\n");
   const auto ue_pos = live_radio_text.find("  - id: ue0\n") + std::string("  - id: ue0\n").size();
   live_radio_text.insert(ue_pos, "    tx_queue_samples: 4000000\n    tx_scale_db: -7.0\n");
   { std::ofstream live_radio_file(live_radio_path); live_radio_file << live_radio_text; }
   auto live_radio = ocg::load_config_file(live_radio_path);
   std::remove(live_radio_path);
   require(live_radio.runtime.cpu_threads == 24, "CPU worker count parses");
+  require(live_radio.runtime.pacing_recovery_ppm == 0, "recovery can be disabled without disabling pacing");
+  auto invalid_recovery = live_radio;
+  invalid_recovery.runtime.pacing_recovery_ppm = 10001;
+  const auto recovery_errors = ocg::validate_config(invalid_recovery);
+  require(std::any_of(recovery_errors.begin(), recovery_errors.end(), [](const auto& error) {
+    return error.find("pacing_recovery_ppm") != std::string::npos;
+  }), "recovery above the bounded rate must be rejected");
   auto invalid_workers = live_radio;
   invalid_workers.runtime.cpu_threads = 0;
   const auto worker_errors = ocg::validate_config(invalid_workers);

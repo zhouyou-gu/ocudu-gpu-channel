@@ -11,6 +11,7 @@ from __future__ import annotations
 import array
 import json
 import math
+import os
 import pathlib
 import shutil
 import socket
@@ -44,6 +45,42 @@ from run_bridge import (  # noqa: E402
 
 def profile(gain_db: float) -> MatrixProfile:
     return MatrixProfile(1, 1, (LaneProfile(0, 0, (Tap(1.5, gain_db, 0.25),)),))
+
+
+class BrokerLaunch(unittest.TestCase):
+    def test_profile_environment_reaches_broker_process(self) -> None:
+        source = (PROJECT_ROOT / "use_cases/scheduler_benchmark/run-ocudu-scheduler-benchmark-inner.sh").read_text()
+        start = source.index("# --- brokers (")
+        end = source.index('for index in "${!cells[@]}"; do\n  cell="${cells[index]}"\n  wait_log', start)
+        # Execute the shipping launch block with a child that records its own
+        # environment. Parsing the profile string alone missed the defect.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            broker = root / "broker"
+            result = root / "environment"
+            broker.write_text('#!/bin/sh\nprintf "%s|%s|%s" "${OCG_BROKER_SPIN-unset}" '
+                              '"${OCG_BROKER_POLL_US-unset}" "${CUDA_MPS_PIPE_DIRECTORY-unset}" '
+                              '> "$BROKER_TEST_RESULT"\n')
+            broker.chmod(0o755)
+            prefix = ('set -euo pipefail\nattach_timeout=1; measure_seconds=1; drain_seconds=1\n'
+                      'cells=(a); broker_cpu_sets=(""); control_endpoints=(unused); telemetry_endpoints=(unused)\n'
+                      'physical_gpu=0; config_dir="$TEST_ROOT"; log_dir="$TEST_ROOT"; broker="$TEST_ROOT/broker"\n'
+                      'pin() { :; }\nstart_group() { shift 2; "$@"; started_pid=$$; }\n')
+            for settings, expected in (("", "unset|unset|unset"),
+                                       (" \t\r\n", "unset|unset|unset"),
+                                       ("OCG_BROKER_SPIN=2 OCG_BROKER_POLL_US=7", "2|7|unset"),
+                                       ("OCG_BROKER_SPIN=2\nOCG_BROKER_POLL_US=7", "2|7|unset"),
+                                       ("\nOCG_BROKER_SPIN=2\nOCG_BROKER_POLL_US=7\n", "2|7|unset"),
+                                       ("\tOCG_BROKER_SPIN=2\r\n\tOCG_BROKER_POLL_US=7\t", "2|7|unset"),
+                                       ("OCG_BROKER_SPIN=2\u2003OCG_BROKER_POLL_US=7", "2|7|unset"),
+                                       ("OCG_BROKER_SPIN=* OCG_BROKER_POLL_US=$(false)", "*|$(false)|unset")):
+                with self.subTest(settings=settings):
+                    env = {"PATH": os.defpath, "TEST_ROOT": tmp, "BROKER_TEST_RESULT": str(result),
+                           "CUDA_MPS_PIPE_DIRECTORY": "must-not-reach-child",
+                           "OCUDU_NATIVE_BROKER_ENV": settings}
+                    subprocess.run(["bash", "-c", prefix + source[start:end]],
+                                   env=env, check=True, capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.read_text(), expected)
 
 
 class BridgeHelpers(unittest.TestCase):

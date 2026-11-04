@@ -2,13 +2,19 @@
 
 > **Entry rules:** One bullet per meaningful change; at most two sentences and 40 words. Record outcomes, decisive checks and blockers; link details and omit repeated context. Apply the [harness rules](AGENT_HARNESS.md#progress-entries) before finishing.
 
-## Current Objective
-
-Provide the running Spark live Sionna demo until 09:35:38 SGT on 2026-11-04, with automatic shutdown. One gNB and two moving UEs started successfully; the pedestrian subsequently lost coverage along its route.
-
 ## Repository State
 
-- Local presentation artifacts remain in ignored `slides/`; the directory is also excluded from uploads and Docker builds. Vocabulary contains 88 definitions, including look-ahead and catch-up margins, and six unresolved wording or protected-name records.
+- Publication of the cleaned runtime, launcher, documentation and issue records is in progress. Source checks are complete; GitHub #20 will close after its fix is pushed and linked.
+
+- The scheduler broker-environment truncation defect (#20) is fixed in the working tree. All eight mock-child cases and the RTX helper suite pass; publication is pending, so the issue remains open.
+
+- Ten open GitHub issues (#11–#20) now have numbered technical records in `docs/issues/`. The issue index is linked from navigation, developer guidance, status and current runtime findings; the local documentation remains uncommitted.
+
+- Live experiments are stopped and the working-tree review is complete. RTX passes 13/13 core checks; Spark passes 12/13 with an existing CPU-reference failure, and its periodic slot delays remain unresolved; no publication was performed.
+
+- Broker clock recovery is implemented in the working tree. Corrected transport placement reached 1000.320 slots/s; strict timing still fails, with traced remaining delays in display kernel work and UE SYNC dispatch.
+
+- Local presentation artifacts remain in ignored `slides/`; the directory is also excluded from uploads and Docker builds. Vocabulary contains 96 definitions, including recovery rate and look-ahead/catch-up margins, and six unresolved wording or protected-name records.
 
 - The [runtime limitation record](docs/reports/validation/live-runtime-limitations-20261104.md) consolidates RTX timing and Spark CPU-radio capacity findings. Strict real-time qualification remains failed; no experimental scheduling or pacing settings were promoted to production.
 
@@ -68,6 +74,86 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Broker environment tokenization fix — 2026-11-04
+
+- Replaced first-line parsing with the resolver's Python whitespace splitting and a quoted Bash array. Multiline, leading-newline and whitespace-only settings now reach the launch correctly; values remain literal.
+- Expanded the actual-launch regression to eight child-environment cases. Before the fix, four mismatches and one launch failure reproduced; afterward all cases passed, with 28 helper tests passing, two skipped and Bash syntax valid on RTX.
+- Updated GitHub #20 and its local record with fix verification and pending publication. The changes remain uncommitted; live experiments stayed stopped and raw test output remains ignored.
+- Strict RTX documentation build and site checks passed with zero errors. Whitespace checks passed, and raw before/after test logs remain covered by Git ignore rules.
+
+### Pending-change review — 2026-11-04
+
+- Confirmed a P2 launcher defect on RTX using the actual launch block and a mock child: newline-separated broker settings lose later assignments, despite resolver acceptance and complete run metadata. A leading newline drops every assignment.
+- Created GitHub issue #20 and its local record; runtime implementation was left unchanged. Reviewed pacing, notifications, configuration, tests and issue documentation without identifying another introduced defect; existing timing and ARM CPU-reference limits remain separate.
+- The three mock-launch cases completed on RTX without starting radios; single-line settings arrived intact, while multiline and leading-newline settings were truncated. Strict documentation checks passed: 133 pages, 21,092 links and zero errors.
+
+### GitHub issue tracking — 2026-11-04
+
+- Added harness rules requiring GitHub tracking and concise numbered records in `docs/issues/`, with deduplication, evidence, closure checks and synchronized updates. Bulk logs, raw traces and private details remain excluded.
+- Created GitHub issues #11–#19 for the nine documented open problems, after checking for existing issues. Each has a local record separating observed behavior, confirmed findings, unknowns and closure checks; no new runtime experiment was started.
+- Linked the issue index from documentation navigation, developer guidance and project status, and linked current runtime findings to their issues. Local documents are uncommitted; GitHub issues are live.
+- Verified all nine GitHub issue numbers, titles and open states. Strict RTX documentation checks passed: 132 pages, 20,919 links and zero errors; runtime code and qualification were unchanged.
+
+### Spark timing test and cross-platform review — 2026-11-04
+
+- Built the reviewed clock-recovery source for ARM/SM 121 and completed two 30-second Spark runs; both connectivity gates passed without overflow/IQ gaps/ZMQ errors. Excluded one setup attempt that missed the measurement lead.
+- The reduced-audit run reached gNB 999.979 and UEs 1000.115/1000.135 slots/s, delivering 160,962/160,963 packets. Four roughly periodic 8.872–9.749 ms slot gaps and 14 whole-process starvations remain; the cause is unresolved.
+- Restricted background applications to CPUs 0–4, with three placement snapshots and periodic enforcement. Retained audit events showed no competing application CPU time; 120 lost CPU-5 events prevent complete causal or interruption-free qualification.
+- Reviewed notification/pacing/shutdown/launcher changes; RTX CTest passed 13/13 and Spark 12/13. Spark's CPU-reference IQ comparison also fails in the old build with identical CPU sources; helper tests passed 28 with two skips on each platform.
+- Stopped live experiments at the user's request, restored settings and removed the helper, preserving four Spark containers. Pruned 2.30 GB, retained 0.762 MB of ignored traces and confirmed the earlier demo/tunnel stopped; no code was committed or pushed.
+- Recorded Spark timing limits and the cross-platform review; six placement snapshots, three retained trace hashes and cleanup counts passed verification. Strict RTX documentation checks passed: 122 pages, 19,160 links, zero errors.
+
+### Remaining delay mechanisms after transport placement — 2026-11-04
+
+- Captured a 7.315 ms slot gap: bound display polling on CPU 7 delayed FIFO gNB I/O dispatch by 6.215 ms after the broker had sent IQ. The unbound workqueue mask and IRQ placement did not move this callback.
+- Captured a 6.828 ms slot gap: UE SYNC waited 5.934 ms behind physical-AI Python on CPU 19, delaying uplink input to the broker. MAC took 10/18 µs and overlapping CUDA calls stayed at or below 0.548 ms.
+- The 30-second diagnostic delivered all 160,963 packets with no detected overflow/IQ gaps/ZMQ errors or a hang; 26 whole-process starvations remained. These are captured examples, not attribution of every historical miss or strict timing qualification.
+- Restored settings, removed probes and stopped owned containers, preserving 14 others. Total cleanup freed 4.22 GB and retained 2.23 MB of selected ignored traces; no runtime scheduling default or external stack source changed.
+- Recorded both causal timelines, transport controls and remaining limits; defined OS versus MAC scheduling in the glossary. RTX checks verified source/evidence hashes, restoration, five ignore cases and strict documentation: 122 pages, 19,158 links, zero errors.
+
+### Radio and UE transport placement — 2026-11-04
+
+- Isolated gNB radio and gNB/UE ZMQ I/O on CPUs 6–9, excluded Python threads, and raised transport priorities for 30 seconds. FIFO radio polling worsened full-window progress to 974.785 slots/s, with 34.642 ms maximum consecutive slot gaps.
+- All 160,963 packets arrived without detected overflow, sequence gaps, ZMQ errors or a hang; 83 whole-process starvations remained. Restored temporary settings; the second control used radio nice −10 with FIFO reserved for blocking I/O.
+- The corrected control reached gNB 1000.320 and UEs 1000.283/1000.258 slots/s, with an 8.352 ms maximum slot gap. Nine gaps exceeded 5 ms, 55 whole-process starvations remained and two packets were missing; strict timing still fails.
+- Restored all changed settings and verified 139 surviving Python threads; stopped both diagnostic containers, preserving 14 others. Pruned 3.11 GB and retained 1.34 MB of selected traces; a new requested causal trace has restarted the owned containers.
+
+### Residual slot-delay tracing — 2026-11-04
+
+- Completed the bounded 30-second trace; the traffic gate passed and consecutive slot gaps measured 4.150 and 4.951 ms. Removed owned probes, restored temporary settings and completed analysis and bulk cleanup.
+- Captured a 3.773 ms runnable wait in the gNB radio thread behind Python work, and roughly 3 ms waits in UE transport threads. MAC computation took 11–27 µs; selected evidence stays outside Git, with compact causal results recorded.
+
+### Bounded broker clock recovery — 2026-11-04
+
+- Separated the nominal clock from release-rate limiting; missed time is retained while immediate credit stays one batch and recovery is capped at 1%. Added actual-publication accounting, fragment remainder carry, visible lag metrics and configuration parsing.
+- RTX CTest passed 13/13; two mutations restoring nominal rebasing or omitting actual-publication accounting failed as intended. Synthetic-clock regressions cover bounded bursts, recovery, late wakes, fragmentation and 24-hour duration arithmetic.
+- One 30-second run reached gNB 999.374 and UE0/UE1 999.534/999.503 slots/s; all 160,963 packets arrived with zero detected overflow/gaps/ZMQ errors or a hang. One-batch output peaks remained; 42 whole-process starvations prevent strict qualification.
+- Independent gNB scheduler records show 52.394 ms recovered over 9.996606 seconds at 1005.241 slots/s, within the 1% allowance. Retained gauges include startup offsets and did not clear; no nominal clock reset was applied.
+- Restored temporary scheduling/IRQ/workqueue settings, stopped both diagnostic containers and preserved 14 others. Pruned another 1.01 GB plus the unarmed observer buffer; detailed logs, curves and helpers stay ignored.
+- Recorded compact recovery results and source hashes; updated timing/configuration guidance and the 89-entry vocabulary/glossary. Strict RTX documentation checks passed: 122 pages, 19,147 links and zero errors; the changed diagram retains original provenance.
+
+### Radio timing source audit — 2026-11-04
+
+- Confirmed that one-batch pacing credit and deadline rebasing make longer IQ-handoff delays persist as clock lag; an RTX probe of the actual header reproduced a 3 ms lasting shift after 4 ms lateness.
+- Recorded sequential OCUDU ZMQ waits, broker sleep polling/CPU placement, fixed usable look-ahead and unused profile broker settings. Corrected timing/pipeline documentation and its nominal-schedule SVG; runtime code and experimental defaults remain unchanged.
+- RTX source-probe/report checks and strict documentation validation passed: 122 pages and 19,143 links. The diagram inventory retains original provenance and records the corrected nominal-timing labels.
+
+### Broker timing repair — 2026-11-04
+
+- Replaced default broker ring sleep polling with targeted notifications and generation tickets; explicit diagnostic polling/spinning remains available. Four-port IQ comparison passed across all three modes.
+- Scheduler broker launches now apply resolved profile settings and record them. RTX helper checks passed 28 tests with two skips; the new child-environment regression rejects the original launcher.
+- Changed starvation accounting to check elapsed wait before accepting resumed input. Its transient-input regression rejects the original ordering; final CUDA-build CTest passed 13/13.
+- Four completed 30-second controls delivered all 160,963 packets each without overflow, gaps, transport errors or a hang. Final rates were gNB 993.628 and UEs 993.661/993.647 slots/s; 22 whole-process starvations remain, with no established timing gain.
+- Rejected the worse CPU 6 allocation; restored thread, IRQ and workqueue settings and stopped both diagnostic containers, preserving 14 others. Pruned 4.16 GB plus unarmed buffers; two setup-only attempts are excluded and all detailed evidence stays ignored.
+- Compact source hashes/traffic totals, launcher syntax and strict RTX documentation checks passed: 122 pages, 19,145 links and zero errors. The working-tree repair remains unpublished and the one-batch clock policy unchanged.
+- Added harness guidance for deadline accounting on resumed waits and preventing lost notifications when replacing polling.
+
+### ZMQ I/O priority test — 2026-11-04
+
+- Completed 30 seconds with ZMQ I/O FIFO 20 on CPU 7, PHY FIFO 10, and other test gNB threads on CPUs 1–6. Common interior rates were gNB 993.450, UE0 993.501 and UE1 993.503 slots/s.
+- All 160,963 packets arrived without detected overflow, sequence gaps, ZMQ errors or a hang; 38 whole-process starvations and 6.872 ms maximum logged slot gaps remain. Retained I/O wake/run pairs peaked at 187 µs; earlier trace history was overwritten.
+- Restored scheduling/IRQ/workqueue settings and stopped diagnostic containers, preserving 14 other containers. Pruned 1.02 GB; helpers, summaries and the 2.07 MB trace stay ignored, with only compact results added to the limitation record.
 
 ### Cleanup publication — 2026-11-04
 
@@ -422,4 +508,8 @@ Historical ledgers:
 
 ## Next Resume Point
 
-After 09:35:38 SGT on 2026-11-04, verify demo shutdown through `/workspace/codex-sutd-demo-20261104/state.json` in Spark container `ocudu-minwoo` and tunnel cleanup. Local evidence is `validation/spark-live-demo-20261104/`; preserve other services. Report pedestrian coverage failure and timing misses accurately.
+Live experiments are stopped. RTX causal findings and unresolved Spark periodic gaps are recorded; CUDA-enabled checks pass 13/13 on RTX and 12/13 on Spark, where the old CPU-reference equality failure persists; no further experiment is queued.
+
+Open problems are tracked in [GitHub-linked issue records](docs/issues/README.md), covering issues #11–#20. Issue #20 is fixed and validated in the working tree, but remains open pending publication; no commit or push is queued.
+
+The earlier Spark demo is stopped (`gate_exit=1`), and its local tunnel PID is inactive. Pedestrian coverage failure and timing misses remain recorded in `validation/spark-live-demo-20261104/`.

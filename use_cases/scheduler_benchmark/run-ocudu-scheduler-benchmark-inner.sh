@@ -339,6 +339,9 @@ PY
 # --- brokers (identical scheduling: plain, own context, mirror-image cores) --
 broker_duration=$((attach_timeout + measure_seconds + drain_seconds + 120))
 declare -a broker_pids=()
+# Match profile validation and run metadata, including multiline settings.
+mapfile -t broker_env < <(/usr/bin/python3 -c \
+  'import sys; sys.stdout.write("\n".join(sys.argv[1].split()))' "${OCUDU_NATIVE_BROKER_ENV:-}")
 # Opt-in diagnostic: OCUDU_NATIVE_SB_WIRE_CAPTURE="<samples>:<skip>" records
 # each broker port's input and output IQ under wire-<cell>/ (per port).
 wire_capture="${OCUDU_NATIVE_SB_WIRE_CAPTURE:-}"
@@ -354,7 +357,7 @@ for index in "${!cells[@]}"; do
                   --wire-capture-samples "${wire_capture%%:*}" --wire-capture-skip "${wire_capture##*:}")
   fi
   start_group "broker-${cell}" "${log_dir}/broker-${cell}.log" \
-    env -u CUDA_MPS_PIPE_DIRECTORY "CUDA_VISIBLE_DEVICES=${physical_gpu}" "${broker_pin[@]}" \
+    env -u CUDA_MPS_PIPE_DIRECTORY "CUDA_VISIBLE_DEVICES=${physical_gpu}" "${broker_env[@]}" "${broker_pin[@]}" \
     "${broker}" --config "${config_dir}/topology-${cell}.yaml" --duration "${broker_duration}s" \
     --control-endpoint "${control_endpoints[index]}" \
     --telemetry-endpoint "${telemetry_endpoints[index]}" --telemetry-rate-hz 500 "${capture_args[@]}"

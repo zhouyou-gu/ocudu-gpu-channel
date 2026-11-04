@@ -140,6 +140,8 @@ void apply_runtime(RuntimeConfig& runtime, const std::string& key, const std::st
     runtime.cuda_stream_priority = parse_cuda_stream_priority(value);
   } else if (key == "pacing") {
     runtime.pacing = parse_bool(value, key);
+  } else if (key == "pacing_recovery_ppm") {
+    runtime.pacing_recovery_ppm = parse_size(value, key);
   } else {
     throw std::runtime_error("unknown runtime key: " + key);
   }
@@ -769,6 +771,9 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
   std::vector<std::string> errors;
   if (config.runtime.queue_samples == 0) {
     errors.emplace_back("runtime.queue_samples must be greater than zero");
+  }
+  if (config.runtime.pacing_recovery_ppm > 10000) {
+    errors.emplace_back("runtime.pacing_recovery_ppm must be in 0..10000");
   }
   // Two batches is the floor: one is the producer's run-ahead bound and the
   // second is the slack that lets a full batch land while the REP worker is

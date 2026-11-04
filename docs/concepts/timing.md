@@ -6,11 +6,11 @@
 
 ## Signal alignment and time discipline
 
-Three layers of alignment compose to make the emulator behave physically:
+Four mechanisms govern sample alignment and timing:
 
 1.  **Sequence-aligned superposition** — every incoming-edge cursor reads from the same virtual time slice on every serve, so the kernel's `staged[k·count + idx]` for different `k` always represents the same instant in source time.
 2.  **Per-edge propagation delay** — a chain-leading `tdl` step shifts an edge back in time (and optionally splits it across multipath taps), with continuity preserved across slot boundaries via a per-edge `delay_line` ring (in `DeviceLinkState` global memory on the device path, in `LinkModelState` on the host fallback).
-3.  **Wall-clock throttle** — the producer sleeps to pace serves at exactly the sample rate, so virtual time = real time. It paces to that rate and no faster, and it will not make up time it lost while blocked: a lock-step radio has no clock of its own, so the emulator is its clock, and a burst of catch-up is what a multi-port ZMQ radio dead-locks on rather than absorbs ([The broker is the radio's clock, and must not run fast](timing.md#mimo-pacing)).
+3.  **Wall-clock throttle** — the producer retains the original nominal schedule and permits at most one batch of immediate catch-up credit. A separate limiter bounds sustained recovery to the configured rate above nominal, at most 1%. Delays remain eligible for recovery; they are not erased by moving the nominal deadline. Buffer availability and processing headroom still determine achieved progress ([bounded catch-up](timing.md#mimo-pacing)).
 4.  **One epoch per radio** — on a multi-port radio, all ports advance on the same window, chosen once by one thread and cut on the same boundaries all the way to the wire ([One sample epoch per radio](timing.md#mimo-epoch)). Per-port state that can drift independently is not an acceptable implementation of a matrix channel.
 
 ![Diagram H — per-source rings + co-initialised cursors + a common-window read. Co-init gives every edge a shared time origin; the common-window rule keeps them aligned every serve. (Wall-clock pacing is visualised separately in Diagram L; per-edge delay in Diagram M.)](../assets/diagrams/reference-05.svg)
@@ -19,13 +19,13 @@ Three layers of alignment compose to make the emulator behave physically:
 
 Diagram H — per-source rings + co-initialised cursors + a common-window read. Co-init gives every edge a shared time origin; the common-window rule keeps them aligned every serve. (Wall-clock pacing is visualised separately in Diagram L; per-edge delay in Diagram M.)
 
-Diagram H is one moment — a single serve. Diagram L shows the same cursors evolving across many serves: every cursor advances by `serve` samples per step, and a wall-clock throttle pins each serve boundary to real time so virtual time tracks real time for the life of the run.
+Diagram H is one moment — a single serve. Diagram L shows the nominal schedule across many serves: every cursor advances by `serve` samples per step. Input, processing or output delays can shift that schedule behind wall time; source alignment survives those delays.
 
-![Diagram L — cursor evolution across serves. Diagram H showed one moment; this shows the whole sequence. Every source's cursor starts at sequence 0 (co-init at t = 0 ) and advances by serve samples each serve, in lockstep across all edges. The wall-clock throttle pins each serve boundary to real time, so virtual time = real time for the life of the run.](../assets/diagrams/reference-06.svg)
+![Diagram L — nominal cursor evolution across serves without stalls. Sources advance together; recovery retains elapsed time while bounding release credit and rate.](../assets/diagrams/reference-06.svg)
 
 <a href="../assets/diagrams/reference-06.svg">Open this diagram at full size</a>
 
-Diagram L — cursor evolution across serves. Diagram H showed one moment; this shows the whole sequence. Every source's cursor starts at sequence 0 (co-init at `t = 0`) and advances by `serve` samples each serve, in lockstep across all edges. The wall-clock throttle pins each serve boundary to real time, so virtual time = real time for the life of the run.
+Diagram L — nominal cursor evolution across serves. Every source's cursor starts at sequence 0 (co-init at `t = 0`) and advances by `serve` samples each serve, in lockstep across all edges. The drawing assumes timely input and consumption; delays remain visible while recovery is rate-limited.
 
 Diagrams H and L describe alignment *between* sources — the same virtual time index reaches every ring at the same moment. Diagram M zooms in on what happens *after* alignment: each per-edge leading `tdl` step shifts its source's contribution by an independent per-edge delay `d`<sub>`k`</sub>, so the same virtual instant arrives at different points along each edge's tap timeline.
 
@@ -76,4 +76,6 @@ A ZMQ radio has no clock of its own. It advances only as fast as the broker exch
 - That retry runs on the single `radio` worker thread that serves **every** TX and RX channel of the session (`worker_manager.cpp`, `create_prio_worker` → `single_worker`).
 - The RX stream pops its ports **in sequence**. So one full port captures the thread its starved sibling needs, the PHY blocks on the sibling, and the full port is never drained.
 
-On a single-port radio that same loop is self-clearing back pressure — the PHY keeps popping the one buffer being pushed. From two ports up it is a hard deadlock, in both directions at once, at 0% CPU. The emulator must therefore never hand a radio samples faster than its nominal rate, and "never" includes recovering from its own idle time: a pacer that sleeps until `anchor + produced/rate` is not a rate limiter while it is behind. Every second the producer spent blocked waiting for the radio to start requesting becomes a second's worth of slots it is owed, and it emits them back to back. The pacer therefore **drops lateness beyond one batch** rather than spending it (`include/ocudu_gpu_channel/pacing.h`). Under-feeding is safe — a lock-step radio simply waits — and over-feeding is not.
+On a single-port radio that same buffer-full loop can clear as the PHY drains it. With multiple ports it can deadlock. An unlimited catch-up schedule such as `anchor + produced/rate` can release a large burst after startup or a long stall. `RealTimePacer` therefore maintains two schedules: the **nominal deadline never rebases**, while a separate release limiter bounds immediate credit to one batch and sustained recovery to `runtime.pacing_recovery_ppm` above nominal (default and maximum 10000, or 1%). Expired release credit is discarded; elapsed nominal time and IQ are retained.
+
+The release budget is updated at actual publication, including after an oversleep. Otherwise an overdue sleeping publication could escape accounting and be followed by an extra burst. Fractional sample durations are carried between calls so fragmentation cannot introduce clock drift. Setting recovery to zero removes sustained acceleration while retaining the nominal clock and the one-batch immediate credit. Output headroom and common-window checks remain prerequisites; these bounds do not prove an arbitrary peer's buffers or processing meet deadlines. See the [measured limitations](../reports/validation/live-runtime-limitations-20261104.md).

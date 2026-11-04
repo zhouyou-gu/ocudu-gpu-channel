@@ -117,5 +117,996 @@
     "PHY priority and display separation leave normal-priority transport vulnerable to CPU contention.",
     "Larger catch-up margins have inconsistent latency and loss outcomes; production defaults unchanged.",
     "CPU-only radio stacks, channel processing and GPU PHY contributor routes have separate measured scopes."
-  ]
+  ],
+  "zmq_io_priority_test": {
+    "measure_date": "2026-11-04",
+    "run": "20261104T014026Z",
+    "traffic_seconds": 30,
+    "canonical_checkout": "dd47b08e0820c233f49ff9f54efefa93b4853d3f",
+    "runtime_source_commit": "c3135a901e92fac30926b773cb590fb2fe649782",
+    "settings": {
+      "io_policy": "SCHED_FIFO",
+      "io_priority": 20,
+      "io_cpu": 7,
+      "phy_policy": "SCHED_FIFO",
+      "phy_priority": 10,
+      "other_gnb_cpus": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "ue_cpus": [
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "broker_cpu": 20,
+      "scope": "CPU 7 exclusive within this radio test; ordinary host tasks retain their affinity."
+    },
+    "gnb_full_window_slots_per_s": 992.313057534355,
+    "gnb_full_window_lag_ms": 230.58199999999852,
+    "common_interior_seconds": 28,
+    "gnb_interior_slots_per_s": 993.4501080076985,
+    "ue_interior_slots_per_s": {
+      "srsue-ue0": 993.5005839677642,
+      "srsue-ue1": 993.5027619762554
+    },
+    "received_packets": 160963,
+    "scheduled_packets": 160963,
+    "whole_process_starvations": 38,
+    "stable_heartbeat_starvations": {
+      "gnb0_p0": 1,
+      "ue0_p0": 4,
+      "ue1_p0": 3
+    },
+    "tx_queue_overflows": 0,
+    "tx_sequence_gaps": 0,
+    "zmq_errors": 0,
+    "largest_consecutive_logged_slot_gap_ms": 6.872,
+    "retained_io_wakeup_trace": {
+      "matched_pairs": 94551,
+      "p99_us": 2.0,
+      "maximum_observed_us": 187.0,
+      "scope": "Matched wake/run pairs in retained trace only. Bounded per-CPU buffers overwrote earlier events; this is not an all-30-second percentile or maximum.",
+      "entire_measurement_covered": false,
+      "bytes": 2071900,
+      "sha256": "8ee7e8520826c2e9a22685cc8274f8f3f8d093170b746fc95e3223c11a3bbc3b"
+    },
+    "restored": true,
+    "freed_disk_bytes": 1018712064,
+    "runtime_gate": "passed",
+    "strict_realtime_qualified": false
+  },
+  "source_audit": {
+    "date": "2026-11-04",
+    "runtime_code_changed": false,
+    "persistent_lag_mechanism": "RealTimePacer discards catch-up credit beyond one batch by rebasing its deadline; it does not discard IQ.",
+    "pacer_source": "include/ocudu_gpu_channel/pacing.h:49-62; src/broker.cpp:1145,1370-1383",
+    "pacer_source_sha256": "2480b367a2d37275b404aa3c912c7a93a660d09e234ce5199a38bd28e147b783",
+    "synthetic_probe": {
+      "host": "RTX validation host",
+      "live_radio_run": false,
+      "sample_rate_hz": 23040000,
+      "batch_samples": 23040,
+      "max_debt_ms": 1,
+      "expected_next_due_ms": 10,
+      "resumed_at_ms": 14,
+      "rebased_due_ms": 13,
+      "next_due_ms": 14,
+      "following_due_ms": 15,
+      "persistent_schedule_shift_ms": 3
+    },
+    "broker_default_poll_us": 50,
+    "broker_cpu": 20,
+    "broker_cpu_type": "efficiency",
+    "rx_usable_lookahead_batches": 1,
+    "rx_capacity_batches_default": 2,
+    "ocudu_zmq_forces_sequential_phy": true,
+    "ocudu_optional_wall_clock_throttle": 0,
+    "ue_rx_sleep": false,
+    "profile_broker_environment_gap": {
+      "resolved_at": "scripts/native/platform-profile.py:133",
+      "not_applied_at": "use_cases/scheduler_benchmark/run-ocudu-scheduler-benchmark-inner.sh:356-360",
+      "explains_current_rtx_test": false,
+      "rtx_platform_profile": "none"
+    },
+    "scope": "Source establishes clock and blocking mechanisms; the latest bounded I/O trace does not attribute every remaining slot gap. Recovery/flow-control changes are proposed, not validated."
+  },
+  "broker_handoff_repair": {
+    "date": "2026-11-04",
+    "source_base_commit": "dd47b08e0820c233f49ff9f54efefa93b4853d3f",
+    "final_hashes": {
+      "broker_source": "d2191ef6a62131fadaf53c24d26810f5665f534051427f1b98fbf2554bb60400",
+      "broker_binary": "b674c78d452473624aabf2817bc37157f2b951aa803b6c3a7b479e6547c7dcd5",
+      "pacer_source": "2480b367a2d37275b404aa3c912c7a93a660d09e234ce5199a38bd28e147b783"
+    },
+    "changes": [
+      "Default ring handoffs use targeted condition-variable notifications with pre-check generation tickets.",
+      "Scheduler broker launch applies and records the resolved profile environment.",
+      "Starvation elapsed time is checked before accepting input after a late wake."
+    ],
+    "pacing_policy_changed": false,
+    "external_stack_changed": false,
+    "ctest": {
+      "passed": 13,
+      "failed": 0,
+      "cuda_enabled_build": true
+    },
+    "scheduler_python_tests": {
+      "passed": 28,
+      "skipped": 2,
+      "failed": 0
+    },
+    "regressions_reject_original": [
+      "profile environment not applied to child",
+      "ready input checked before starvation elapsed time"
+    ],
+    "four_port_iq_parity": [
+      "notified",
+      "spinning",
+      "sleep polling"
+    ],
+    "cases": [
+      {
+        "case": "handoff-poll-20261104",
+        "run": "20261104T020700Z",
+        "mode": "original polling",
+        "broker_cpu": 20,
+        "traffic_seconds": 30,
+        "gnb_full_slots_per_s": 999.1393040940743,
+        "gnb_full_lag_ms": 25.818999999999505,
+        "gnb_interior_slots_per_s": 999.416736064158,
+        "ue_interior_slots_per_s": {
+          "srsue-ue0": 999.3678503698254,
+          "srsue-ue1": 999.3722711898481
+        },
+        "ue_out_of_order_log_records": {
+          "srsue-ue0": 0,
+          "srsue-ue1": 0
+        },
+        "received_packets": 160963,
+        "scheduled_packets": 160963,
+        "whole_process_starvations": 15,
+        "resume_accounting_corrected": false,
+        "heartbeat_interior_starvations": {
+          "gnb0_p0": 0,
+          "ue0_p0": 0,
+          "ue1_p0": 0
+        },
+        "tx_queue_overflows": 0,
+        "tx_sequence_gaps": 0,
+        "zmq_errors": 0,
+        "gnb_logged_faults": {
+          "rf_failure": 0,
+          "overflow": 0,
+          "underflow": 0,
+          "late": 0,
+          "queue_failure": 0
+        },
+        "largest_consecutive_logged_slot_gap_ms": 4.518,
+        "native_gate": "passed"
+      },
+      {
+        "case": "handoff-notify-r1-20261104",
+        "run": "20261104T021150Z",
+        "mode": "notified",
+        "broker_cpu": 20,
+        "traffic_seconds": 30,
+        "gnb_full_slots_per_s": 998.9472502049347,
+        "gnb_full_lag_ms": 31.580999999998312,
+        "gnb_interior_slots_per_s": 999.4870240440828,
+        "ue_interior_slots_per_s": {
+          "srsue-ue0": 999.5124582088541,
+          "srsue-ue1": 999.4863591869449
+        },
+        "ue_out_of_order_log_records": {
+          "srsue-ue0": 0,
+          "srsue-ue1": 0
+        },
+        "received_packets": 160963,
+        "scheduled_packets": 160963,
+        "whole_process_starvations": 32,
+        "resume_accounting_corrected": false,
+        "heartbeat_interior_starvations": {
+          "gnb0_p0": 0,
+          "ue0_p0": 0,
+          "ue1_p0": 0
+        },
+        "tx_queue_overflows": 0,
+        "tx_sequence_gaps": 0,
+        "zmq_errors": 0,
+        "gnb_logged_faults": {
+          "rf_failure": 0,
+          "overflow": 0,
+          "underflow": 0,
+          "late": 0,
+          "queue_failure": 0
+        },
+        "largest_consecutive_logged_slot_gap_ms": 5.529,
+        "native_gate": "passed"
+      },
+      {
+        "case": "handoff-fast-core-r1-20261104",
+        "run": "20261104T021708Z",
+        "mode": "notified",
+        "broker_cpu": 6,
+        "traffic_seconds": 30,
+        "gnb_full_slots_per_s": 992.668315902215,
+        "gnb_full_lag_ms": 219.92799999999988,
+        "gnb_interior_slots_per_s": 992.5308747997125,
+        "ue_interior_slots_per_s": {
+          "srsue-ue0": 992.4508661283855,
+          "srsue-ue1": 992.495939245491
+        },
+        "ue_out_of_order_log_records": {
+          "srsue-ue0": 0,
+          "srsue-ue1": 1
+        },
+        "received_packets": 160963,
+        "scheduled_packets": 160963,
+        "whole_process_starvations": 18,
+        "resume_accounting_corrected": false,
+        "heartbeat_interior_starvations": {
+          "gnb0_p0": 0,
+          "ue0_p0": 0,
+          "ue1_p0": 1
+        },
+        "tx_queue_overflows": 0,
+        "tx_sequence_gaps": 0,
+        "zmq_errors": 0,
+        "gnb_logged_faults": {
+          "rf_failure": 0,
+          "overflow": 0,
+          "underflow": 0,
+          "late": 0,
+          "queue_failure": 0
+        },
+        "largest_consecutive_logged_slot_gap_ms": 7.186,
+        "native_gate": "passed"
+      },
+      {
+        "case": "handoff-final-20261104",
+        "run": "20261104T022557Z",
+        "mode": "notified, final accounting",
+        "broker_cpu": 20,
+        "traffic_seconds": 30,
+        "gnb_full_slots_per_s": 993.6278215790043,
+        "gnb_full_lag_ms": 191.15999999999985,
+        "gnb_interior_slots_per_s": 993.6938904219438,
+        "ue_interior_slots_per_s": {
+          "srsue-ue0": 993.6613818300469,
+          "srsue-ue1": 993.6468403727338
+        },
+        "ue_out_of_order_log_records": {
+          "srsue-ue0": 0,
+          "srsue-ue1": 0
+        },
+        "received_packets": 160963,
+        "scheduled_packets": 160963,
+        "whole_process_starvations": 22,
+        "resume_accounting_corrected": true,
+        "heartbeat_interior_starvations": {
+          "gnb0_p0": 1,
+          "ue0_p0": 3,
+          "ue1_p0": 2
+        },
+        "tx_queue_overflows": 0,
+        "tx_sequence_gaps": 0,
+        "zmq_errors": 0,
+        "gnb_logged_faults": {
+          "rf_failure": 0,
+          "overflow": 0,
+          "underflow": 0,
+          "late": 0,
+          "queue_failure": 0
+        },
+        "largest_consecutive_logged_slot_gap_ms": 6.861,
+        "native_gate": "passed"
+      }
+    ],
+    "settings": {
+      "gnb_io_fifo_priority": 20,
+      "gnb_io_cpu": 7,
+      "phy_fifo_priority": 10,
+      "gnb_cpus_during_traffic": "1-6; 1-5 only in the CPU 6 trial",
+      "gnb_main_pool_threads": 5,
+      "trace_recording": false,
+      "observer_wrapper": "Matched on both sides; unarmed.",
+      "cpu6_scope": "Requested through launcher taskset; no retained per-thread broker mask snapshot.",
+      "host_scope": "Ordinary host tasks retain CPU eligibility; other workloads were preserved."
+    },
+    "excluded_setup_attempts": [
+      {
+        "run": "20261104T020906Z",
+        "reason": "Missing unarmed observer wrapper in new private launcher mirror; stopped before measurement and before scheduling changes."
+      },
+      {
+        "run": "20261104T021433Z",
+        "reason": "Narrowed startup affinity changed the auto-sized gNB main worker pool; harness thread-count check rejected before settings or measurement."
+      }
+    ],
+    "source_scope": "The first three controls precede the resumed-wait accounting correction and can undercount starvation. Their timing and delivery values are retained separately; the final case uses the final source/binary hashes.",
+    "conclusion": "Functional handoff/profile/accounting repairs pass, but a timing gain is not established and strict real time remains failed. CPU 6 was worse and was not retained.",
+    "restored": true,
+    "diagnostic_containers_stopped": true,
+    "other_containers_preserved": 14,
+    "bulk_log_disk_bytes_pruned": 4162633728,
+    "unarmed_observer_buffers_pruned": true,
+    "alternatives_unimplemented": [
+      "Fair nonblocking OCUDU adapter patch plus phase-preserving, rate/occupancy-bounded recovery.",
+      "Local IPC endpoint experiment.",
+      "Shared-memory transport with adapters on both stack sides."
+    ]
+  },
+  "clock_recovery": {
+    "date": "2026-11-04",
+    "run": "20261104T032414Z",
+    "traffic_seconds": 30,
+    "source_hashes": {
+      "broker_source": "283614eeccc0b72501bc9aa8f866dad2c4ae2387f94541f9506ca448f5cc794a",
+      "pacer_source": "b1cc038327e3b2d7a82a13a91afd9abfa595ea33ec3f245db34a7b2736dade40",
+      "config_source": "0ec46baefb26d68d17bbff75a3d3e465d0f73d78ed7549e6ea7410732d9cab18",
+      "broker_binary": "fb2a6f56ff687516ad930b9080f86baa284e9ec830cfd60a8dffe38e441b51ca",
+      "before_pacer": "2480b367a2d37275b404aa3c912c7a93a660d09e234ce5199a38bd28e147b783",
+      "before_broker_binary": "b674c78d452473624aabf2817bc37157f2b951aa803b6c3a7b479e6547c7dcd5"
+    },
+    "nominal_clock_rebases": false,
+    "actual_publication_accounted": true,
+    "fractional_time_carried": true,
+    "recovery_ppm": 10000,
+    "maximum_recovery_ppm": 10000,
+    "immediate_credit_samples": 23040,
+    "lookahead_samples": 23040,
+    "sample_rate_hz": 23040000,
+    "external_stack_changed": false,
+    "ctest": {
+      "passed": 13,
+      "failed": 0,
+      "cuda_enabled_build": true
+    },
+    "mutation_tests": [
+      {
+        "mutation": "nominal-rebase",
+        "rejected": true,
+        "expected_failure": "pacer discarded delay instead of recovering it"
+      },
+      {
+        "mutation": "uncharged-late-publication",
+        "rejected": true,
+        "expected_failure": "late sleeping publication escaped the burst budget"
+      }
+    ],
+    "synthetic_cases": [
+      "4 ms delay rejoins original schedule",
+      "1 s stall keeps bounded burst and eventually recovers",
+      "late publication consumes credit",
+      "fragment duration remainders persist",
+      "24-hour arithmetic"
+    ],
+    "gnb_full_slots_per_s": 999.3744200818155,
+    "gnb_full_lag_ms": 18.76599999999962,
+    "gnb_interior_slots_per_s": 999.4849179386632,
+    "ue_interior_slots_per_s": {
+      "srsue-ue0": 999.5341460115624,
+      "srsue-ue1": 999.502641713627
+    },
+    "received_packets": 160963,
+    "scheduled_packets": 160963,
+    "whole_process_starvations": 42,
+    "heartbeat_interior_starvations": {
+      "gnb0_p0": 0,
+      "ue0_p0": 1,
+      "ue1_p0": 2
+    },
+    "tx_queue_overflows": 0,
+    "tx_sequence_gaps": 0,
+    "zmq_errors": 0,
+    "gnb_logged_faults": {
+      "rf_failure": 0,
+      "overflow": 0,
+      "underflow": 0,
+      "late": 0,
+      "queue_failure": 0
+    },
+    "largest_consecutive_logged_slot_gap_ms": 8.652,
+    "output_ring_peak_samples": {
+      "gnb0_p0": 23040,
+      "ue0_p0": 23040,
+      "ue1_p0": 23040
+    },
+    "retained_clock_lag_us": {
+      "gnb0_p0": {
+        "records": 28,
+        "first_us": 72723,
+        "last_us": 79194,
+        "minimum_us": 72723,
+        "maximum_us": 131655,
+        "lifetime_maximum_us": 134091
+      },
+      "ue0_p0": {
+        "records": 28,
+        "first_us": 3317740,
+        "last_us": 3324037,
+        "minimum_us": 3317740,
+        "maximum_us": 3376346,
+        "lifetime_maximum_us": 3378906
+      },
+      "ue1_p0": {
+        "records": 28,
+        "first_us": 3318202,
+        "last_us": 3324181,
+        "minimum_us": 3318202,
+        "maximum_us": 3376759,
+        "lifetime_maximum_us": 3379123
+      }
+    },
+    "retained_clock_lag_scope": "Per-node first-publication reference including startup. These are not common measurement-window deficits and must not be summed across nodes.",
+    "independent_recovery_interval": {
+      "scope": "Independent gNB scheduler clock over the final recovery interval; not a whole-run rate.",
+      "records": 9922,
+      "offset_start_s": 18.48796,
+      "offset_end_s": 28.484566,
+      "elapsed_s": 9.996606,
+      "slots": 10049,
+      "slots_per_s": 1005.2411788561038,
+      "radio_time_recovered_ms": 52.39400000000023,
+      "broker_gauge_reduction_us": 52461
+    },
+    "native_gate": "passed",
+    "trace_recording": false,
+    "settings": "Same temporary gNB I/O FIFO 20 CPU 7, PHY FIFO 10 CPUs 1-6, broker CPU 20 and display/workqueue separation as the preceding CPU20 controls.",
+    "comparison_scope": "Closer than the preceding 993.628 slots/s final handoff run; an earlier polling control already reached 999.139. Shared-host variation and one new run do not establish a statistically repeatable improvement.",
+    "strict_realtime_qualified": false,
+    "restored": true,
+    "diagnostic_containers_stopped": true,
+    "other_containers_preserved": 14,
+    "bulk_log_disk_bytes_pruned": 1011036160,
+    "unarmed_observer_buffer_pruned": true,
+    "scope": "Broker-only recovery change; observed single-port-per-radio buffer safety in this short run, not arbitrary multi-port or long-run qualification."
+  },
+  "transport_placement": {
+    "date": "2026-11-04",
+    "source_hashes": {
+      "broker_source": "283614eeccc0b72501bc9aa8f866dad2c4ae2387f94541f9506ca448f5cc794a",
+      "pacer_source": "b1cc038327e3b2d7a82a13a91afd9abfa595ea33ec3f245db34a7b2736dade40",
+      "config_source": "0ec46baefb26d68d17bbff75a3d3e465d0f73d78ed7549e6ea7410732d9cab18",
+      "broker_binary": "fb2a6f56ff687516ad930b9080f86baa284e9ec830cfd60a8dffe38e441b51ca",
+      "before_pacer": "2480b367a2d37275b404aa3c912c7a93a660d09e234ce5199a38bd28e147b783",
+      "before_broker_binary": "b674c78d452473624aabf2817bc37157f2b951aa803b6c3a7b479e6547c7dcd5"
+    },
+    "configuration": {
+      "gnb_radio_cpu": 6,
+      "gnb_io_cpu": 7,
+      "ue_io_cpus": [
+        8,
+        9
+      ],
+      "io_fifo_priority": 20,
+      "phy_fifo_priority": 10,
+      "phy_cpus": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "other_ue_cpus": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "broker_cpu": 20,
+      "python_excluded_cpus": [
+        6,
+        7,
+        8,
+        9
+      ],
+      "python_threads_changed": 140,
+      "verified_snapshots_per_control": 3,
+      "irq_cpus": [
+        22,
+        23
+      ],
+      "unbound_workqueue_cpus": [
+        0,
+        21,
+        22,
+        23
+      ]
+    },
+    "earlier_untraced": {
+      "run": "20261104T032414Z",
+      "traffic_seconds": 30,
+      "gnb_full_slots_per_s": 999.3744200818155,
+      "gnb_interior_slots_per_s": 999.4849179386632,
+      "ue_interior_slots_per_s": {
+        "srsue-ue0": 999.5341460115624,
+        "srsue-ue1": 999.502641713627
+      },
+      "full_window_lag_ms": 18.76599999999962,
+      "consecutive_slot_gaps": {
+        "count": 29353,
+        "p99_ms": 2.5689599999999992,
+        "p999_ms": 3.988296000000002,
+        "maximum_ms": 8.652,
+        "above_2ms": 697,
+        "above_3ms": 188,
+        "above_5ms": 2
+      },
+      "whole_process_starvations": 42,
+      "heartbeat_starvations": {
+        "gnb0_p0": 0,
+        "ue0_p0": 1,
+        "ue1_p0": 2
+      },
+      "received_packets": 160963,
+      "scheduled_packets": 160963,
+      "tx_queue_overflows": 0,
+      "tx_sequence_gaps": 0,
+      "zmq_errors": 0,
+      "output_peak_samples": {
+        "gnb0_p0": 23040,
+        "ue0_p0": 23040,
+        "ue1_p0": 23040
+      },
+      "native_gate": "passed",
+      "restored": true,
+      "trace_enabled": false
+    },
+    "fifo_radio": {
+      "run": "20261104T042152Z",
+      "traffic_seconds": 30,
+      "gnb_full_slots_per_s": 974.7850619272863,
+      "gnb_interior_slots_per_s": 974.9133999609277,
+      "ue_interior_slots_per_s": {
+        "srsue-ue0": 974.9147579065258,
+        "srsue-ue1": 974.83720443739
+      },
+      "full_window_lag_ms": 756.4079999999994,
+      "consecutive_slot_gaps": {
+        "count": 28744,
+        "p99_ms": 1.932,
+        "p999_ms": 32.03284000000017,
+        "maximum_ms": 34.642,
+        "above_2ms": 249,
+        "above_3ms": 72,
+        "above_5ms": 34
+      },
+      "whole_process_starvations": 83,
+      "heartbeat_starvations": {
+        "gnb0_p0": 1,
+        "ue0_p0": 29,
+        "ue1_p0": 29
+      },
+      "received_packets": 160963,
+      "scheduled_packets": 160963,
+      "tx_queue_overflows": 0,
+      "tx_sequence_gaps": 0,
+      "zmq_errors": 0,
+      "output_peak_samples": {
+        "gnb0_p0": 23040,
+        "ue0_p0": 23040,
+        "ue1_p0": 23040
+      },
+      "native_gate": "passed",
+      "restored": true,
+      "trace_enabled": false
+    },
+    "normal_radio_nice_minus_10": {
+      "run": "20261104T042442Z",
+      "traffic_seconds": 30,
+      "gnb_full_slots_per_s": 1000.3196942669384,
+      "gnb_interior_slots_per_s": 1000.297110527795,
+      "ue_interior_slots_per_s": {
+        "srsue-ue0": 1000.282544907086,
+        "srsue-ue1": 1000.258066581178
+      },
+      "full_window_lag_ms": -9.590000000000146,
+      "consecutive_slot_gaps": {
+        "count": 29307,
+        "p99_ms": 2.3669399999999987,
+        "p999_ms": 3.9196339999999945,
+        "maximum_ms": 8.352,
+        "above_2ms": 563,
+        "above_3ms": 119,
+        "above_5ms": 9
+      },
+      "whole_process_starvations": 55,
+      "heartbeat_starvations": {
+        "gnb0_p0": 6,
+        "ue0_p0": 4,
+        "ue1_p0": 5
+      },
+      "received_packets": 160961,
+      "scheduled_packets": 160963,
+      "tx_queue_overflows": 0,
+      "tx_sequence_gaps": 0,
+      "zmq_errors": 0,
+      "output_peak_samples": {
+        "gnb0_p0": 23040,
+        "ue0_p0": 23040,
+        "ue1_p0": 23040
+      },
+      "native_gate": "passed",
+      "restored": true,
+      "trace_enabled": false
+    },
+    "fifo_periodic_pause_explanation": {
+      "mechanism": "Inferred real-time bandwidth throttling of a continuously polling FIFO radio worker.",
+      "period_us": 1000000,
+      "runtime_us": 950000,
+      "direct_throttle_event_captured": false,
+      "kernel_documentation": "https://www.kernel.org/doc/html/v6.8/scheduler/sched-rt-group.html"
+    },
+    "scope": "Shared-host controls; background load varied. Average progress improved, but strict timing and perfect packet delivery did not pass.",
+    "strict_realtime_qualified": false,
+    "production_defaults_changed": false
+  },
+  "residual_transport_trace": {
+    "date": "2026-11-04",
+    "run": "20261104T043011Z",
+    "traffic_seconds": 30,
+    "scheduling": "Same as normal-radio placement control.",
+    "excluded_busy_syscall_threads": [
+      "gnb radio",
+      "gnb phy_worker"
+    ],
+    "source_hashes": {
+      "/work/ocudu-native-workspace/builds/ocudu-zmq-release/apps/gnb/gnb": "e7fcd69b1974185b49217d7d030c7964770c405b5b56d0d1dab541481298ec9a",
+      "/work/broker-repair-20261104/build/ocudu-gpu-channel": "fb2a6f56ff687516ad930b9080f86baa284e9ec830cfd60a8dffe38e441b51ca",
+      "/work/ocudu-native-workspace/builds/srsran4g-zmq-local/lib/src/phy/rf/libsrsran_rf_zmq.so": "b5d2034a140a6a14d04cd9d72ce98704c4f51b5c31ef879b2fc1b288810e4071"
+    },
+    "captured_gaps": [
+      {
+        "slot_gap_ms": 7.315,
+        "component": "Display connector polling on a bound kernel workqueue",
+        "kernel_thread": "kworker/7:1",
+        "callback": "output_poll_execute",
+        "callback_enter_ns": 494173754005000,
+        "affected_thread": 3468012,
+        "thread_name": "gnb ZMQbg/IO/0",
+        "cpu": 7,
+        "policy": "SCHED_FIFO",
+        "priority": 20,
+        "broker_reply_sent_ns": 494173779123374,
+        "ready_ns": 494173779161000,
+        "run_ns": 494173785376000,
+        "ready_wait_ms": 6.215,
+        "io_payload_received_ns": 494173785389000,
+        "phy_receive_return_ns": 494173785438000,
+        "next_slot_ns": 494173785629000,
+        "irq_softirq_overlap_ms": 0.006,
+        "fifo_cpu_time_preceding_second_ms": 54.5,
+        "mac_computation_us": 10,
+        "longest_overlapping_cuda_call_ms": 0.167,
+        "mechanism": "Bound display work delayed dispatch of ready gNB I/O; the unbound workqueue mask and IRQ masks did not move this callback.",
+        "inner_kernel_stack_captured": false
+      },
+      {
+        "slot_gap_ms": 6.828,
+        "component": "srsUE SYNC CPU dispatch",
+        "affected_thread": 3468229,
+        "cpu": 19,
+        "policy": "SCHED_OTHER",
+        "competing_thread": 3385151,
+        "competing_process": "ocudu_physical_ai_runtime.metatron_worker",
+        "ready_ns": 494182600481000,
+        "run_ns": 494182606415000,
+        "ready_wait_ms": 5.934,
+        "ue_rf_receive_return_ns": 494182606435000,
+        "ue0_iq_received_by_broker_ns": 494182607368738,
+        "broker_cuda_start_ns": 494182607387000,
+        "broker_reply_sent_ns": 494182607986688,
+        "phy_receive_return_ns": 494182608096000,
+        "next_slot_ns": 494182608258000,
+        "mac_computation_us": 18,
+        "longest_overlapping_cuda_call_ms": 0.548,
+        "mechanism": "UE receive-buffer wake was followed by CPU starvation behind background Python; late UE uplink input delayed broker superposition."
+      }
+    ],
+    "earlier_captures": {
+      "run": "20261104T035832Z",
+      "slot_gaps_ms": [
+        4.15,
+        4.951
+      ],
+      "gnb_radio_ready_wait_ms": 3.773,
+      "ue_io_ready_wait_ms": 2.948,
+      "ue_sync_ready_wait_ms": 3.028,
+      "scope": "Before the new transport placement; separate captured incidents."
+    },
+    "gnb_full_slots_per_s": 999.854587213369,
+    "ue_interior_slots_per_s": {
+      "srsue-ue0-internal.log": 999.9066415701302,
+      "srsue-ue1-internal.log": 999.911297615149
+    },
+    "whole_process_starvations": 26,
+    "received_packets": 160963,
+    "scheduled_packets": 160963,
+    "tx_queue_overflows": 0,
+    "tx_sequence_gaps": 0,
+    "zmq_errors": 0,
+    "native_gate": "passed",
+    "trace_enabled": true,
+    "scope": "Two directly observed long gaps under corrected transport placement; not a reconstruction of the earlier untraced 8.352 ms gap or a claim about every miss.",
+    "strict_realtime_qualified": false,
+    "kernel_sources": [
+      "https://github.com/torvalds/linux/blob/v6.8/drivers/gpu/drm/drm_probe_helper.c",
+      "https://github.com/torvalds/linux/blob/v6.8/kernel/workqueue.c",
+      "https://github.com/torvalds/linux/blob/v6.8/include/linux/workqueue.h"
+    ]
+  },
+  "transport_diagnostic_cleanup": {
+    "freed_disk_bytes": 4224598016,
+    "retained_selected_trace_bytes": 2233255,
+    "retained_traces": [
+      {
+        "run": "20261104T035832Z",
+        "file": "gap-1.selected.trace.gz",
+        "bytes": 602043,
+        "sha256": "759fb000d06c4e4292b0d3ff4abb3d79d5a6d44b6408b2bbda50f4513e03df02"
+      },
+      {
+        "run": "20261104T035832Z",
+        "file": "gap-2.selected.trace.gz",
+        "bytes": 742564,
+        "sha256": "dbd10e8410830674fac9acc2ab0c5d3a46f81df00470404dd23bd3b9775dd719"
+      },
+      {
+        "run": "20261104T043011Z",
+        "file": "gap-1.selected.trace.gz",
+        "bytes": 462559,
+        "sha256": "7220590864378e48b76ecff18683e704af6e2d790773dec2d9a900f531d18903"
+      },
+      {
+        "run": "20261104T043011Z",
+        "file": "gap-2.selected.trace.gz",
+        "bytes": 425081,
+        "sha256": "117e822d070b9cb8b7a32386ddc2d810db349648fb6b2828d05cacc894353387"
+      },
+      {
+        "run": "20261104T043011Z",
+        "file": "display-cause.trace.gz",
+        "bytes": 1008,
+        "sha256": "dd6be54318dec10d597e97a25b9be9e213d3f432185556025679d0ecd6ca117d"
+      }
+    ],
+    "bulk_removal_manifest_sha256_recorded": true,
+    "restored": true,
+    "independently_verified_surviving_python_threads": 139,
+    "changed_python_threads_exited": 1,
+    "diagnostic_containers_stopped": 2,
+    "unrelated_containers_preserved": 14,
+    "trace_instances_removed": true,
+    "probes_removed": true,
+    "global_tracing_unchanged": true,
+    "raw_evidence_ignored": true
+  },
+  "spark_short_timing_review": {
+    "date": "2026-11-04",
+    "source_base_commit": "dd47b08e0820c233f49ff9f54efefa93b4853d3f",
+    "source_hashes": {
+      "src/broker.cpp": "283614eeccc0b72501bc9aa8f866dad2c4ae2387f94541f9506ca448f5cc794a",
+      "include/ocudu_gpu_channel/pacing.h": "b1cc038327e3b2d7a82a13a91afd9abfa595ea33ec3f245db34a7b2736dade40",
+      "src/config.cpp": "0ec46baefb26d68d17bbff75a3d3e465d0f73d78ed7549e6ea7410732d9cab18",
+      "include/ocudu_gpu_channel/config.h": "20d068fdce9504350cedfd4aa3d8532915889a982b37f9b7c8d9a114a10a67fc",
+      "src/cpu_backend.cpp": "637fea11667a592b205c12729af634bfaff8e1b8ab4c2fe102de7a547b9cce4b",
+      "src/sample_executor.cpp": "e080fcfd4b868be3a1dd7bf9bdd31df1d45f065f6abe2dcf0bfc984d0a2bfaed",
+      "tests/core/test_cpu_parallel.cpp": "5095632fe6f8ea4bed2d85ad0ce954e8609d11a05d6283453b6b02ccdf8888d4"
+    },
+    "cpu": "NVIDIA GB10, 20 ARM cores",
+    "gpu": "NVIDIA GB10 SM 121",
+    "kernel": "7.0.0-1019-nvidia",
+    "cuda": "13.0",
+    "driver": "580.178.04",
+    "cells": 1,
+    "ues": 2,
+    "gnb_phy": "CPU",
+    "channel_backend": "CUDA",
+    "bandwidth_mhz": 20,
+    "scs_khz": 15,
+    "sample_rate_hz": 23040000,
+    "scenario": "moving robot-ring",
+    "seed": 1,
+    "sionna": "live, 10 Hz",
+    "traffic": "mixed",
+    "housekeeping_cpus": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "radio_cpus": [
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ],
+    "background_affinity_enforcement_seconds": 0.5,
+    "arming_lead_ms": 12000,
+    "excluded_setup_run": "20261104T044838Z",
+    "diagnostic": {
+      "run": "20261104T045113Z",
+      "traffic_seconds": 30,
+      "gnb": {
+        "records": 29924,
+        "slots": 29996,
+        "elapsed_s": 29.998494,
+        "full_slots_per_s": 999.9168624931638,
+        "interior_slots_per_s": 1000.1193271434893,
+        "incremental_lag_ms": 2.4940000000024156,
+        "consecutive_gaps": {
+          "count": 29875,
+          "p99_ms": 2.22855999999999,
+          "p999_ms": 3.1131260000000003,
+          "maximum_ms": 3.704,
+          "above_2ms": 408,
+          "above_5ms": 0
+        }
+      },
+      "ue_interior_slots_per_s": {
+        "srsue-ue0-internal.log": 1000.1277526326168,
+        "srsue-ue1-internal.log": 1000.0705406899237
+      },
+      "received_packets": 160963,
+      "scheduled_packets": 160963,
+      "whole_process_starvations": 2,
+      "tx_queue_overflows": 0,
+      "tx_sequence_gaps": 0,
+      "zmq_errors": 0,
+      "native_gate": "passed",
+      "placement_snapshots": 3,
+      "restored": true,
+      "trace_scope": {
+        "measured_seconds_covered": 8.693461878,
+        "whole_measurement_covered": false,
+        "truncated": true,
+        "overrun_events": null,
+        "foreign_user_cpu_ms": []
+      }
+    },
+    "reduced_audit": {
+      "run": "20261104T045720Z",
+      "traffic_seconds": 30,
+      "gnb": {
+        "records": 29941,
+        "slots": 29997,
+        "elapsed_s": 29.99764,
+        "full_slots_per_s": 999.9786649883124,
+        "interior_slots_per_s": 1000.1258594982277,
+        "incremental_lag_ms": 0.6399999999994179,
+        "consecutive_gaps": {
+          "count": 29900,
+          "p99_ms": 2.158009999999998,
+          "p999_ms": 3.2114139999999827,
+          "maximum_ms": 9.749,
+          "above_2ms": 381,
+          "above_5ms": 4
+        }
+      },
+      "ue_interior_slots_per_s": {
+        "srsue-ue0-internal.log": 1000.1148937475693,
+        "srsue-ue1-internal.log": 1000.1352325710899
+      },
+      "received_packets": 160962,
+      "scheduled_packets": 160963,
+      "whole_process_starvations": 14,
+      "tx_queue_overflows": 0,
+      "tx_sequence_gaps": 0,
+      "zmq_errors": 0,
+      "native_gate": "passed",
+      "placement_snapshots": 3,
+      "restored": true,
+      "trace_scope": {
+        "measured_seconds_covered": 30.0,
+        "whole_measurement_covered": false,
+        "truncated": false,
+        "overrun_events": 120,
+        "foreign_user_cpu_ms": []
+      }
+    },
+    "unresolved_issue": {
+      "mechanism": "Not established; periodic long slot gaps remain despite application CPU separation.",
+      "consecutive_slot_gaps_ms": [
+        9.749,
+        9.373,
+        9.203,
+        8.872
+      ],
+      "measurement_offsets_s": [
+        4.4957,
+        9.496314,
+        14.496425,
+        24.496593
+      ],
+      "approximate_period_s": 5,
+      "trace_loss_cpu5_events": 120,
+      "no_causal_attribution_to_rtx_display_or_python": true,
+      "strict_realtime_qualified": false
+    },
+    "regression_review": {
+      "runtime_code_changed_during_review": false,
+      "additional_runtime_defects_identified": 0,
+      "rtx_ctest": {
+        "passed": 13,
+        "failed": 0
+      },
+      "spark_ctest": {
+        "passed": 12,
+        "failed": 1,
+        "failure": "cpu_parallel: serial/parallel IQ bit equality in fading + LOS"
+      },
+      "spark_old_build_reproduces_failure": true,
+      "unchanged_cpu_source_files": [
+        "src/cpu_backend.cpp",
+        "src/sample_executor.cpp",
+        "tests/core/test_cpu_parallel.cpp"
+      ],
+      "scheduler_helper_tests_each": {
+        "passed": 28,
+        "skipped": 2
+      },
+      "launcher_shell_syntax": "passed on both platforms",
+      "all_platform_features_qualified": false
+    },
+    "cleanup": {
+      "freed_disk_bytes": 2297454592,
+      "retained_trace_bytes": 762299,
+      "retained_traces": [
+        {
+          "file": "selected-slots.trace.gz",
+          "bytes": 18044,
+          "sha256": "982671108954e0ffa8eb71eede0c1c91fd1cea50d93be674c2bd5b5bbbc2b76c"
+        },
+        {
+          "file": "selected-slots.trace.gz",
+          "bytes": 4616,
+          "sha256": "84d020cab3d57ce5b728a29788891699ab0ee42a189c23d02b09f8d13a65e7c6"
+        },
+        {
+          "file": "scheduler.trace.gz",
+          "bytes": 739639,
+          "sha256": "8af50f293730ab55c3bfdb22e598ae58eb79fbf330703231f7db1d6075a7a3ad"
+        }
+      ],
+      "excluded_setup_run": "20261104T044838Z",
+      "active_radio_processes": 0,
+      "helper_removed": true,
+      "unrelated_containers_preserved": 4
+    },
+    "live_experiments_stopped": true,
+    "publication_performed": false
+  }
 }

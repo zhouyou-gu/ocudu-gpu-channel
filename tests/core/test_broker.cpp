@@ -579,19 +579,25 @@ void scenario_relay_knobs_bit_identical()
   for (const char* k : knobs) {
     ::unsetenv(k);
   }
+  // Compare the new notified handoffs with explicit sleep polling as well as
+  // spinning, across partial batches and two-port matrix nodes.
+  ::setenv("OCG_BROKER_POLL_US", "50", 1);
+  const auto polled = run_parity_relay(config);
+  ::unsetenv("OCG_BROKER_POLL_US");
   std::size_t compared = 0;
   for (std::size_t d = 0; d != 4; ++d) {
-    const std::size_t n = std::min(base[d].size(), fast[d].size());
+    const std::size_t n = std::min({base[d].size(), fast[d].size(), polled[d].size()});
     require(n >= 23040, "parity relay: a port received less than one batch");
     for (std::size_t i = 0; i != n; ++i) {
-      if (base[d][i].i != fast[d][i].i || base[d][i].q != fast[d][i].q) {
+      if (base[d][i].i != fast[d][i].i || base[d][i].q != fast[d][i].q ||
+          base[d][i].i != polled[d][i].i || base[d][i].q != polled[d][i].q) {
         std::cerr << "port " << d << " sample " << i << " differs\n";
         require(false, "relay knobs changed the RX stream");
       }
     }
     compared += n;
   }
-  std::cout << "relay knobs parity: " << compared << " samples bit-identical across 4 ports\n";
+  std::cout << "notified/spin/polled relay parity: " << compared << " samples bit-identical across 4 ports\n";
 }
 
 // One gNB + two UEs on the CPU backend, endpoints at base_port.. base_port+5.
@@ -621,6 +627,60 @@ ocg::TopologyConfig make_multi_ue_lockstep_config(unsigned base_port)
                          .taps_declared = true});
   config.models.emplace(model.id, model);
   return config;
+}
+
+// Samples arrive after the starvation deadline but before the notified wait's
+// diagnostic timeout. Accepting ready input before checking elapsed time used
+// to erase these misses. RX consumption gates TX so the source cannot prefill.
+void scenario_late_ready_input_is_counted()
+{
+  auto config = make_multi_ue_lockstep_config(25620);
+  config.devices.resize(1);
+  config.links = {{.from = "gnb0", .to = "gnb0", .model = "clean"}};
+  config.runtime.batch_samples = 2304; // 100 us, starvation deadline 500 us
+  const std::size_t batch = config.runtime.batch_samples;
+  void* context = zmq_ctx_new();
+  std::atomic<bool> stop{false};
+  std::atomic<std::uint64_t> received{0};
+  std::thread source([&] {
+    void* socket = zmq_socket(context, ZMQ_REP);
+    set_timeouts(socket);
+    require(zmq_bind(socket, config.devices[0].tx_endpoint.c_str()) == 0, "late source bind failed");
+    ocg::IqBuffer samples(batch, ocg::IqSample{0.5F, 0.25F});
+    std::uint64_t sent = 0;
+    while (!stop.load()) {
+      std::uint8_t request = 0;
+      if (zmq_recv(socket, &request, sizeof(request), 0) < 0) {
+        continue;
+      }
+      if (sent != 0) {
+        while (!stop.load() && received.load() < sent) {
+          std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+      if (stop.load()) {
+        break;
+      }
+      while (!stop.load() && zmq_send(socket, samples.data(), samples.size() * sizeof(ocg::IqSample), 0) < 0) {
+      }
+      sent += batch;
+    }
+    zmq_close(socket);
+  });
+  std::thread sink(run_sink, context, config.devices[0].rx_endpoint, std::ref(stop), std::ref(received));
+  ocg::Broker broker(config);
+  const auto stats = broker.run(std::chrono::milliseconds(300));
+  stop.store(true);
+  source.join();
+  sink.join();
+  zmq_ctx_shutdown(context);
+  zmq_ctx_destroy(context);
+  require(received.load() >= batch * 5, "late-input test did not resume enough times");
+  require(stats.zmq_errors == 0 && stats.tx_sequence_gaps == 0 && stats.tx_queue_overflows == 0,
+          "late-input test lost IQ or transport");
+  require(stats.rx_requests >= 5 && stats.rx_starvations >= stats.rx_requests / 2,
+          "ready input erased over-deadline waits");
 }
 
 void scenario_multi_ue_lockstep()
@@ -750,56 +810,114 @@ void scenario_multi_ue_lockstep_wedge_fails_fast()
   require(elapsed < std::chrono::milliseconds(4000), "wedge detector did not end the run early");
 }
 
-// M5.4 regression: the producer's real-time pacer must not convert an idle
-// period into the right to burst. The broker is the clock of a lock-step ZMQ
-// radio, and OCUDU's multi-port RX path dead-locks (rather than back-pressures)
-// when a burst overruns its circular buffer -- see `pacing.h`. The scenario the
-// two-port live gate hit is reproduced here on a synthetic clock: the producer
-// publishes one batch, then blocks for a second waiting for the radio to start
-// requesting, then resumes.
-//
-// This scenario is graded on WHEN the pacer stops granting free slots, not on
-// wall-clock timing, so it is deterministic and does not sleep.
-void scenario_pacer_drops_unrecoverable_debt()
+// A delay must remain recoverable without turning into an unrestricted burst.
+// These tests use the actual pacing class and a synthetic clock; no sleeps or
+// OS scheduling thresholds are involved.
+void scenario_pacer_recovers_without_unbounded_bursts()
 {
+  using namespace std::chrono;
   using Clock = ocg::RealTimePacer::Clock;
-  const std::uint64_t rate = 23040000; // 23.04 MS/s
-  const std::size_t batch = 23040;     // 1 ms
-  const auto batch_duration = std::chrono::nanoseconds(1000000);
-
-  ocg::RealTimePacer pacer(rate, batch_duration);
-  require(pacer.duration_for(batch) == batch_duration,
-          "a full batch must occupy exactly one batch duration at the node rate");
-
+  constexpr std::uint64_t rate = 23040000;
+  constexpr std::size_t batch = 23040;
   const Clock::time_point epoch{};
-  require(pacer.charge(epoch, batch) <= epoch, "the first slot must not be made to wait");
+  ocg::RealTimePacer pacer(rate, milliseconds(1));
+  require(pacer.duration_for(batch) == milliseconds(1), "one batch must represent exactly 1 ms");
+  require(pacer.duration_for(rate * 86400ULL) == hours(24), "long-run duration arithmetic overflowed");
+  require(pacer.charge(epoch, batch) == epoch, "first publication must anchor the clock");
+  pacer.published(epoch);
 
-  // The producer is now blocked on output room for a second: this is the wait
-  // for the radio to start requesting, and it is the wait that the pre-fix
-  // pacer capitalised into ~1000 free batches.
-  const Clock::time_point resumed = epoch + std::chrono::seconds(1);
-  std::size_t free_slots = 0;
-  for (std::size_t i = 0; i != 4000; ++i) {
-    if (pacer.charge(resumed, batch) > resumed) {
-      break; // the pacer now demands a wait: the burst is over
-    }
-    ++free_slots;
-  }
-
-  std::cout << "pacer_debt free_slots=" << free_slots << " stall_ms=1000"
-            << " max_debt_ms=1\n";
-
-  // One batch of debt plus the slot being charged. A catch-up pacer would have
-  // released the whole stall -- about a thousand batches -- back to back.
-  require(free_slots == 2, "pacer released a burst proportional to the stall it sat out");
-
-  // Steady state must still be paced at exactly the node rate: no drift, and
-  // no free slot once the schedule has caught up with the clock.
-  Clock::time_point now = resumed + batch_duration * 2;
-  for (std::size_t i = 0; i != 100; ++i) {
+  auto now = epoch + seconds(1);
+  std::uint64_t samples = batch;
+  std::vector<Clock::time_point> publications;
+  std::size_t first = 0;
+  unsigned immediate = 0;
+  bool recovered = false;
+  for (unsigned i = 0; i != 110000; ++i) {
+    const auto nominal = epoch + pacer.duration_for(samples);
     const auto due = pacer.charge(now, batch);
-    require(due == now, "steady-state slot did not land on its paced deadline");
-    now = due + batch_duration;
+    require(due >= nominal, "recovery published ahead of the original nominal schedule");
+    now = std::max(now, due);
+    pacer.published(now);
+    samples += batch;
+    if (now == epoch + seconds(1)) {
+      ++immediate;
+    }
+    publications.push_back(now);
+    while (publications[first] < now - seconds(1)) {
+      ++first;
+    }
+    // 1010 nominal batches/s plus the bounded packet/credit boundary.
+    require(publications.size() - first <= 1013, "recovery exceeded its sustained release envelope");
+    if (i > 1000 && now == nominal) {
+      recovered = true;
+      break;
+    }
+  }
+  require(immediate <= 2 && immediate >= 1, "idle time became an unlimited recovery burst");
+  require(recovered && pacer.lag() == Clock::duration::zero(), "pacer discarded delay instead of recovering it");
+
+  // A smaller example: due at 10 ms, ready at 14 ms. The old clock permanently
+  // rebased by 3 ms; recovery must eventually rejoin the original schedule.
+  ocg::RealTimePacer short_stall(rate, milliseconds(1));
+  for (int i = 0; i != 10; ++i) {
+    const auto at = epoch + milliseconds(i);
+    require(short_stall.charge(at, batch) == at, "timely clock drifted");
+    short_stall.published(at);
+  }
+  now = epoch + milliseconds(14);
+  recovered = false;
+  for (int i = 10; i != 510; ++i) {
+    const auto due = short_stall.charge(now, batch);
+    now = std::max(now, due);
+    short_stall.published(now);
+    if (now == epoch + milliseconds(i)) {
+      recovered = true;
+      break;
+    }
+  }
+  require(recovered, "4 ms stall left a permanent offset in the nominal clock");
+}
+
+void scenario_pacer_accounts_for_late_publication()
+{
+  using namespace std::chrono;
+  using Clock = ocg::RealTimePacer::Clock;
+  const Clock::time_point epoch{};
+  constexpr std::size_t batch = 23040;
+  ocg::RealTimePacer pacer(23040000, milliseconds(1));
+  pacer.charge(epoch, batch);
+  pacer.published(epoch);
+  require(pacer.charge(epoch, batch) == epoch + milliseconds(1), "timely slot was not paced");
+  const auto resumed = epoch + seconds(1);
+  pacer.published(resumed); // the sleeping publication woke almost a second late
+  unsigned immediate_after_wake = 0;
+  for (unsigned i = 0; i != 4; ++i) {
+    const auto due = pacer.charge(resumed, batch);
+    pacer.published(std::max(resumed, due));
+    if (due > resumed) {
+      break;
+    }
+    ++immediate_after_wake;
+  }
+  require(immediate_after_wake <= 1, "late sleeping publication escaped the burst budget");
+}
+
+void scenario_pacer_preserves_fragment_time()
+{
+  using namespace std::chrono;
+  using Clock = ocg::RealTimePacer::Clock;
+  const Clock::time_point epoch{};
+  ocg::RealTimePacer pacer(23040000, milliseconds(1));
+  constexpr std::size_t fragments[] = {1, 2500, 23040, 7, 23041};
+  std::uint64_t samples = 0;
+  for (unsigned repeat = 0; repeat != 10000; ++repeat) {
+    for (const auto count : fragments) {
+      const auto expected = epoch + pacer.duration_for(samples);
+      const auto due = pacer.charge(expected, count);
+      require(due == expected, "fragment rounding changed the original clock schedule");
+      pacer.published(due);
+      samples += count;
+    }
   }
 }
 
@@ -809,10 +927,13 @@ int main()
 {
   scenario_nominal_timing_crosses_arbitrary_fragment_boundaries();
   scenario_relay_knobs_bit_identical();
-  scenario_pacer_drops_unrecoverable_debt();
+  scenario_pacer_recovers_without_unbounded_bursts();
+  scenario_pacer_accounts_for_late_publication();
+  scenario_pacer_preserves_fragment_time();
   scenario_loopback();
   scenario_loopback(24);
   scenario_multi_ue_lockstep();
+  scenario_late_ready_input_is_counted();
   scenario_multi_ue_lockstep_wedge_fails_fast();
   std::cout << "test_broker OK\n";
   return 0;

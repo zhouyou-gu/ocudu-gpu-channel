@@ -35,6 +35,12 @@ Format: one entry per line, `Word: short description.`
 - unified memory architecture: a computer design in which the CPU and GPU share the same physical memory.
 - CUDA: NVIDIA's software for running calculations on its GPUs.
 - thread: a sequence of program instructions that can run alongside other sequences.
+- OS scheduler: the part of the computer's operating software that decides when each thread runs on a CPU.
+- thread priority: a thread's stated preference for CPU time under an OS scheduler's rules.
+- CPU affinity: the set of CPUs on which a thread is allowed to run.
+- FIFO scheduling: Linux rules that run ready threads ahead of normal threads in order of thread priority, with equal priorities keeping arrival order until a thread waits or gives up the CPU.
+- nice value: a Linux setting that gives a normal thread more preference for CPU time when lower, or less preference when higher.
+- real-time CPU budget: the CPU time Linux allows threads under FIFO scheduling to use during a stated interval.
 - kernel: a set of program instructions run on the GPU.
 - CUDA stream: a queue that orders GPU calculations and data transfers.
 - backend: the part of the program that performs the same calculations on the CPU or GPU.
@@ -48,6 +54,7 @@ Format: one entry per line, `Word: short description.`
 - radio node: a radio's group of ports sharing a sample rate and sample epoch.
 - gNB: a radio node serving as a base station in a mobile network.
 - UE: a radio node using the mobile network, such as a phone.
+- MAC scheduler: the part of a gNB that decides which UE may use each radio resource in a slot.
 - channel: the changes a signal undergoes between a TX port and an RX port.
 - channel model: calculations that describe a channel's effects on an IQ stream.
 - edge: a directed connection that applies a channel model from a TX port to an RX port.
@@ -76,7 +83,8 @@ Format: one entry per line, `Word: short description.`
 - REP worker: a broker thread that answers an RX port's requests using samples already written to its ring.
 - pacing: control of sample release times to match the sample rate.
 - look-ahead margin: the maximum processed IQ samples held ready for RX-port requests, measured as represented signal time.
-- catch-up margin: the maximum accumulated delay that pacing may recover by releasing samples without waiting.
+- catch-up margin: the maximum represented signal time that pacing may release without waiting after a delay.
+- recovery rate: the maximum rate above the sample rate allowed while making up a delay, stated in parts per million.
 - latency: elapsed time from a stated input event to its corresponding output event.
 - deadline: the latest time a stated operation may finish.
 - starvation: a wait for required samples that lasts beyond the stated limit.

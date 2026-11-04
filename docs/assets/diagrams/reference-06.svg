@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" style="background:#0f1420;color:#e7ecf5;--bg:#0f1420;--panel:#1a2233;--ink:#e7ecf5;--muted:#9aa7bd;--edge:#2c3850;--accent:#5db1ff;--warm:#ffb454;--good:#6fd08c;--cell:#0b101a" viewBox="0 0 1000 295" font-family="SF Mono,Menlo,monospace" font-size="12">
-    <text x="20" y="22" fill="#9aa7bd">Cursor evolution across serves · wall-clock time → (pinned by the throttle)</text>
+    <text x="20" y="22" fill="#9aa7bd">Nominal cursor timeline · no input, processing or output stalls</text>
 
     <!-- time axis -->
     <line x1="100" y1="42" x2="980" y2="42" stroke="#9aa7bd"/>
@@ -83,5 +83,5 @@
 
     <!-- Bottom annotations -->
     <text x="500" y="262" fill="#cdd6e6" text-anchor="middle">co-init at t = 0 sets every cursor to seq 0 of its source · they advance lockstep by 'serve' samples after every serve</text>
-    <text x="500" y="278" fill="#cdd6e6" text-anchor="middle">throttle pins each serve boundary to real time: t_serve(n) = anchor + n · serve / sample_rate</text>
+    <text x="500" y="278" fill="#cdd6e6" text-anchor="middle">Recovery retains elapsed time; its rate and immediate release credit are bounded</text>
   </svg>

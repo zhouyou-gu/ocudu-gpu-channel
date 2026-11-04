@@ -121,6 +121,9 @@ struct RuntimeConfig {
   // pacing the UE->radio direction would hold back the UE's zero-padded TX
   // prefix at real time, so its uplink would never catch up with air time.
   bool pacing = true;
+  // Sustained recovery above nominal, in parts per million (10000 = 1%).
+  // The independently bounded one-batch release credit is unchanged.
+  std::size_t pacing_recovery_ppm = 10000;
 };
 
 // A node in the channel-emulation graph. gNBs and UEs are the SAME class -- a

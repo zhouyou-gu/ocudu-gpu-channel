@@ -14,6 +14,7 @@ The local repository is the canonical Git source. The remote RTX workstation is 
 | `tests/` | Correctness checks grouped by component |
 | `benchmarks/` | Standalone performance measurements |
 | `docs/` | Current guides, measured reports and development plans/history |
+| `docs/issues/` | Numbered technical issue records linked to GitHub Issues; live issue status stays on GitHub |
 | `archive/` | Historical records |
 
 External source checkouts, build outputs, logs, captures and datasets remain outside tracked source. Private workstation settings remain in ignored `.config`.

@@ -291,6 +291,7 @@ json.dump({
                "timeline": "grid", "fanout": os.environ.get("OCUDU_NATIVE_SB_SINGLE_CELL") != "1"},
     "scenario": scenario, "scenario_override": scenario_override or None,
     "platform_profile": platform,
+    "broker_profile_environment": dict(item.split("=", 1) for item in os.environ.get("OCUDU_NATIVE_BROKER_ENV", "").split()),
     "cpus": {"gnb": {"a": gnb_a, "b": gnb_b}, "broker": {"a": broker_a, "b": broker_b},
              "ue": {"ue0": ue0, "ue1": ue1, "ue2": ue2, "ue3": ue3}, "aux": aux},
     "brokers": "active brokers: own CUDA context, default stream, no realtime class",

@@ -17,6 +17,7 @@ Use space-indented block-style YAML as in the runnable example below. Flow mappi
 | `cuda_host_memory` | `auto` | `auto`, `copy`, `zero_copy`; auto selects mapped memory on a suitable integrated GPU and copies on discrete GPUs |
 | `cuda_stream_priority` | `default` | `default`, `high`, `low`; scheduling priority within the CUDA context |
 | `pacing` | `true` | Boolean; throttle producers to sample rate. Hardware-clocked workflows explicitly choose their setting |
+| `pacing_recovery_ppm` | `10000` | Integer 0–10000; maximum sustained recovery above nominal in parts per million (10000 = 1%). Zero prevents sustained acceleration; elapsed clock delay is retained. Immediate release credit remains one batch |
 
 ## Devices, radio nodes and edges
 

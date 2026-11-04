@@ -15,7 +15,7 @@ A CUDA channel emulator that applies propagation and interference to IQ samples 
 |---|---|
 | Developer | [Architecture](concepts/architecture.md) → [project structure](development/project-structure.md) → [reference](reference/README.md) → [testing](development/testing.md) → [profiling](development/profiling.md) |
 | Researcher or evaluator | [Status](getting_started/status.md) → [reports](reports/README.md) → the report's method, setup, evidence and limitations |
-| Returning contributor | [Open designs](development/designs/README.md) and [development history](history/README.md) |
+| Returning contributor | [Known issues](issues/README.md), [open designs](development/designs/README.md) and [development history](history/README.md) |
 
 Current guidance is English. Historical records retain their original language and revision-specific claims. The [repository README](../README.md#contributors) owns contributor information.
 
@@ -30,6 +30,7 @@ guides/README
 reference/README
 use_cases/README
 development/README
+issues/README
 reports/README
 history/README
 ```

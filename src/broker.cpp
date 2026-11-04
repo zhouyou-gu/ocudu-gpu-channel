@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <deque>
@@ -133,8 +134,8 @@ SocketPtr make_socket(void* context, int type)
 }
 
 // Diagnostics knobs, read once per run from the environment.
-//   OCG_BROKER_POLL_US  sleep between polls of a worker waiting on another
-//                       worker (ring room, input data, output row); default 50.
+//   OCG_BROKER_POLL_US  opt into sleep polling instead of notified ring waits
+//                       (ring room, input data, output row); value in us.
 //                       Any value also drops the thread's timer slack to 1 us,
 //                       so the sleep is not stretched by the default 50 us.
 //   OCG_ZMQ_IO_THREADS  ZMQ I/O threads in the broker context (default 1). All
@@ -238,6 +239,52 @@ void wait_tick(const BrokerDiagKnobs& knobs,
     sched_yield();
   } else {
     std::this_thread::sleep_for(knobs.poll);
+  }
+}
+
+// Each signal has one waiting worker. Take a ticket BEFORE checking its rings:
+// a publication between the empty check and wait must not become a lost wake.
+// The timeout is for shutdown and starvation diagnostics, not normal handoff.
+class RingProgress {
+public:
+  std::uint64_t ticket()
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return generation_;
+  }
+
+  void notify()
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      ++generation_;
+    }
+    changed_.notify_one();
+  }
+
+  void wait(std::uint64_t observed)
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    changed_.wait_for(lock, std::chrono::milliseconds(5), [&] {
+      return generation_ != observed || stop_requested.load();
+    });
+  }
+
+private:
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  std::uint64_t generation_ = 0;
+};
+
+void wait_for_ring(const BrokerDiagKnobs& knobs, RingProgress& progress,
+                   std::uint64_t ticket, std::chrono::steady_clock::time_point since)
+{
+  // Explicit diagnostic polling/spinning keeps its existing meaning. Normal
+  // operation sleeps until a producer/consumer changes a relevant ring.
+  if (knobs.spin || knobs.tight_slack) {
+    wait_tick(knobs, since);
+  } else {
+    progress.wait(ticket);
   }
 }
 
@@ -432,6 +479,8 @@ struct PortRuntime {
   SocketPtr rx_rep;
   IqRing tx_ring;
   std::mutex ring_mutex;
+  RingProgress tx_room_changed;
+  RingProgress rx_data_changed;
   std::size_t batch = 0;
   std::size_t queue_samples = 0; // tx_ring capacity
   // Index of the owning RadioNodeRuntime, and this port's position in that
@@ -549,6 +598,8 @@ struct WorkerDiag {
   std::atomic<std::uint64_t> idle_waits{0};    // ZMQ timeouts waiting on the peer
   std::atomic<std::uint64_t> blocked_iters{0}; // puller room stalls / server data spins
   std::atomic<std::uint64_t> last_samples{0};  // samples in the last pull / slot
+  std::atomic<std::int64_t> clock_lag_us{0};
+  std::atomic<std::int64_t> clock_max_lag_us{0};
   // Cumulative samples this worker has moved. M5.4 needs it on the puller: a
   // node's sibling TX ports are pulled by INDEPENDENT threads, so one can run
   // ahead of the other, and `last_samples` (one batch) cannot show that. srsRAN
@@ -797,6 +848,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
   };
 
   std::vector<RadioNodeRuntime> nodes(resolved.nodes.size());
+  std::deque<RingProgress> node_progress(nodes.size());
   std::unordered_map<std::string, std::size_t> node_by_id;
   node_by_id.reserve(nodes.size());
   for (std::size_t n = 0; n != resolved.nodes.size(); ++n) {
@@ -868,6 +920,21 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
   // Per-node incoming lane lists, resolved once so no serve walks every link.
   for (std::size_t i = 0; i != links.size(); ++i) {
     nodes[links[i].dst_node].incoming.push_back(i);
+  }
+
+  // Wake each dependent worker once, even when several matrix lanes share
+  // the same source ring or destination node.
+  std::vector<std::vector<std::size_t>> port_consumers(ports.size());
+  std::vector<std::vector<std::size_t>> node_sources(nodes.size());
+  for (const auto& link : links) {
+    auto& consumers = port_consumers[link.src_index];
+    if (std::find(consumers.begin(), consumers.end(), link.dst_node) == consumers.end()) {
+      consumers.push_back(link.dst_node);
+    }
+    auto& sources = node_sources[link.dst_node];
+    if (std::find(sources.begin(), sources.end(), link.src_index) == sources.end()) {
+      sources.push_back(link.src_index);
+    }
   }
 
   // Resolve each destination node to the unique physical-link controls that
@@ -977,6 +1044,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
       std::size_t pending = 0;       // samples pulled but not yet in the ring
       bool pending_counted = false;  // ring-full already counted for this message
       while (!stop_requested.load()) {
+        const auto room_ticket = dev.tx_room_changed.ticket();
         // Release samples consumed by every link reading this device's ring,
         // then check for room.
         std::size_t room = 0;
@@ -1013,6 +1081,9 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             pushed = dev.tx_ring.push(std::span<const IqSample>(pending_data, pending));
           }
           if (pushed) {
+            for (const auto n : port_consumers[d]) {
+              node_progress[n].notify();
+            }
             trace.add(HopEvent::PullRingPushed, pending);
             // Wire capture, in ring order: this is what the peer's TX actually
             // put on the wire, before anything of ours reads it.
@@ -1037,7 +1108,8 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
               diag.overflows.fetch_add(1, std::memory_order_relaxed);
               pending_counted = true;
             }
-            wait_tick(knobs);
+            wait_for_ring(knobs, dev.tx_room_changed, room_ticket,
+                          std::chrono::steady_clock::now());
           }
           continue;
         }
@@ -1045,7 +1117,8 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         if (room < dev.batch) {
           diag.state.store("wait_room");
           diag.blocked_iters.fetch_add(1);
-          wait_tick(knobs);
+          wait_for_ring(knobs, dev.tx_room_changed, room_ticket,
+                        std::chrono::steady_clock::now());
           continue;
         }
         if (!request_outstanding) {
@@ -1140,9 +1213,12 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           (node.batch * 1000000000ULL) /
           std::max<std::uint64_t>(1, node.sample_rate_hz));
       const auto starvation_deadline = batch_duration * 5;
-      // One batch is the whole run-ahead the RX ring grants (`rx_high_water`),
-      // so it is also the most lateness this producer may ever spend at once.
-      RealTimePacer pacer(rate, batch_duration);
+      // Preserve the original clock while independently bounding release
+      // credit to one batch and sustained recovery to the configured rate.
+      RealTimePacer pacer(rate, batch_duration, config_.runtime.pacing_recovery_ppm);
+      std::cout << "event=pacing_config node=" + node.id +
+                       " recovery_ppm=" + std::to_string(config_.runtime.pacing_recovery_ppm) +
+                       " burst_budget_ns=" + std::to_string(batch_duration.count()) + "\n";
 
       while (!stop_requested.load()) {
         // (A) Output room. Every RX row must be able to take at least one
@@ -1156,6 +1232,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         bool room_stall_reported = false;
         auto next_room_report = t_room_start + kStallReportInterval;
         while (!stop_requested.load()) {
+          const auto ticket = node_progress[n].ticket();
           room = node.batch;
           for (const std::size_t r : node.rx_ports) {
             room = std::min(room, rx_headroom(*ports[r]));
@@ -1170,7 +1247,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             room_stall_reported = true;
             next_room_report = now + kStallReportInterval;
           }
-          wait_tick(knobs, t_room_start);
+          wait_for_ring(knobs, node_progress[n], ticket, t_room_start);
         }
         // Only a genuine resume clears; a stop request is a shutdown, not
         // recovery, and must not be logged as one.
@@ -1222,6 +1299,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           bool data_stall_reported = false;
           auto next_data_report = wait_start + kStallReportInterval;
           while (!stop_requested.load()) {
+            const auto ticket = node_progress[n].ticket();
             std::size_t common = node.batch;
             for (std::size_t k = 0; k != incoming.size(); ++k) {
               auto& link = links[incoming[k]];
@@ -1237,30 +1315,31 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
               const std::uint64_t avail = src.tx_ring.next_sequence() - cur;
               common = std::min<std::size_t>(common, static_cast<std::size_t>(avail));
             }
-            if (common > 0) {
-              count = std::min(common, room);
-              break;
-            }
-            diag.state.store("wait_data");
-            diag.blocked_iters.fetch_add(1);
             const auto now = std::chrono::steady_clock::now();
             // Only a node that has already produced can be starved; the first
             // wait is the relay filling, not a real-time miss. The slot counter
             // states that directly -- the throttle bookkeeping this used to
             // read was rebased to zero once a second, so a starvation landing
-            // in that one slot went uncounted.
+            // in that one slot went uncounted. Check before accepting ready
+            // input too: a late wake must count even if data arrived meanwhile.
             if (diag.progress.load() > 0 && !starvation_counted &&
                 now - wait_start > starvation_deadline) {
               stats.rx_starvations.fetch_add(1);
               diag.starvations.fetch_add(1, std::memory_order_relaxed);
               starvation_counted = true;
             }
+            if (common > 0) {
+              count = std::min(common, room);
+              break;
+            }
+            diag.state.store("wait_data");
+            diag.blocked_iters.fetch_add(1);
             if (now >= next_data_report) {
               report_node_stall(node, "input_data", now - wait_start);
               data_stall_reported = true;
               next_data_report = now + kStallReportInterval;
             }
-            wait_tick(knobs, wait_start);
+            wait_for_ring(knobs, node_progress[n], ticket, wait_start);
           }
           if (data_stall_reported && !stop_requested.load()) {
             report_node_stall_cleared(node, "input_data",
@@ -1368,14 +1447,14 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         for (std::size_t k = 0; k != incoming.size(); ++k) {
           links[incoming[k]].cursor.fetch_add(count);
         }
+        for (const auto p : node_sources[n]) {
+          ports[p]->tx_room_changed.notify();
+        }
 
-        // (G) Throttle: cap the production cadence at the node sample rate so
-        // the lock-step radio runs at real time, not faster. The pacer refuses
-        // to carry more than one batch of lateness, because a producer that
-        // waited on (A) for the radio to start requesting would otherwise be
-        // owed that entire idle period and would spend it as a burst -- and a
-        // multi-port ZMQ radio dead-locks on a burst rather than absorbing it.
-        // See `pacing.h` for the OCUDU-side mechanism.
+        // (G) Retain missed nominal time, but recover through a separately
+        // rate-limited schedule. Idle time never becomes unlimited burst
+        // credit. Output headroom and aligned input availability still gate
+        // every publication; the pacer neither drops nor substitutes IQ.
         const auto due = pacer.charge(std::chrono::steady_clock::now(), count);
         if (config_.runtime.pacing && due > std::chrono::steady_clock::now()) {
           diag.state.store("throttle");
@@ -1404,6 +1483,14 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             out.rx_peak_occupancy.store(occupancy, std::memory_order_relaxed);
           }
         }
+        for (const auto p : node.rx_ports) {
+          ports[p]->rx_data_changed.notify();
+        }
+        pacer.published(std::chrono::steady_clock::now());
+        diag.clock_lag_us.store(std::chrono::duration_cast<std::chrono::microseconds>(pacer.lag()).count(),
+                                std::memory_order_relaxed);
+        diag.clock_max_lag_us.store(std::chrono::duration_cast<std::chrono::microseconds>(pacer.max_lag()).count(),
+                                    std::memory_order_relaxed);
         const double push_us =
             std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_push_start).count();
         trace.add(HopEvent::ProducePushed, count);
@@ -1477,6 +1564,7 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
         // window stays intact while it is not discarded.
         std::span<const IqSample> in_ring;
         while (!stop_requested.load()) {
+          const auto ticket = port.rx_data_changed.ticket();
           {
             std::lock_guard<std::mutex> lk(port.rx_mutex);
             if (!port.rx_slots.empty()) {
@@ -1501,10 +1589,13 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
             break;
           }
           diag.blocked_iters.fetch_add(1);
-          wait_tick(knobs, t_pop_start);
+          wait_for_ring(knobs, port.rx_data_changed, ticket, t_pop_start);
         }
         if (take == 0) {
           break; // stop requested while waiting for a row
+        }
+        if (in_ring.empty()) {
+          node_progress[port.node_index].notify();
         }
         trace.add(HopEvent::RepRowPopped, take);
         const auto t_send_start = std::chrono::steady_clock::now();
@@ -1528,6 +1619,9 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
           port.rx_cursor += take;
           port.rx_ring.discard_before(port.rx_cursor);
           port.rx_slots.pop_front();
+        }
+        if (!in_ring.empty()) {
+          node_progress[port.node_index].notify();
         }
         const double send_us =
             std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t_send_start).count();
@@ -1616,7 +1710,9 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
       const std::uint64_t ovf = p.overflows.load(std::memory_order_relaxed);
       std::cout << " starvations=" << (starv - hb_last_starvations[d]) << " starvations_total=" << starv
                 << " gaps=" << (gaps - hb_last_gaps[d]) << " gaps_total=" << gaps
-                << " overflows=" << (ovf - hb_last_overflows[d]) << " overflows_total=" << ovf << "\n";
+                << " overflows=" << (ovf - hb_last_overflows[d]) << " overflows_total=" << ovf
+                << " clock_lag_us=" << s.clock_lag_us.load(std::memory_order_relaxed)
+                << " clock_max_lag_us=" << s.clock_max_lag_us.load(std::memory_order_relaxed) << "\n";
       hb_last_starvations[d] = starv;
       hb_last_gaps[d] = gaps;
       hb_last_overflows[d] = ovf;
@@ -1754,6 +1850,13 @@ BrokerStats Broker::run(std::chrono::milliseconds duration)
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
   stop_requested.store(true);
+  for (auto& signal : node_progress) {
+    signal.notify();
+  }
+  for (auto& port : ports) {
+    port->tx_room_changed.notify();
+    port->rx_data_changed.notify();
+  }
   for (auto& worker : workers) {
     worker.join();
   }
