@@ -21,6 +21,7 @@
 /srsRAN_4G/
 /srsran_4g/
 /results/
+/validation/
 /artifacts/
 /datasets/
 /tmp/
@@ -33,9 +34,15 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 *.py[cod]
-# Deliberately published report logs are source evidence.
+# Existing report logs remain available for historical documentation builds.
 + /docs/reports/**/*.log
 *.log
+*.log.gz
 *.pcap
 *.pcapng
+*.trace
+*.trace.gz
+*.jsonl.gz
+*.cf32
+*.wire
 .DS_Store

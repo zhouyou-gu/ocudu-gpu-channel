@@ -23,12 +23,19 @@ LICENSE
 
 # Run artifacts / generated data
 results
+validation
 artifacts
 datasets
 tmp
 *.log
+*.log.gz
 *.pcap
 *.pcapng
+*.trace
+*.trace.gz
+*.jsonl.gz
+*.cf32
+*.wire
 
 # Local tooling and editor/OS noise
 .agents

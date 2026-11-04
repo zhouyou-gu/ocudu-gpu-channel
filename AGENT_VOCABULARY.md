@@ -31,6 +31,8 @@ Format: one entry per line, `Word: short description.`
 - window: consecutive samples selected by their starting position and count.
 - CPU: the computer's main processor for running program instructions.
 - GPU: a processor that runs many calculations at the same time.
+- discrete GPU architecture: a computer design in which the CPU and GPU use separate physical memories.
+- unified memory architecture: a computer design in which the CPU and GPU share the same physical memory.
 - CUDA: NVIDIA's software for running calculations on its GPUs.
 - thread: a sequence of program instructions that can run alongside other sequences.
 - kernel: a set of program instructions run on the GPU.
@@ -73,10 +75,13 @@ Format: one entry per line, `Word: short description.`
 - producer: a broker thread that selects a common input window and produces the IQ streams for a radio node's RX ports.
 - REP worker: a broker thread that answers an RX port's requests using samples already written to its ring.
 - pacing: control of sample release times to match the sample rate.
+- look-ahead margin: the maximum processed IQ samples held ready for RX-port requests, measured as represented signal time.
+- catch-up margin: the maximum accumulated delay that pacing may recover by releasing samples without waiting.
 - latency: elapsed time from a stated input event to its corresponding output event.
 - deadline: the latest time a stated operation may finish.
 - starvation: a wait for required samples that lasts beyond the stated limit.
 - overflow: an attempt to put more data into a buffer than it has room to hold.
+- underflow: an attempt to read more data from a buffer than it holds.
 
 ## Adjectives
 

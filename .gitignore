@@ -9,13 +9,20 @@
 
 # Generated run artifacts.
 /results/
+/validation/
 /artifacts/
 /datasets/
 /tmp/
 *.log
-!/docs/reports/**/*.log
+*.log.gz
 *.pcap
 *.pcapng
+*.trace
+*.trace.gz
+*.jsonl.gz
+*.jsonl
+*.cf32
+*.wire
 
 # External source checkouts kept outside the tracked project.
 /ocudu/

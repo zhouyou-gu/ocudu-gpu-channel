@@ -13,7 +13,7 @@ across multi-gNB, multi-UE and multi-antenna topologies. Processing targets
 
 Read the [documentation](https://zhouyou-gu.github.io/ocudu-gpu-channel/) ([Markdown source](docs/README.md)). The recommended path is [current status](docs/getting_started/status.md) → [requirements](docs/getting_started/requirements.md) → [installation](docs/getting_started/installation.md) → [first synthetic CUDA run](docs/getting_started/first-run.md).
 
-CUDA channel processing, matrix updates and multi-gNB telemetry are implemented. **Continuous moving two-UE traffic and strict zero-miss real-time qualification remain failed in the recorded live runs.** The status page separates code availability from measured outcomes and links the evidence.
+CUDA channel processing, matrix updates and multi-gNB telemetry are implemented. **Single-cell moving two-UE packet delivery has passed a 600-second run; continuous moving two-cell operation and strict zero-miss real-time qualification remain failed.** The status page separates code availability from measured outcomes and links the evidence.
 
 ## Explore
 

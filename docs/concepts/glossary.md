@@ -35,6 +35,20 @@ The diagrams below name buffers, indices, and struct fields directly from `src/c
 | idx | per-thread / per-sample index (0 … `count` − 1) — every diagram's `idx` is this |
 | sequence number | monotonic `uint64_t` tag on every sample written into a source's IQ ring; used by the broker for cursor co-init and common-window reads |
 
+### Timing and buffer faults
+
+| Term | Meaning |
+|----|----|
+| pacing | control of sample release times to match the sample rate |
+| look-ahead margin | the maximum processed IQ samples held ready for RX-port requests, measured as represented signal time |
+| catch-up margin | the maximum accumulated delay that pacing may recover by releasing samples without waiting |
+| deadline | the latest time a stated operation may finish |
+| starvation | a wait for required samples that lasts beyond the stated limit; the broker counts an input wait after five maximum-batch durations, or 5 ms for a 1 ms maximum batch |
+| overflow | an attempt to put more data into a buffer than it has room to hold |
+| underflow | an attempt to read more data from a buffer than it holds |
+
+A ZMQ radio can wait for samples without reporting a hardware-style underflow. Measure sample progress against wall time as well as checking fault counters; the [live-runtime limitation record](../reports/validation/live-runtime-limitations-20261104.md) distinguishes delivery from timing.
+
 ### Buffers (per RX node — CudaSuperposeState )
 
 | Name | What it holds |

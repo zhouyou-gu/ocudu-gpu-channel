@@ -1,0 +1,121 @@
+{
+  "review_date": "2026-11-04",
+  "project_commit": "c3135a901e92fac30926b773cb590fb2fe649782",
+  "rtx": {
+    "measure_date": "2026-11-03",
+    "cpu": "Intel Core Ultra 9 285K",
+    "gpu": "RTX 5090",
+    "gnb_phy": "CPU",
+    "channel_backend": "CUDA",
+    "cells": 1,
+    "ues": 2,
+    "bandwidth_mhz": 20,
+    "scs_khz": 15,
+    "sample_rate": 23040000,
+    "traffic_seconds": 600,
+    "slots_per_s": 997.4719317706413,
+    "lag_ms": 1516.8379999999888,
+    "scheduled_packets": 3229424,
+    "received_packets": 3229424,
+    "starvations": 72,
+    "overflow": 0,
+    "sequence_gaps": 0,
+    "zmq_errors": 0,
+    "ocudu_commit": "a1916edcdbcd70ba6e0af47ee87be061dad5a4e4",
+    "ue_commit": "eea87b1d893ae58e0b08bc381730c502024ae71f"
+  },
+  "transport_trace": {
+    "measure_date": "2026-11-03",
+    "traffic_seconds": 30,
+    "slot_gap_ms": 5.166,
+    "io_ready_wait_ms": 4.155,
+    "phy_receive_ms": 4.865,
+    "thread": "ZMQbg/IO/0",
+    "io_policy": "SCHED_OTHER",
+    "phy_policy": "SCHED_FIFO priority 10",
+    "causal_chain": {
+      "slot_thread": 657422,
+      "phy_thread": 657424,
+      "radio_thread": 657425,
+      "io_thread": 657465,
+      "slot_gap_begin_ns": 437765323944000,
+      "slot_gap_end_ns": 437765329110000,
+      "rx_begin_ns": 437765324025000,
+      "rx_end_ns": 437765328890000,
+      "io_epoll_begin_ns": 437765324282000,
+      "io_wakeup_ns": 437765324660000,
+      "io_schedule_in_ns": 437765328815000,
+      "io_payload_read_end_ns": 437765328829000,
+      "cpu_occupants": [
+        {
+          "comm": "manager_node",
+          "tid": 439891,
+          "begin_ns": 437765324660000,
+          "end_ns": 437765328003000
+        },
+        {
+          "comm": "python",
+          "tid": 234577,
+          "begin_ns": 437765328003000,
+          "end_ns": 437765328815000
+        }
+      ]
+    },
+    "scope": "A captured remaining blocker; not an exhaustive attribution of all drift."
+  },
+  "spark": {
+    "measure_date": "2026-11-04",
+    "cpu_gpu": "DGX Spark GB10",
+    "gnb_phy": "CPU",
+    "ue_phy": "CPU",
+    "channel_backend": "CUDA",
+    "channel": "precomputed moving SUTD replay",
+    "cells": 1,
+    "bandwidth_mhz": 20,
+    "runner_commit": "364391bccd3abd5fb73946e50c3a4c95ce649551",
+    "rows": [
+      {
+        "ues": 1,
+        "original": "996\u2013999",
+        "expanded": "Not tested"
+      },
+      {
+        "ues": 2,
+        "original": "997\u2013998",
+        "expanded": "Not tested"
+      },
+      {
+        "ues": 4,
+        "original": "997",
+        "expanded": "Not tested"
+      },
+      {
+        "ues": 8,
+        "original": "714\u2013727",
+        "expanded": "855\u2013858"
+      },
+      {
+        "ues": 16,
+        "original": "300\u2013323",
+        "expanded": "455\u2013469"
+      }
+    ],
+    "all_tested_counts_strict_realtime": false,
+    "results_source_sha256": "61e844bf98e03c4c4d903e1b3ac43f5f58b860db4ff94c421ae4488896684faf",
+    "slide_data_source_sha256": "6bc2760c1bed60209e4375d9f212566e7ccaf1d635da57a3fefdf4e136876e6c"
+  },
+  "archive": {
+    "name": "experiments-and-scratch.tar.gz",
+    "sha256": "c8b82406bb8bbd26f2a65b043f5f7788eccfe7b5fbfc5865416e7d015a1a64f9",
+    "files": 263,
+    "manifest_sha256": "95a4592329614873ed7ae3283905619466d766cd2f5ca8812413071b6fe3c14d",
+    "storage": "Local Git-excluded cleanup backup and remote validation/runtime-cleanup-20261104; no raw logs are published."
+  },
+  "limitations": [
+    "Sustained 1000 slots/s with zero starvation is not qualified.",
+    "Successful packet delivery and zero overflow do not establish timing.",
+    "PHY priority and display separation leave normal-priority transport vulnerable to CPU contention.",
+    "Larger catch-up margins have inconsistent latency and loss outcomes; production defaults unchanged.",
+    "CPU-only radio stacks, channel processing and GPU PHY contributor routes have separate measured scopes."
+  ]
+}

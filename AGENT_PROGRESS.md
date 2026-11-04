@@ -4,11 +4,13 @@
 
 ## Current Objective
 
-The profile-activation fix is validated on RTX 5090. Git records the implementation, regression tests and validation report's delivery revision and publication state.
+Provide the running Spark live Sionna demo until 09:35:38 SGT on 2026-11-04, with automatic shutdown. One gNB and two moving UEs started successfully; the pedestrian subsequently lost coverage along its route.
 
 ## Repository State
 
-- Local presentation artifacts remain in ignored `slides/`; the directory is also excluded from uploads and Docker builds. Vocabulary review is complete, with 80 definitions and six unresolved wording or protected-name records.
+- Local presentation artifacts remain in ignored `slides/`; the directory is also excluded from uploads and Docker builds. Vocabulary contains 88 definitions, including look-ahead and catch-up margins, and six unresolved wording or protected-name records.
+
+- The [runtime limitation record](docs/reports/validation/live-runtime-limitations-20261104.md) consolidates RTX timing and Spark CPU-radio capacity findings. Strict real-time qualification remains failed; no experimental scheduling or pacing settings were promoted to production.
 
 - README contributor credits include Quanlong Zhao; Markdown rendering and whitespace checks passed on RTX.
 
@@ -36,7 +38,7 @@ The profile-activation fix is validated on RTX 5090. Git records the implementat
 - Rank-1 2×1/4×1 DL MISO and 1×2/1×4 UL SIMO work through the CUDA broker with a one-port srsUE. Synthetic captures prove multi-branch computation; the tested live DL radiates only gNB port 0, so live DL evidence is a scalar check.
 - Identical and gain/phase-only matrix updates preserve CPU/CUDA history. Delay/layout changes reset history and warmup. Control delays are limited to 1023 samples with a 1031-sample device ring; dynamic CUDA matrices require the device-channel route.
 - Sionna RT integration and one multi-gNB dashboard are merged. Delivery freshness uses two seconds; scheduler freshness remains five seconds. Connected, stale, empty and disconnected feeds are distinct.
-- **Continuous moving two-UE traffic and strict zero-miss real-time qualification remain failed.** Stationary connectivity and bounded fresh-attachment recovery pass only in the documented configurations.
+- **Continuous moving two-gNB/two-UE traffic and strict zero-miss real-time qualification remain failed.** The 2026-11-03 single-cell/two-UE moving run delivered every packet over 600 seconds while accumulating 1.517 seconds of radio-time lag.
 - Geometry changes are not seamless; full NR RLM, seamless handover and same-PRB MU-MIMO remain unqualified. OAI rank-2 gates and contributor evidence are now merged; srsUE remains rank-1, and live OAI trials were not repeated during integration.
 - CMX500/X310 bridge tools and contributor attachment evidence are merged, but uplink timing remains late and IP traffic untested. Optional `RU-lite` remains unimplemented; corrected static two-cell connectivity passes while strict real-time qualification remains failed.
 - Attached fractional-TDL hardware claims still require a common guard or a validated streaming filter: the centered eight-tap filter can zero-fill up to three future samples at block boundaries. Burst operation and X310-absolute updates need finite-tail, off-air advance and update interfaces.
@@ -47,6 +49,8 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 
 | Scope / revision | Recorded result | Limit |
 |---|---|---|
+| Live margin comparison, 2026-11-03, isolated `c3135a9` prototype | 600-second default/fixed/dynamic lag: 21.982/10.010/17.967 s; 1 ms output peaks and zero detected overflow/gap/ZMQ errors; 13/13 tests in six builds/runs | Shared-host activity varied; fixed bulk p99 175.8 ms versus default 30.0 ms; 20-second four-port traffic passed, with three silent-UL capture failures; [report](docs/reports/validation/live-runtime-limitations-20261104.md) |
+| Live slot timing, 2026-11-03, `c3135a9` | 600-second baseline: 997.472 slots/s, all 3,229,424 packets delivered; 300-second boundary diagnostic; both builds pass 13/13 RTX tests | Zero overflow/gaps/ZMQ errors; 72 baseline lifetime starvations fail strict real-time qualification; [report](docs/reports/validation/live-runtime-limitations-20261104.md) |
 | Project review, 2026-10-16 | CPU/CUDA 13/13 each; GPU 9/9; 221 Python tests; frontend, six browser views, 99 shell scripts and strict documentation checks passed | Three Python skips; no new live-radio, hardware or Docker qualification; [report](docs/reports/validation/project-review-20261016.md) |
 | Full validation, 2026-10-09 | CPU/CUDA 12/12 each; GPU 9/9; 222 Python tests; frontend, Docker, packaging, documentation and five live connectivity configurations passed | Live runs recorded 2–11 starvations; OAI/CMX/GB10/Orin untested; [report](docs/reports/validation/full-validation-20261009.md) |
 | Text cleanup, 2026-10-09 | Strict build; 114 fragment routes, 71 evidence files, 22 diagrams, 18 browser views; 23 tests and 19 subtests passed | Exactly 26 evidence path fields normalized; measurements preserved; existing commits unchanged |
@@ -64,6 +68,122 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Cleanup publication — 2026-11-04
+
+- The authorized main publication contains compact limitation/status records and artifact-exclusion rules; detailed evidence remains outside Git. RTX documentation, five focused checks and 17 ignore cases passed; Git refs identify the delivery revision and remote state.
+
+### Runtime cleanup and status review — 2026-11-04
+
+- Archived and hash-verified five timing bundles and temporary helpers outside tracked source; removed 263 files from the working tree. Retained one compact limitation report and numeric summary, preserving separate Spark presentation/demo work.
+- Removed the report-log Git exception and ignored new logs, JSONL streams, raw traces and IQ captures. Updated README/status to distinguish successful single-cell delivery from failed real-time/two-cell qualification.
+- RTX checks passed archive integrity for 263 files, 17 ignore cases, five publication/upload checks and strict documentation: 122 pages, 19,136 links, zero errors. No radio qualification test was repeated.
+
+### Spark demo preparation — 2026-11-04
+
+- Live demo runs in Spark’s `ocudu-minwoo`, stamp `20261104T012811Z`; dashboard is http://127.0.0.1:18092/. Viewing ends automatically at 09:35:38 SGT; owned supervisor and tunnel read matching deadline markers.
+- Both UEs established PDU sessions and passed initial traffic; pedestrian coverage later failed with zero traced rays. Car traffic continues; a 24-second sample measured approximately 998.1 nominal slots/s with timing misses.
+- Corrected receive-sleep placement in generated ZMQ device arguments and stopped the failed attempt. The SUTD mesh renders in the live browser; existing containers and older dashboards are preserved.
+- User chose live ray tracing and five minutes of viewing. First launch reached live Sionna updates and the dashboard, but both UEs rejected `rf.rx_sleep`; the receive-sleep setting belongs in ZMQ device arguments, and the failed attempt is being stopped.
+- User selected moving SUTD users with one base station, two software UEs and live traffic. The existing Spark capacity-runner setup is present; two old dashboard processes remain and will be preserved.
+- Confirmed Spark SSH access, a sampled GB10 GPU utilization of 0%, and four existing running containers. Reviewed the available demo launchers and requested the user’s demo choice before launch.
+
+### Spark presentation benchmarks — 2026-11-03
+
+- Rounded the three final-table values above 99% to “~100%” as requested. Exact values and the strict real-time qualification remain in notes; version 80 was visually checked.
+- Removed the final table’s strict real-time result column at the user’s request and expanded the two speed columns. The percentage values and 100% target remain; version 79 was visually checked.
+- Replaced the final slide’s raw slots/s table with audited percentages of real-time speed and explicit FAIL verdicts. Defined the 100% target, retained raw rates and CPU IDs in notes, and visually verified the editable table at version 77.
+- Added the official SUTD logo at the title page’s top-right corner, preserving its proportions. Saved version 75, cited the university’s asset in the notes, and visually checked placement.
+- Replaced the title-page QR code and caption with the project README website. The page returns HTTP 200, and independent decoding of the source, 250-pixel image and saved slide confirms the exact requested URL.
+- Made the title-page contributors line bold to match the project and steering leads. Saved version 56 and visually checked the line’s fit.
+- Changed the title-page subtitle to “Report on Unified Memory Architectures.” Saved version 55 and visually verified that the text fits on one line.
+- Updated the cover to “OCUDU GPU CHANNEL — Unified Memory Architectures,” removing the discrete GPU wording. Visually checked the single-line subtitle and preserved the five-slide content.
+- Added a title page using the old deck’s final-page team, roles, contacts, project icon and original GitHub QR code. Reviewed the five-slide deck, preserved existing slide order and measurements, and updated page numbers and internal notes.
+- Reworded page 4’s bottleneck sentence to “srsUE processing, radio transport and CPU scheduling limit UE scaling.” Saved the live deck at version 44 and visually checked the line’s fit.
+- Clarified page 3’s visible subtitle as channel emulation only with synthetic IQ sources. Speaker notes explicitly exclude OCUDU/srsUE execution; the chart values and live-stack results remain unchanged.
+- Verified all 949 exported evidence files against their hashes and confirmed the saved slide table matches the audited clock data. All owned radio processes and monitors are stopped; four pre-existing containers remain running.
+- Completed 15 retained Spark cold runs and audited gNB/every-UE clocks ([evidence](slides/spark-20261103/capacity-20261104/RESULTS.md)). No tested count met 1000 slots/s; matched CPU-access controls identify substantial UE CPU pressure alongside radio transport/scheduling overhead.
+- Replaced page 4’s expected limitation with measured all-radio rates, explicit failed real-time qualification and the next step of GPU physical-layer integration. Reviewed the native table and preserved the other three slides and their benchmark data.
+- Completed ten fresh Spark runs at 1/2/4/8/16 UEs; original-allocation gNB progress falls sharply beyond four UEs. An unmatched-trace control was excluded; exact-input CPU-allocation controls, per-UE clock audits and a radio-response diagnostic remain active.
+- Started the user-requested fresh Spark one-gNB capacity investigation at 20 MHz with CPU OCUDU and srsUE. Existing GPU-PHY results are historical context only; the new sweep will measure radio progress and per-component CPU work in isolated sessions.
+- Added page 4 on OCUDU/srsUE CPU execution as Spark’s expected scaling bottleneck. The slide distinguishes synthetic channel latency from live-stack capacity and states that Spark’s UE/gNB limit remains unmeasured; layout and numbering were reviewed.
+- Clarified page 3 with a wider chart, larger axis/legend text, explicit Spark copy-control labeling and one 64-stream takeaway. Reviewed the render and retained every measured point, CPU/GPU model, protocol detail and maximum-latency qualification.
+- Removed pages 2 and 3, the discrete GPU architecture and synchronization diagrams, at the user’s request. Renumbered the three remaining slides: Spark architecture, matched benchmark setup and channel-processing latency results.
+- Added page 2 for the workstation’s discrete GPU architecture, matching page 1’s CPU, memory and GPU positions. The five-slide deck shows separate device IQ buffers and PCIe copies; renders and page numbering were verified.
+- Renamed the saved presentation to “OCUDU GPU Channel — Discrete GPU and Unified Memory Architectures” and verified the title by readback. The existing presentation identity and four slides are preserved.
+- Removed slide 2, the combined memory explanation and IQ-flow diagram, at the user’s request. Renumbered the remaining four slides; architecture, synchronization, benchmark setup and matched latency results remain.
+- Consolidated overlapping slides 2–3 into one unified memory architecture and IQ-flow explanation, preserving the 128 GB label, transport note and source qualifications. The five-slide deck retains the matched latency chart and consistent block placement.
+- Aligned slides 1–3 to identical CPU-left, shared-memory-center and GPU-right regions, with matching input/output buffer positions and straight IQ paths. Reviewed all three renders and verified block geometry; the other slides and benchmark results are unchanged.
+- Standardized architecture names across slide text, chart legends and speaker notes to “discrete GPU architecture” and “unified memory architecture.” Reviewed the affected renders; CPU/GPU model labels and benchmark values are preserved.
+- Added Intel Core Ultra 9 285K alongside RTX 5090 in the benchmark setup, chart legend, callout and measurement caption. Reviewed both affected slide renders; raw measurements are unchanged.
+- Removed slide 7, the TDL-A latency chart, at the user’s request. The six-slide presentation retains the shared-memory diagrams and stream-scaling chart; raw TDL-A benchmark evidence is preserved.
+- Standardized all 21 Spark diagram connector segments to 3 px with matching large triangle arrowheads and consistent input/output label styling. All four rendered diagrams were reviewed; slide order and benchmark charts are unchanged.
+- Matched arrows on the four Spark diagram slides to the reference deck: native 3–4 px connectors, large triangle heads, teal input and navy output. Cleared labels and corrected routing; reviewed all four renders without changing benchmark charts.
+- Removed the Spark presentation’s title slide at the user’s request and renumbered the remaining seven slides. The deck now opens with the Spark system architecture; measured results are unchanged.
+- Created a separate eight-slide Spark presentation with shared-memory diagrams and two editable charts matching the reference style. Every slide was rendered and reviewed; chart values match audited results, with saved-deck identifiers in `slides/spark-20261103/presentation.json`.
+- Defined discrete GPU architecture and unified memory architecture in the vocabulary using NVIDIA’s terminology; recorded the requested platform-benchmark exception in the harness.
+- Completed 48 matched Spark trials plus 16 warmups at the archived RTX benchmark revision. All 12 checks, 633 source hashes and result-hash audits passed; no foreign GPU client was observed. Evidence: `slides/spark-20261103/evidence/`.
+- Built the archived RTX benchmark revision for Spark in an isolated container. Stopped the active demo process group at the user’s instruction; four existing containers remain running, and the temporary benchmark container and monitors have exited.
+
+### Remaining OCUDU slot delay — 2026-11-03
+
+- A 30-second isolated/FIFO trace captured 5.166/5.417/5.439 ms scheduler-entry gaps. The normal-priority gNB ZMQ I/O thread waited 4.157/2.893/1.537 ms runnable while PHY receive calls waited 4.865/5.158/5.133 ms for IQ.
+- The first gap’s dominant 4.155 ms dispatch wait overlapped background manager/Python work; the second included 2.886 ms of competing radio polling. All 160,963 packets arrived, with zero overflow/gaps/ZMQ errors and 38 lifetime starvations remaining.
+- Corrected executable-probe append mode and namespace-relative process discovery; two aborted starts are excluded. Restored host settings and removed owned probes/instances, preserving 14 other containers; pruned 1.28 GB while retaining 0.75 MB of selected traces.
+- Added the [remaining-delay report](docs/reports/validation/live-runtime-limitations-20261104.md), direct-entry continuity, selected kernel events and causal timeline. Evidence checks passed; strict documentation validated 126 pages and 19,979 links without errors.
+
+### Short OCUDU CPU separation — 2026-11-03
+
+- A 60-second same-process FIFO comparison improved 984.237→992.230 slots/s after excluding CPU 0 and separating unbound kernel work. IRQ discovery read a container-masked file and was corrected before a separate 30-second follow-up.
+- The follow-up verified all 13 gNB threads excluded CPU 0 and captured display work stayed on CPUs 0/22. It achieved 981.943 slots/s with all 160,963 packets delivered, zero detected overflow and remaining starvation; improvement is inconsistent.
+- Restored original workqueue and requested/effective IRQ affinities, normal PHY priority, and stopped both diagnostic containers. Preserved 14 other running containers; pruned 15 completed-run files, freeing 2.85 GB while retaining under 1 MB of placement traces.
+- Added the [CPU-separation report](docs/reports/validation/live-runtime-limitations-20261104.md), applied phases, independent SFN/IQ timing, placement evidence and restoration checks. Evidence checks passed; strict documentation validated 125 pages and 19,807 links without errors.
+
+### OCUDU wake-up investigation — 2026-11-03
+
+- Confirmed old benchmark logs occupy 167 GB and selected only completed runs from this investigation for cleanup. A dedicated tracing container can access isolated kernel tracing instances; host scheduling statistics remain disabled and global tracing settings are unchanged.
+- Removed 205 old bulk log, packet-capture and trace files from completed timing runs, freeing 94.94 GB of disk blocks. Compact results, configurations, sources and CTest logs remain; deletion paths and sizes are recorded in the cleanup manifest.
+- Reproduced three 1 µs sleeps lasting 5.664/9.723/6.224 ms: timers fired after 52–54 µs, then the runnable PHY thread waited 5.609/9.670/6.169 ms. OCUDU's sequential ZMQ source explicitly selects normal priority; the reversible test confirmed its impact.
+
+- Renamed the local SSH key pair to `spark-hardware-in-loop` and updated SSH/project configuration references. Passwordless login through the existing `spark-17a4` alias passed.
+
+- Reversible normal/FIFO/normal/FIFO phases measured 966.990/985.809/968.555/988.262 slots/s, with 461/0/606/1 sleeps exceeding 1 ms. All 963,222 packets arrived; 189 starvations remain, so real-time qualification still fails.
+- Live FIFO tracing captured residual 6.28 ms kernel-worker delays; a separate 60-second probe directly identified Intel display power-resume `intel_dmc_load_program` inside `output_poll_execute`. Earlier unstacked live callback identity remains inferred.
+- Completed cleanup freed another 12.07 GB, totaling 107.01 GB; retained kernel captures total 20.68 MB. Both diagnostic containers are stopped, the owned trace instance removed, and 14 other running containers preserved.
+- Added the [wake-up report](docs/reports/validation/live-runtime-limitations-20261104.md), selected events, phase calculations, source evidence and cleanup manifests. Remote CTest passed 13/13; strict documentation passed 124 pages and 19,639 links without errors.
+
+### Additional SSH connection — 2026-11-03
+
+- Added an additional Spark SSH connection to ignored `.config`; passwordless authentication passed using the configured key. Existing remote defaults are preserved.
+
+### Look-ahead and catch-up experiment — 2026-11-03
+
+- Confirmed that production source remains at `c3135a9`; prior investigation documents are pending local edits. Preparing an isolated prototype and fresh matched baseline; the existing additional container remains active and will be preserved.
+- Prepared an isolated opt-in prototype for 1–4 batch output bounds and catch-up debt, including request-gated dynamic debt. Default behavior and the 5 ms starvation threshold are retained; all 13 RTX tests pass.
+- The first 60-second control measured 995.625 slots/s with no detected overflow, gaps or ZMQ errors. The sequential scout matrix is running under `validation/scheduler-20261013/margin-20261103/`; no production runtime files were changed.
+- Short runs measured 995.685 slots/s with 2 ms look-ahead alone, 998.725 with 2 ms catch-up alone, and 999.319 with both. All retained starvation events; four-port gates and three 600-second comparisons are queued after the scout matrix.
+- Defined look-ahead and catch-up margins in the vocabulary and public glossary. OCUDU source confirms requests do not check internal free buffer space, so request-gated experiments retain a catch-up cap; production defaults remain unchanged.
+- Fixed 4 ms catch-up with 1 ms buffering measured 999.742 slots/s over 60 seconds, outperforming the dynamic request gate's 996.768. Selected fixed, dynamic and default settings for 600-second comparisons; matching four-port checks retain their fixed 20-second duration.
+- Four-port controls attached, passed traffic and advanced every port without detected overflow. The initial matrix checker lacked NumPy; checking the preserved default capture found silent UL input, so independent live UL matrix qualification remains failed.
+- The fixed-cap long run accumulated 1.38 seconds of lag in 96 observed seconds despite its strong short result. Started a read-only host-side observer; corrected the earlier report's process-observation scope because container observations cannot exclude external work.
+- Completed fixed 4 ms catch-up over 600 seconds: 983.317 slots/s, 10.010 seconds lag, 2,175 starvations and nine missing packets among 3,229,424 scheduled. Overflow/gaps/ZMQ errors were zero; dynamic and default comparisons continue.
+- Completed dynamic request-gated catch-up over 600 seconds: 970.055 slots/s, 17.967 seconds lag and all 3,229,424 packets received. Lifetime starvations were 2,113; overflow/gaps/ZMQ errors were zero, and the final default control is running.
+- Completed the 600-second default control: 963.364 slots/s, 21.982 seconds lag and one missing packet. Fixed 4 ms catch-up recorded 54.5% less lag but higher bulk packet delay and nine missing packets; shared-host activity limits attribution.
+- Collected the report, plot, patch and bounded evidence locally under `docs/reports/experiments/slot-margin-20261103/`. All five four-port traffic checks advanced without detected overflow; only the both-2-ms and dynamic captures passed the nonzero UL matrix check.
+- Stopped the experiment container and host observers; thirteen original containers remain running. Another original container had already exited at 06:30:33 UTC before cleanup; no unrelated container was stopped or restarted by this experiment.
+- Verified unchanged raw measurements for eleven runs, all six 13-test logs and 87 artifact hashes. RTX strict Sphinx and publication checks passed: 123 pages, 19,465 links and zero errors; the final figure is visually checked.
+
+### Long-run live timing investigation — 2026-11-03
+
+- Confirmed the RTX GPU is idle and no radio test processes are running; existing services remain active. Preparing an isolated current-source experiment using the previously provisioned, pinned OCUDU/srsUE native workspace.
+- Started a 600-second moving-channel run with one OCUDU gNB, two srsUEs and the CUDA broker; all 13 build checks and initial connectivity passed. At 219 observed seconds, gNB progress is 997.815 slots/s with no overflow or sample gaps.
+- Completed the 600-second baseline: 997.472 slots/s and 1.517 seconds of radio lag; all 3,229,424 packets arrived. Broker lifetime counters report 72 input starvations and zero overflow/gap/ZMQ errors; the 300-second traced diagnostic is starting.
+- Excluded diagnostic attempt `20261103T052247Z`: observer-preloaded Sionna crashed before IQ or traffic; the broker processed zero samples. Confined the observer to broker/gNB/srsUE processes and restarted, preserving failed artifacts.
+- Excluded startup attempt `20261103T052439Z`: the linker dropped the observer's ZMQ dependency, causing srsUE constructor exit 119. Explicit linking changes the startup probe from 119 to zero; payload checks pass and a fresh diagnostic is starting.
+- Completed the traced run: exact pacing accounting explains 1.993 seconds of lag, with 98.423% of discarded catch-up time in wait-dominated iterations. Resolved a 1 µs PHY-worker sleep lasting 10.512 ms; the initiating OS/driver cause remains open.
+- Added the long-run timing report, plot, bounded measurement summaries and reproducible observers; production runtime code is unchanged. RTX strict Sphinx and publication checks passed: 122 pages, 19,041 links and zero errors.
+- Defined underflow alongside starvation and overflow in the vocabulary and public glossary, linking the measured distinction. Restored the validation-index link to the existing profile-activation report after strict Sphinx detected its orphaned page.
+- Stopped the dedicated experiment container and verified that all 13 pre-existing containers remain active; another container was present at cleanup. Raw runtime logs, traces and failed observer attempts are preserved on RTX.
 
 - Prepared the validated profile-activation fix, regression coverage and validation report for the user-requested commit and push to main. RTX CPU/CUDA suites passed 13/13 each and GPU sequence 9/9; no implementation changes followed validation.
 
@@ -277,6 +397,8 @@ Reports: [integration guide](docs/history/milestones/sionna-integration-20260914
 
 Remote evidence roots below are under `~/ocudu-gpu-channel-workspace/`:
 
+- `validation/runtime-cleanup-20261104/`: hash-verified archive of the five timing bundles and temporary helpers, compact limitation evidence, and cleanup checks; local backup is `.git/cleanup-backups/runtime-20261104/`.
+
 - `validation/full-20261009/`: source snapshots, full test matrix, before/after launcher regressions, live radio reports, scene/dashboard checks, packaging and publication artifacts, namespace/fixture provenance and container-preservation checks.
 
 - `validation/text-redaction-20261009/`: sanitized artifact, scan results, browser review, regression logs and original/derivative comparisons; private originals are also retained locally in `.git/text-redaction-backups/20261009/`.
@@ -300,4 +422,4 @@ Historical ledgers:
 
 ## Next Resume Point
 
-No further implementation work is queued after the profile-activation delivery. Strict zero-starvation qualification remains failed, with IQ handoff pauses and full-RLC-queue packet drops recorded in the existing scheduler reports.
+After 09:35:38 SGT on 2026-11-04, verify demo shutdown through `/workspace/codex-sutd-demo-20261104/state.json` in Spark container `ocudu-minwoo` and tunnel cleanup. Local evidence is `validation/spark-live-demo-20261104/`; preserve other services. Report pedestrian coverage failure and timing misses accurately.
