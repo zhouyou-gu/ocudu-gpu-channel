@@ -1,5 +1,6 @@
 #include "ocudu_gpu_channel/cpu_backend.h"
 #include "ocudu_gpu_channel/correlation.h"
+#include "ocudu_gpu_channel/interference_pruning.h"
 #include "ocudu_gpu_channel/delay.h"
 #include <algorithm>
 #include <cmath>
@@ -169,6 +170,10 @@ void CpuChannelProcessor::prepare(const TopologyConfig& config)
     node_by_id.emplace(node.id, &node);
   }
 
+  prune_threshold_db_ = config.runtime.prune_threshold_db;
+  prune_hysteresis_db_ = config.runtime.prune_hysteresis_db;
+  prune_fold_to_awgn_ = config.runtime.prune_fold_to_awgn;
+
   for (const auto& lane : resolved.lanes) {
     const auto* model = find_model(config, lane.model_id);
     auto destination = node_by_id.find(lane.dst_node);
@@ -261,7 +266,8 @@ ocg::PhysicalLinkRuntime* CpuChannelProcessor::apply_chain_to_link(const std::st
                                               const ModelConfig& model,
                                               std::span<const IqSample> input,
                                               std::span<IqSample> output,
-                                              std::uint64_t sample_rate_hz)
+                                              std::uint64_t sample_rate_hz,
+                                              double extra_awgn_noise_power)
 {
   if (output.size() != input.size()) {
     throw std::runtime_error("apply_chain_to_link input and output sizes must match");
@@ -321,6 +327,9 @@ ocg::PhysicalLinkRuntime* CpuChannelProcessor::apply_chain_to_link(const std::st
           const double snr_db = static_cast<double>(state.live.awgn_snr_db);
           noise_power = estimate_average_power(current) /
                         std::pow(10.0, snr_db / 10.0);
+        } else if (extra_awgn_noise_power > 0.0) {
+          noise_power += extra_awgn_noise_power;
+          extra_awgn_noise_power = 0.0;
         }
         const double sigma = std::sqrt(std::max(0.0, noise_power) / 2.0);
         const std::normal_distribution<float>::param_type params(0.0F, static_cast<float>(sigma));
@@ -495,8 +504,9 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
       touched_links.push_back(state.link);
       state.link->fading.begin_slot();
       const LinkSnapOutcome outcome = snap_physical_link(*state.link, lane.link_key, count);
-      if (outcome.values_changed || outcome.profile_activated ||
-          outcome.matrix_profile_activated) {
+      const bool link_changed =
+          outcome.values_changed || outcome.profile_activated || outcome.matrix_profile_activated;
+      if (link_changed) {
         // Everything the snap decided is applied to EVERY lane of this link, in
         // this slot. The values are per lane and the cross-slot rings are per
         // lane, but the decision was the link's, so the sweep is what turns
@@ -530,8 +540,48 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
           }
         }
       }
+      if (prune_threshold_db_.has_value() && (!state.link->prune_initialized || link_changed)) {
+        std::vector<double> row_gain(outputs.size(), 0.0);
+        for (const auto& sibling : inputs) {
+          auto it = states_.find(sibling.link_key);
+          if (it == states_.end() || it->second.link != state.link || sibling.model == nullptr) {
+            continue;
+          }
+          if (sibling.rx_port >= 0 && static_cast<std::size_t>(sibling.rx_port) < row_gain.size()) {
+            row_gain[static_cast<std::size_t>(sibling.rx_port)] +=
+                lane_effective_power_gain(*sibling.model, it->second.live, *state.link,
+                                          it->second.lane_index);
+          }
+        }
+        double max_row_gain = 0.0;
+        for (double g : row_gain) {
+          max_row_gain = std::max(max_row_gain, g);
+        }
+        const double gain_db = power_to_db(max_row_gain);
+        const bool was_active = state.link->prune_active;
+        const bool now_active = evaluate_pruning_active(
+            was_active, state.link->prune_initialized, gain_db, *prune_threshold_db_,
+            prune_hysteresis_db_);
+        const bool reactivated = state.link->prune_initialized && !was_active && now_active;
+        state.link->prune_initialized = true;
+        state.link->prune_active = now_active;
+        state.link->last_effective_gain_db = gain_db;
+        if (reactivated) {
+          for (const auto& sibling : inputs) {
+            auto it = states_.find(sibling.link_key);
+            if (it == states_.end() || it->second.link != state.link) {
+              continue;
+            }
+            for (auto& step : it->second.steps) {
+              std::fill(step.delay_line.begin(), step.delay_line.end(), IqSample{});
+            }
+          }
+        }
+      }
     }
-    refresh_lane_grids(state, *lane.model, count, sample_rate_hz);
+    if (!prune_threshold_db_.has_value() || state.link->prune_active) {
+      refresh_lane_grids(state, *lane.model, count, sample_rate_hz);
+    }
   }
 
   // M3.4 -- the cross-lane step, in the gap M3.3 opened. Every lane of a link
@@ -539,7 +589,9 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   // lane vector has the covariance the topology declared. An iid link returns
   // immediately and its grids are not even read.
   for (auto* link : touched_links) {
-    link->fading.apply_mixing();
+    if (!prune_threshold_db_.has_value() || link->prune_active) {
+      link->fading.apply_mixing();
+    }
   }
 
   // Clocks touched by this slot, each advanced once at the end. Reused across
@@ -558,6 +610,11 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
     }
     touched.push_back(link);
   };
+  for (auto* link : touched_links) {
+    touch(link);
+  }
+  std::size_t active_lanes = 0;
+  std::vector<double> extra_noise_by_row(outputs.size(), 0.0);
   for (const auto& lane : inputs) {
     if (lane.model == nullptr || lane.samples.size() != count) {
       throw std::runtime_error("CPU superposition input is malformed");
@@ -567,6 +624,19 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
       throw std::runtime_error("CPU superposition lane rx_port is out of range: " +
                                lane.link_key);
     }
+    const auto state_it = states_.find(lane.link_key);
+    if (prune_threshold_db_.has_value() && state_it != states_.end() &&
+        state_it->second.link != nullptr && !state_it->second.link->prune_active) {
+      if (prune_fold_to_awgn_) {
+        const double tx_power = estimate_tx_power_subsampled(lane.samples);
+        const double lane_gain = lane_effective_power_gain(
+            *lane.model, state_it->second.live, *state_it->second.link,
+            state_it->second.lane_index);
+        extra_noise_by_row[static_cast<std::size_t>(lane.rx_port)] += tx_power * lane_gain;
+      }
+      continue;
+    }
+    ++active_lanes;
     touch(apply_chain_to_link(lane.link_key, *lane.model, lane.samples, shaped,
                               sample_rate_hz));
     const std::span<IqSample> row = outputs[static_cast<std::size_t>(lane.rx_port)];
@@ -590,7 +660,8 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
         rx_state.live = rx_state.link->live;
       }
       refresh_lane_grids(rx_state, *rx_model, count, sample_rate_hz);
-      touch(apply_chain_to_link(key, *rx_model, summed, row, sample_rate_hz));
+      touch(apply_chain_to_link(key, *rx_model, summed, row, sample_rate_hz,
+                                extra_noise_by_row[static_cast<std::size_t>(r)]));
     }
   }
   // The slot is complete: every lane of a link has now been shaped against the
@@ -599,6 +670,19 @@ void CpuChannelProcessor::process_superposition(const std::string& dst_key,
   // of a link share a time" a property of the code and not of the caller.
   for (auto* link : touched) {
     link->clock.slot_start_samples += count;
+  }
+  double mean_folded_noise = 0.0;
+  for (double extra : extra_noise_by_row) {
+    mean_folded_noise += extra;
+  }
+  if (!extra_noise_by_row.empty()) {
+    mean_folded_noise /= static_cast<double>(extra_noise_by_row.size());
+  }
+  {
+    std::lock_guard<std::mutex> lock(timings_mutex_);
+    last_timings_.active_lanes = active_lanes;
+    last_timings_.total_lanes = inputs.size();
+    last_timings_.folded_noise_power = mean_folded_noise;
   }
 }
 

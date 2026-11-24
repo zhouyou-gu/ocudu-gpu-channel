@@ -181,6 +181,12 @@ struct PhysicalLinkRuntime {
   // v2.2 warmup window. The cross-slot ring it refers to is per LANE, so the
   // zero-fill has to sweep every lane of the link -- see the caller.
   std::uint64_t warmup_until_slot = 0;
+
+  // Interference pruning state, evaluated per physical link at prepare() and
+  // whenever live parameters or profiles change.
+  bool prune_initialized = false;
+  bool prune_active = true;
+  double last_effective_gain_db = 0.0;
 };
 
 // What a slot-boundary snap decided, for the caller to apply to every lane of

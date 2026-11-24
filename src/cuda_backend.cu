@@ -3,6 +3,7 @@
 #include "ocudu_gpu_channel/delay.h"
 #include "ocudu_gpu_channel/correlation.h"
 #include "ocudu_gpu_channel/device_channel.h"
+#include "ocudu_gpu_channel/interference_pruning.h"
 #include "ocudu_gpu_channel/physical_link.h"
 #include "ocudu_gpu_channel/mutable_params.h"
 #include "ocudu_gpu_channel/processing.h"
@@ -406,6 +407,18 @@ struct CudaSuperposeState {
   std::deque<LinkModelState> rx_models;
   std::vector<GpuStep> host_steps;
   std::vector<int> host_step_meta;
+  // Interference pruning compaction tables (allocated only when
+  // runtime.prune_threshold_db is set).
+  std::vector<int> host_active_edges;
+  std::vector<int> host_active_src_index;
+  std::vector<int> host_active_source_first_edge;
+  std::vector<int> host_active_row_begin;
+  std::vector<int> host_active_group_indices;
+  int* device_active_edges = nullptr;
+  int* device_active_src_index = nullptr;
+  int* device_active_row_begin = nullptr;
+  int* device_active_group_indices = nullptr;
+  bool active_layout_dirty = true;
 };
 
 void free_superpose_state(CudaSuperposeState& state)
@@ -416,6 +429,16 @@ void free_superpose_state(CudaSuperposeState& state)
   // freeing so a re-entrant call (re-prepare / dtor) doesn't
   // double-free. Vectors clear themselves; the rx_model is reset by
   // the next init_model_state call when prepare re-fires.
+  if (state.device_active_group_indices != nullptr) { cudaFree(state.device_active_group_indices); state.device_active_group_indices = nullptr; }
+  if (state.device_active_row_begin != nullptr) { cudaFree(state.device_active_row_begin); state.device_active_row_begin = nullptr; }
+  if (state.device_active_src_index != nullptr) { cudaFree(state.device_active_src_index); state.device_active_src_index = nullptr; }
+  if (state.device_active_edges != nullptr) { cudaFree(state.device_active_edges); state.device_active_edges = nullptr; }
+  state.host_active_edges.clear();
+  state.host_active_src_index.clear();
+  state.host_active_source_first_edge.clear();
+  state.host_active_row_begin.clear();
+  state.host_active_group_indices.clear();
+  state.active_layout_dirty = true;
   if (state.d2h_done != nullptr)       { cudaEventDestroy(state.d2h_done);       state.d2h_done = nullptr; }
   if (state.kernel_done != nullptr)    { cudaEventDestroy(state.kernel_done);    state.kernel_done = nullptr; }
   if (state.h2d_done != nullptr)       { cudaEventDestroy(state.h2d_done);       state.h2d_done = nullptr; }
@@ -601,6 +624,9 @@ public:
     device_ = config.runtime.gpu_device;
     zc_parts_ = resolve_zero_copy_parts(resolve_zero_copy(config.runtime.cuda_host_memory, device_), device_);
     stream_priority_ = config.runtime.cuda_stream_priority;
+    prune_threshold_db_ = config.runtime.prune_threshold_db;
+    prune_hysteresis_db_ = config.runtime.prune_hysteresis_db;
+    prune_fold_to_awgn_ = config.runtime.prune_fold_to_awgn;
     {
       const char* multirow = std::getenv("OCG_ZC_MULTIROW_DIRECT");
       zc_multirow_direct_ = multirow == nullptr || std::string(multirow) != "0";
@@ -1011,6 +1037,23 @@ public:
                               sp.stream),
               "cudaMemcpyAsync correlation groups H2D");
       }
+      if (prune_threshold_db_.has_value()) {
+        check(cudaMalloc(reinterpret_cast<void**>(&sp.device_active_edges),
+                         incoming * sizeof(int)),
+              "cudaMalloc superpose active_edges");
+        check(cudaMalloc(reinterpret_cast<void**>(&sp.device_active_src_index),
+                         incoming * sizeof(int)),
+              "cudaMalloc superpose active_src_index");
+        check(cudaMalloc(reinterpret_cast<void**>(&sp.device_active_row_begin),
+                         (sp.rows + 1) * sizeof(int)),
+              "cudaMalloc superpose active_row_begin");
+        if (!groups.empty()) {
+          check(cudaMalloc(reinterpret_cast<void**>(&sp.device_active_group_indices),
+                           groups.size() * sizeof(int)),
+                "cudaMalloc superpose active_group_indices");
+        }
+        sp.active_layout_dirty = true;
+      }
 
       // The initial uploads go on sp.stream, not the legacy default stream.
       // sp.stream is non-blocking, so it is not ordered after legacy-stream
@@ -1111,71 +1154,24 @@ public:
     //       estimate (a small semantic shift from the host path which read
     //       the shaped output; explicit noise_power AWGN is unaffected).
     const int link_count = static_cast<int>(inputs.size());
-    int total_steps = 0;
-    // D4 pack-per-source: walk unique sources once. source_first_edge[s]
-    // identifies the first edge that consumes source s (alphabetical/YAML
-    // order); copying that edge's samples into host_source_iq[s·count]
-    // suffices for every edge sharing source s, because the broker reads
-    // all such edges from the same tx_ring at the same cursor — they
-    // carry identical bytes.
-    //
-    // Z8 direct input skips the pack: the kernels read each source's span in
-    // place through the table, and build_steps reads the same span.
-    const bool direct_in =
-        sp.use_device_channel && sp.zc_direct_in && sp.num_sources <= static_cast<std::size_t>(kDeviceMaxDirectSources);
-    DeviceSourceTable source_table;
-    source_table.base = sp.device_source_iq;
-    source_table.direct = direct_in ? 1 : 0;
-    std::vector<const IqSample*> host_source(sp.num_sources, nullptr);
-    if (sp.use_device_channel) {
-      for (std::size_t s = 0; s < sp.num_sources; ++s) {
-        const int k = sp.source_first_edge[s];
-        if (k < 0 || static_cast<std::size_t>(k) >= inputs.size()) {
-          throw std::runtime_error("CUDA superposition: source_first_edge out of range");
-        }
-        const auto& edge = inputs[static_cast<std::size_t>(k)];
-        if (edge.samples.size() != count) {
-          throw std::runtime_error("CUDA superposition input is malformed");
-        }
-        if (direct_in) {
-          source_table.ptr[s] = edge.samples.data();
-          host_source[s] = edge.samples.data();
-        } else {
-          IqSample* src_slot = sp.host_source_iq + s * count;
-          std::copy(edge.samples.data(), edge.samples.data() + count, src_slot);
-          host_source[s] = src_slot;
-        }
-      }
-    }
-    // M4.2 -- one snap per LINK per slot, before any of its edges is staged.
-    // Running it per edge (as it did) meant a 2x2 link could take a swap in
-    // four different slots, which is two channel matrices in one slot and
-    // neither of them.
+    const bool pruning = prune_threshold_db_.has_value();
+
+    // Validate inputs and snap every touched physical link once per slot
+    // before packing sources, so pruned sources are never copied.
     std::vector<PhysicalLinkRuntime*> touched_links;
     std::vector<LinkSnapOutcome> link_outcomes;
+    std::vector<bool> link_reactivated;
     touched_links.reserve(inputs.size());
     link_outcomes.reserve(inputs.size());
+    link_reactivated.reserve(inputs.size());
     const auto link_index_of = [&](const PhysicalLinkRuntime* link) -> std::size_t {
       for (std::size_t i = 0; i != touched_links.size(); ++i) {
         if (touched_links[i] == link) {
           return i;
         }
       }
-      return touched_links.size(); // unreachable: the pass below inserts every link
+      return touched_links.size();
     };
-    for (const auto& edge : inputs) {
-      auto ls_it = link_slots_.find(edge.link_key);
-      if (ls_it == link_slots_.end() || ls_it->second.model.link == nullptr) {
-        continue;
-      }
-      PhysicalLinkRuntime* link = ls_it->second.model.link;
-      if (link_index_of(link) != touched_links.size()) {
-        continue; // a sibling lane already snapped this link
-      }
-      touched_links.push_back(link);
-      link_outcomes.push_back(snap_physical_link(*link, edge.link_key, count));
-    }
-
     for (std::size_t k = 0; k != inputs.size(); ++k) {
       const auto& edge = inputs[k];
       if (edge.model == nullptr || edge.samples.size() != count) {
@@ -1185,25 +1181,124 @@ public:
         throw std::runtime_error("CUDA superposition model chain exceeds preallocated capacity");
       }
       auto ls_it = link_slots_.find(edge.link_key);
-      if (ls_it == link_slots_.end()) {
+      if (ls_it == link_slots_.end() || ls_it->second.model.link == nullptr) {
         throw std::runtime_error("CUDA link state was not preallocated: " + edge.link_key);
       }
-      // M4.2: the snap already ran ONCE for this edge's link, in the pass above.
-      // What is left here is per-edge work that the link's decision implies:
-      // take the new values, and refresh the device-side derived fields.
-      auto& lms_for_snap = ls_it->second.model;
-      PhysicalLinkRuntime& link = *lms_for_snap.link;
-      const LinkSnapOutcome outcome = link_outcomes[link_index_of(&link)];
-      if (outcome.values_changed) {
-        lms_for_snap.live = link.live;
+      PhysicalLinkRuntime* link = ls_it->second.model.link;
+      std::size_t li = link_index_of(link);
+      if (li == touched_links.size()) {
+        touched_links.push_back(link);
+        link_outcomes.push_back(snap_physical_link(*link, edge.link_key, count));
+        link_reactivated.push_back(false);
+      }
+      if (link_outcomes[li].values_changed) {
+        ls_it->second.model.live = link->live;
+      }
+    }
+
+    if (pruning) {
+      for (std::size_t li = 0; li != touched_links.size(); ++li) {
+        PhysicalLinkRuntime* link = touched_links[li];
+        const LinkSnapOutcome& outcome = link_outcomes[li];
+        const bool link_changed =
+            outcome.values_changed || outcome.profile_activated || outcome.matrix_profile_activated;
+        if (!link->prune_initialized || link_changed) {
+          std::vector<double> row_gain(sp.rows, 0.0);
+          for (std::size_t k = 0; k != inputs.size(); ++k) {
+            auto& slot_model = link_slots_.at(inputs[k].link_key).model;
+            if (slot_model.link != link) {
+              continue;
+            }
+            const int r = inputs[k].rx_port;
+            if (r >= 0 && static_cast<std::size_t>(r) < sp.rows) {
+              row_gain[static_cast<std::size_t>(r)] += lane_effective_power_gain(
+                  *inputs[k].model, slot_model.live, *link, slot_model.lane_index);
+            }
+          }
+          double max_row_gain = 0.0;
+          for (double g : row_gain) {
+            max_row_gain = std::max(max_row_gain, g);
+          }
+          const double gain_db = power_to_db(max_row_gain);
+          const bool was_active = link->prune_active;
+          const bool now_active = evaluate_pruning_active(
+              was_active, link->prune_initialized, gain_db, *prune_threshold_db_,
+              prune_hysteresis_db_);
+          const bool reactivated = link->prune_initialized && !was_active && now_active;
+          if (!link->prune_initialized || was_active != now_active) {
+            sp.active_layout_dirty = true;
+          }
+          link->prune_initialized = true;
+          link->prune_active = now_active;
+          link->last_effective_gain_db = gain_db;
+          link_reactivated[li] = reactivated;
+        }
       }
 
-      // Phase 3 v1-fin-B / v2.0-F3b: when the snap changed tap-0 / LOS params
-      // (v1) or replaced the whole tap layout (v2), refresh the derived fields
-      // the kernel reads from DeviceLinkState. The round-trip is conditional
-      // and the D2H is required: the device owns the cross-slot delay_line, so
-      // an unconditional H2D would clobber that continuity.
-      if (outcome.values_changed && sp.use_device_channel && sp.host_link_states[k].has_tdl) {
+      if (sp.active_layout_dirty) {
+        sp.host_active_edges.clear();
+        sp.host_active_src_index.clear();
+        sp.host_active_source_first_edge.clear();
+        sp.host_active_row_begin.assign(sp.rows + 1, 0);
+        sp.host_active_group_indices.clear();
+        std::vector<int> orig_to_compact(sp.num_sources, -1);
+        for (std::size_t r = 0; r != sp.rows; ++r) {
+          sp.host_active_row_begin[r] = static_cast<int>(sp.host_active_edges.size());
+          for (int k = sp.host_row_begin[r]; k != sp.host_row_begin[r + 1]; ++k) {
+            auto& slot_model = link_slots_.at(inputs[static_cast<std::size_t>(k)].link_key).model;
+            if (!slot_model.link->prune_active) {
+              continue;
+            }
+            const int orig_src = sp.host_link_states[static_cast<std::size_t>(k)].src_index;
+            if (orig_to_compact[static_cast<std::size_t>(orig_src)] < 0) {
+              orig_to_compact[static_cast<std::size_t>(orig_src)] =
+                  static_cast<int>(sp.host_active_source_first_edge.size());
+              sp.host_active_source_first_edge.push_back(k);
+            }
+            sp.host_active_edges.push_back(k);
+            sp.host_active_src_index.push_back(orig_to_compact[static_cast<std::size_t>(orig_src)]);
+          }
+        }
+        sp.host_active_row_begin[sp.rows] = static_cast<int>(sp.host_active_edges.size());
+        for (std::size_t g = 0; g != sp.correlation_group_owner.size(); ++g) {
+          if (sp.correlation_group_owner[g]->prune_active) {
+            sp.host_active_group_indices.push_back(static_cast<int>(g));
+          }
+        }
+        check(cudaMemcpyAsync(sp.device_active_row_begin, sp.host_active_row_begin.data(),
+                              (sp.rows + 1) * sizeof(int), cudaMemcpyHostToDevice, sp.stream),
+              "cudaMemcpyAsync active_row_begin H2D");
+        if (!sp.host_active_edges.empty()) {
+          check(cudaMemcpyAsync(sp.device_active_edges, sp.host_active_edges.data(),
+                                sp.host_active_edges.size() * sizeof(int), cudaMemcpyHostToDevice,
+                                sp.stream),
+                "cudaMemcpyAsync active_edges H2D");
+          check(cudaMemcpyAsync(sp.device_active_src_index, sp.host_active_src_index.data(),
+                                sp.host_active_src_index.size() * sizeof(int), cudaMemcpyHostToDevice,
+                                sp.stream),
+                "cudaMemcpyAsync active_src_index H2D");
+        }
+        if (!sp.host_active_group_indices.empty()) {
+          check(cudaMemcpyAsync(sp.device_active_group_indices, sp.host_active_group_indices.data(),
+                                sp.host_active_group_indices.size() * sizeof(int),
+                                cudaMemcpyHostToDevice, sp.stream),
+                "cudaMemcpyAsync active_group_indices H2D");
+        }
+        sp.active_layout_dirty = false;
+      }
+    }
+
+    // Apply per-edge snap refreshes (device link states, correlation groups,
+    // and host fallback delay-line resets).
+    for (std::size_t k = 0; k != inputs.size(); ++k) {
+      auto& lms_for_snap = link_slots_.at(inputs[k].link_key).model;
+      PhysicalLinkRuntime& link = *lms_for_snap.link;
+      const std::size_t li = link_index_of(&link);
+      const LinkSnapOutcome& outcome = link_outcomes[li];
+      const bool reactivated = link_reactivated[li];
+
+      if ((outcome.values_changed || reactivated) && sp.use_device_channel &&
+          sp.host_link_states[k].has_tdl) {
         DeviceLinkState* d_state = sp.device_link_states + k;
         DeviceLinkState* h_state = &sp.host_link_states[k];
         check(cudaMemcpyAsync(h_state, d_state, sizeof(DeviceLinkState),
@@ -1218,15 +1313,13 @@ public:
             throw std::runtime_error("matrix profile lane index is outside the active matrix");
           }
           const auto& lane_profile = matrix.lanes[lane_index];
-          if (outcome.history_reset_required) {
+          if (outcome.history_reset_required || reactivated) {
             refresh_all_taps_from_live(*h_state, lane_profile.n_taps,
                                        lane_profile.taps);
             for (int i = 0; i < kDeviceMaxDelayLine; ++i) {
               h_state->delay_line[i] = IqSample{};
             }
           } else {
-            // The shared link decision guarantees an unchanged layout. Keep
-            // the device-owned history, its size, and interpolation state.
             for (int tap = 0; tap < lane_profile.n_taps; ++tap) {
               const auto& value = lane_profile.taps[tap];
               h_state->tap_gain_amp[tap] = static_cast<float>(
@@ -1236,28 +1329,28 @@ public:
             }
           }
         } else if (link.live_profile_active) {
-          // v2.0-F3b: all-taps refresh -- the live profile is the canonical
-          // layout for this link.
           refresh_all_taps_from_live(*h_state, link.live_profile.n_taps,
                                      link.live_profile.taps);
-          if (outcome.profile_activated) {
-            // v2.2 W1: zero this lane's cross-slot ring so the new layout does
-            // not convolve with the previous profile's tail. Every lane of the
-            // link reaches this in the SAME slot, because the decision that
-            // brought them here was the link's.
+          if (outcome.profile_activated || reactivated) {
             for (int i = 0; i < kDeviceMaxDelayLine; ++i) {
               h_state->delay_line[i] = IqSample{};
             }
           }
         } else {
           refresh_tap0_from_live(*h_state);
+          if (reactivated) {
+            for (int i = 0; i < kDeviceMaxDelayLine; ++i) {
+              h_state->delay_line[i] = IqSample{};
+            }
+          }
+        }
+        if (reactivated) {
+          h_state->slot_start_samples = link.clock.slot_start_samples;
         }
         check(cudaMemcpyAsync(d_state, h_state, sizeof(DeviceLinkState),
                               cudaMemcpyHostToDevice, sp.stream),
               "snap-refresh H2D");
       }
-      // M4.4: a correlation swap landed for this link, so its device group has
-      // to carry the new factor before this slot's mixing kernel runs.
       if (outcome.correlation_changed) {
         for (std::size_t g = 0; g != sp.correlation_group_owner.size(); ++g) {
           if (sp.correlation_group_owner[g] != &link) {
@@ -1283,64 +1376,101 @@ public:
           break;
         }
       }
-
-      // Host-fallback path keeps its own ring, zeroed on the same slot.
-      if (outcome.profile_activated && !sp.use_device_channel) {
+      if ((outcome.profile_activated || reactivated) && !sp.use_device_channel) {
         std::fill(lms_for_snap.delay_line.begin(), lms_for_snap.delay_line.end(), IqSample{});
       }
+    }
 
-      // M2.3: the device copy of this edge's time is written, not
-      // accumulated, so record where its link's NEXT slot begins. Read before
-      // any clock advance below, so every edge of a link ships the same value.
-      sp.host_next_slot_start[k] =
+    const int active_count = pruning ? static_cast<int>(sp.host_active_edges.size()) : link_count;
+    const std::size_t active_num_sources =
+        pruning ? sp.host_active_source_first_edge.size() : sp.num_sources;
+    const int active_group_count = pruning ? static_cast<int>(sp.host_active_group_indices.size())
+                                           : static_cast<int>(sp.n_correlation_groups);
+
+    // D4 pack-per-source (compacted to active sources when pruning is enabled).
+    const bool direct_in =
+        sp.use_device_channel && sp.zc_direct_in &&
+        active_num_sources <= static_cast<std::size_t>(kDeviceMaxDirectSources);
+    DeviceSourceTable source_table;
+    source_table.base = sp.device_source_iq;
+    source_table.direct = direct_in ? 1 : 0;
+    std::vector<const IqSample*> host_source(active_num_sources, nullptr);
+    if (sp.use_device_channel) {
+      for (std::size_t s = 0; s < active_num_sources; ++s) {
+        const int k = pruning ? sp.host_active_source_first_edge[s] : sp.source_first_edge[s];
+        if (k < 0 || static_cast<std::size_t>(k) >= inputs.size()) {
+          throw std::runtime_error("CUDA superposition: source_first_edge out of range");
+        }
+        const auto& edge = inputs[static_cast<std::size_t>(k)];
+        if (direct_in) {
+          source_table.ptr[s] = edge.samples.data();
+          host_source[s] = edge.samples.data();
+        } else {
+          IqSample* src_slot = sp.host_source_iq + s * count;
+          std::copy(edge.samples.data(), edge.samples.data() + count, src_slot);
+          host_source[s] = src_slot;
+        }
+      }
+    }
+
+    int total_steps = 0;
+    for (int a = 0; a != active_count; ++a) {
+      const int k = pruning ? sp.host_active_edges[static_cast<std::size_t>(a)] : a;
+      const auto& edge = inputs[static_cast<std::size_t>(k)];
+      auto& lms = link_slots_.at(edge.link_key).model;
+      PhysicalLinkRuntime& link = *lms.link;
+      sp.host_next_slot_start[a] =
           link.clock.slot_start_samples + static_cast<unsigned long long>(count);
       if (sp.use_device_channel) {
-        // Device-kernel path: build_steps reads the SHARED source slot for
-        // this edge's snr_db power estimator. Edges sharing a source share
-        // the same raw_slot pointer here — fine because build_steps is
-        // read-only on its input buffer.
-        const int src_idx = sp.host_link_states[k].src_index;
-        build_steps(ls_it->second.model, *edge.model, host_source[static_cast<std::size_t>(src_idx)], count,
+        const int src_idx = pruning ? sp.host_active_src_index[static_cast<std::size_t>(a)]
+                                    : sp.host_link_states[static_cast<std::size_t>(k)].src_index;
+        build_steps(lms, *edge.model, host_source[static_cast<std::size_t>(src_idx)], count,
                     sample_rate_hz);
       } else {
-        // Host stage_link path (legacy).
-        IqSample* slot = sp.host_staged + k * count;
-        stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz,
-                   ls_it->second.model.link->clock.slot_start_samples);
-        build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
+        IqSample* slot = sp.host_staged + static_cast<std::size_t>(a) * count;
+        stage_link(lms, edge.samples.data(), slot, count, sample_rate_hz,
+                   link.clock.slot_start_samples);
+        build_steps(lms, *edge.model, slot, count, sample_rate_hz);
       }
       const int nsteps = static_cast<int>(edge.model->chain.size());
-      sp.host_step_meta[k] = total_steps;                          // offset
-      sp.host_step_meta[static_cast<std::size_t>(link_count) + k] = nsteps; // count
-      std::copy(ls_it->second.model.host_steps.begin(), ls_it->second.model.host_steps.begin() + nsteps,
+      sp.host_step_meta[static_cast<std::size_t>(a)] = total_steps;
+      sp.host_step_meta[static_cast<std::size_t>(active_count) + static_cast<std::size_t>(a)] = nsteps;
+      std::copy(lms.host_steps.begin(), lms.host_steps.begin() + nsteps,
                 sp.host_steps.begin() + total_steps);
       total_steps += nsteps;
     }
 
-    // Every edge of this node has now been staged against its link's slot-start
-    // time, so each link's clock moves on by one slot -- once per link, not
-    // once per lane. A link has a single destination node, so this thread is
-    // its only writer.
-    {
-      // The links touched this slot are exactly the ones the snap pass found.
-      for (auto* link : touched_links) {
-        link->clock.slot_start_samples += count;
+    std::vector<double> extra_noise_by_row(sp.rows, 0.0);
+    if (pruning && prune_fold_to_awgn_) {
+      for (std::size_t k = 0; k != inputs.size(); ++k) {
+        const auto& edge = inputs[k];
+        auto& lms = link_slots_.at(edge.link_key).model;
+        if (lms.link->prune_active) {
+          continue;
+        }
+        const double tx_power = estimate_tx_power_subsampled(edge.samples);
+        const double lane_gain =
+            lane_effective_power_gain(*edge.model, lms.live, *lms.link, lms.lane_index);
+        extra_noise_by_row[static_cast<std::size_t>(edge.rx_port)] += tx_power * lane_gain;
       }
     }
 
-    // Build the receiver model (applied once to the sum). It is a thermal-noise
-    // floor, so its AWGN should use an absolute noise_power -- it is built with
-    // no input signal.
+    // Advance every touched physical link's clock once per slot (including
+    // pruned links, so re-activation stays aligned to the shared time origin).
+    for (auto* link : touched_links) {
+      link->clock.slot_start_samples += count;
+    }
+
+    // Build the receiver model (applied once to the sum).
     int rx_steps = 0;
     const std::size_t rx_stride = sp.rx_step_capacity;
     if (rx_model != nullptr) {
       if (sp.rx_models.empty() || rx_model->chain.size() > sp.rx_models.front().step_capacity) {
         throw std::runtime_error("CUDA superposition rx_model chain exceeds preallocated capacity");
       }
-      // One build per row: each row advances its own CFO phase and AWGN
-      // counters, so they must not share state.
       for (std::size_t r = 0; r != sp.rows; ++r) {
-        build_steps(sp.rx_models[r], *rx_model, nullptr, count, sample_rate_hz);
+        build_steps(sp.rx_models[r], *rx_model, nullptr, count, sample_rate_hz,
+                    extra_noise_by_row[r]);
       }
       rx_steps = static_cast<int>(rx_model->chain.size());
     }
@@ -1349,45 +1479,50 @@ public:
     const auto total_start = std::chrono::steady_clock::now();
 
     check(cudaEventRecord(sp.h2d_start, sp.stream), "cudaEventRecord superpose h2d_start");
-    // Zero-copy: the kernels read the mapped IQ and slot-start buffers in
-    // place, so only the small step metadata below still goes H2D.
     if (!sp.zc_in && sp.use_device_channel) {
-      // Phase 2 D2b + D4: raw IQ H2D into device_source_iq, sized by UNIQUE
-      // source count. The channel kernel reads per-edge via
-      // DeviceLinkState::src_index and writes device_staged. Bytes saved vs
-      // pre-D4 = (link_count - num_sources) * count * 8. Direct input reads
-      // the caller's spans instead, so there is nothing to ship.
-      if (!direct_in) {
+      if (!direct_in && active_num_sources > 0) {
         check(cudaMemcpyAsync(sp.device_source_iq, sp.host_source_iq,
-                              sp.num_sources * sample_bytes,
+                              active_num_sources * sample_bytes,
                               cudaMemcpyHostToDevice, sp.stream),
               "cudaMemcpyAsync superpose source_iq H2D");
       }
-      check(cudaMemcpyAsync(sp.device_next_slot_start, sp.host_next_slot_start,
-                            static_cast<std::size_t>(link_count) * sizeof(unsigned long long),
-                            cudaMemcpyHostToDevice, sp.stream),
-            "cudaMemcpyAsync superpose next_slot_start H2D");
-    } else if (!sp.zc_in) {
+      if (active_count > 0) {
+        check(cudaMemcpyAsync(sp.device_next_slot_start, sp.host_next_slot_start,
+                              static_cast<std::size_t>(active_count) * sizeof(unsigned long long),
+                              cudaMemcpyHostToDevice, sp.stream),
+              "cudaMemcpyAsync superpose next_slot_start H2D");
+      }
+    } else if (!sp.zc_in && active_count > 0) {
       check(cudaMemcpyAsync(sp.device_staged, sp.host_staged,
-                            static_cast<std::size_t>(link_count) * sample_bytes,
+                            static_cast<std::size_t>(active_count) * sample_bytes,
                             cudaMemcpyHostToDevice, sp.stream),
             "cudaMemcpyAsync superpose staged H2D");
     }
     if (sp.zc_meta) {
-      // The previous slot's sync guarantees the GPU is done reading these.
-      std::copy(sp.host_steps.begin(), sp.host_steps.begin() + total_steps, sp.mapped_host_steps);
-      std::copy(sp.host_step_meta.begin(), sp.host_step_meta.begin() + 2 * link_count, sp.mapped_host_step_meta);
+      if (total_steps > 0) {
+        std::copy(sp.host_steps.begin(), sp.host_steps.begin() + total_steps, sp.mapped_host_steps);
+      }
+      if (active_count > 0) {
+        std::copy(sp.host_step_meta.begin(), sp.host_step_meta.begin() + 2 * active_count,
+                  sp.mapped_host_step_meta);
+      }
       for (std::size_t r = 0; rx_steps != 0 && r != sp.rows; ++r) {
         std::copy(sp.rx_models[r].host_steps.begin(), sp.rx_models[r].host_steps.begin() + rx_steps,
                   sp.mapped_host_rx_steps + r * rx_stride);
       }
     } else {
-      check(cudaMemcpyAsync(sp.device_steps, sp.host_steps.data(),
-                            static_cast<std::size_t>(total_steps) * sizeof(GpuStep), cudaMemcpyHostToDevice, sp.stream),
-            "cudaMemcpyAsync superpose steps H2D");
-      check(cudaMemcpyAsync(sp.device_step_meta, sp.host_step_meta.data(),
-                            static_cast<std::size_t>(2 * link_count) * sizeof(int), cudaMemcpyHostToDevice, sp.stream),
-            "cudaMemcpyAsync superpose step meta H2D");
+      if (total_steps > 0) {
+        check(cudaMemcpyAsync(sp.device_steps, sp.host_steps.data(),
+                              static_cast<std::size_t>(total_steps) * sizeof(GpuStep),
+                              cudaMemcpyHostToDevice, sp.stream),
+              "cudaMemcpyAsync superpose steps H2D");
+      }
+      if (active_count > 0) {
+        check(cudaMemcpyAsync(sp.device_step_meta, sp.host_step_meta.data(),
+                              static_cast<std::size_t>(2 * active_count) * sizeof(int),
+                              cudaMemcpyHostToDevice, sp.stream),
+              "cudaMemcpyAsync superpose step meta H2D");
+      }
       if (rx_steps != 0) {
         for (std::size_t r = 0; r != sp.rows; ++r) {
           check(cudaMemcpyAsync(sp.device_rx_steps + r * rx_stride, sp.rx_models[r].host_steps.data(),
@@ -1399,79 +1534,71 @@ public:
     }
     check(cudaEventRecord(sp.h2d_done, sp.stream), "cudaEventRecord superpose h2d_done");
 
-    // Phase 2 D2b: run the per-edge channel on the GPU before superposition.
-    // Writes device_source_iq → device_staged via apply_channel_kernel
-    // (per-edge by DeviceLinkState::src_index), then rolls each link's
-    // delay_line ring forward for cross-slot continuity (mirrors
-    // apply_tdl_step's host post-loop ring update). Launched on sp.stream
-    // so it serialises before superpose_kernel naturally.
-    if (sp.use_device_channel) {
-      // M3.3: generate, then convolve. Same stream, so the ordering is the
-      // dependency -- and M3.4's mixing goes between these two launches.
+    const int* dev_active_edges = pruning ? sp.device_active_edges : nullptr;
+    const int* dev_active_src_index = pruning ? sp.device_active_src_index : nullptr;
+    const int* dev_row_begin = pruning ? sp.device_active_row_begin : sp.device_row_begin;
+    const int* dev_active_groups = pruning ? sp.device_active_group_indices : nullptr;
+
+    if (sp.use_device_channel && active_count > 0) {
       launch_generate_fading_grid_kernel(sp.device_link_states,
                                          sp.device_fading_grid,
-                                         link_count,
+                                         active_count,
                                          static_cast<int>(count),
                                          static_cast<float>(sample_rate_hz),
-                                         sp.stream);
+                                         sp.stream,
+                                         dev_active_edges);
       check(cudaGetLastError(), "generate_fading_grid_kernel launch");
-      if (sp.n_correlation_groups != 0) {
+      if (active_group_count != 0) {
         launch_mix_fading_grid_kernel(sp.device_fading_grid,
                                       sp.device_correlation_groups,
                                       sp.device_link_states,
-                                      static_cast<int>(sp.n_correlation_groups),
+                                      active_group_count,
                                       static_cast<int>(count),
                                       static_cast<float>(sample_rate_hz),
-                                      sp.stream);
+                                      sp.stream,
+                                      dev_active_groups);
         check(cudaGetLastError(), "mix_fading_grid_kernel launch");
       }
       launch_apply_channel_kernel_static(sp.device_link_states,
                                           source_table,
                                           sp.device_fading_grid,
                                           sp.device_staged,
-                                          link_count,
+                                          active_count,
                                           static_cast<int>(count),
                                           static_cast<float>(sample_rate_hz),
-                                          sp.stream);
+                                          sp.stream,
+                                          dev_active_edges,
+                                          dev_active_src_index);
       check(cudaGetLastError(), "apply_channel_kernel launch");
       launch_update_delay_line_kernel(sp.device_link_states,
                                        source_table,
                                        sp.device_next_slot_start,
-                                       link_count,
+                                       active_count,
                                        static_cast<int>(count),
-                                       sp.stream);
+                                       sp.stream,
+                                       dev_active_edges,
+                                       dev_active_src_index);
       check(cudaGetLastError(), "update_delay_line_kernel launch");
     }
 
-    // 256 threads/block is a portable default across the architectures we
-    // target today (sm_80, sm_89, sm_120); the per-sample kernel is fully
-    // memory-bound at any reasonable choice, so this stays a constant rather
-    // than an auto-tuned knob. Revisit when the multi-tap `tdl` kernel lands
-    // and tap-count fan-out changes the register pressure picture.
     constexpr int block_size = 256;
     const dim3 grid(static_cast<unsigned>((count + block_size - 1) / block_size),
                     static_cast<unsigned>(sp.rows));
-    // The host-stage path fills host_staged on the CPU; zero-copy reads it
-    // through its mapping instead of the H2D-filled device_staged.
     const IqSample* staged_in =
         (sp.zc_in && !sp.use_device_channel) ? sp.mapped_staged : sp.device_staged;
-    // zc_direct: the kernels write the caller's rows in place.
     OutputRowTable out_rows;
     if (sp.zc_direct) {
       for (std::size_t r = 0; r != sp.rows; ++r) {
-        out_rows.ptr[r] = outputs[r].data(); // prepare() capped zc_direct at kMaxDirectRows
+        out_rows.ptr[r] = outputs[r].data();
       }
     } else {
       out_rows.base = sp.device_output;
     }
     superpose_kernel<<<grid, block_size, 0, sp.stream>>>(
-        out_rows, count, link_count, static_cast<int>(sp.rows), sp.device_row_begin,
+        out_rows, count, active_count, static_cast<int>(sp.rows), dev_row_begin,
         staged_in, sp.device_steps, sp.device_step_meta);
     check(cudaGetLastError(), "superpose_kernel launch");
     if (rx_steps != 0) {
-      // Receiver model applied in place, once per row against that row's own
-      // chain state. Nr is small, so a launch per row costs less than the
-      // machinery a row-aware variant of this kernel would need.
       const int row_grid = static_cast<int>((count + block_size - 1) / block_size);
       for (std::size_t r = 0; r != sp.rows; ++r) {
         IqSample* row = output_row(out_rows, static_cast<int>(r), count);
@@ -1495,8 +1622,16 @@ public:
       std::copy(row, row + count, outputs[r].begin());
     }
 
+    double mean_folded_noise = 0.0;
+    for (double extra : extra_noise_by_row) {
+      mean_folded_noise += extra;
+    }
+    if (!extra_noise_by_row.empty()) {
+      mean_folded_noise /= static_cast<double>(extra_noise_by_row.size());
+    }
     record_timings(sp.h2d_start, sp.h2d_done, sp.kernel_done, sp.d2h_done, call_start, total_start, out_start,
-                   sp.use_device_channel, sp.zc_in || sp.zc_out || sp.zc_meta || sp.zc_direct_in);
+                   sp.use_device_channel, sp.zc_in || sp.zc_out || sp.zc_meta || sp.zc_direct_in,
+                   static_cast<std::size_t>(active_count), inputs.size(), mean_folded_noise);
   }
 
   ProcessorTimings last_timings() const override
@@ -1533,7 +1668,10 @@ private:
                       std::chrono::steady_clock::time_point total_start,
                       std::chrono::steady_clock::time_point out_start,
                       bool used_device_channel,
-                      bool zero_copy)
+                      bool zero_copy,
+                      std::size_t active_lanes,
+                      std::size_t total_lanes,
+                      double folded_noise_power)
   {
     float h2d_ms = 0.0F;
     float kernel_ms = 0.0F;
@@ -1559,6 +1697,9 @@ private:
     last_timings_.host_prep_us = us(total_start - call_start);
     last_timings_.host_out_us = us(end - out_start);
     last_timings_.call_us = us(end - call_start);
+    last_timings_.active_lanes = active_lanes;
+    last_timings_.total_lanes = total_lanes;
+    last_timings_.folded_noise_power = folded_noise_power;
   }
 
   // Builds a model chain into `ms`, advancing its per-step CFO phase and AWGN
@@ -1568,7 +1709,8 @@ private:
                    const ModelConfig& model,
                    const IqSample* input,
                    std::size_t sample_count,
-                   std::uint64_t sample_rate_hz)
+                   std::uint64_t sample_rate_hz,
+                   double extra_awgn_noise_power = 0.0)
   {
     double running_power = 0.0;
     const bool has_awgn = std::any_of(model.chain.begin(), model.chain.end(),
@@ -1633,6 +1775,9 @@ private:
           if (noise_power < 0.0) {
             const double snr_db = static_cast<double>(ms.live.awgn_snr_db);
             noise_power = running_power / std::pow(10.0, snr_db / 10.0);
+          } else if (extra_awgn_noise_power > 0.0) {
+            noise_power += extra_awgn_noise_power;
+            extra_awgn_noise_power = 0.0;
           }
           noise_power = std::max(0.0, noise_power);
           GpuStep noise_step;
@@ -1660,6 +1805,9 @@ private:
   ZeroCopyParts zc_parts_;
   bool zc_multirow_direct_ = false;
   CudaStreamPriority stream_priority_ = CudaStreamPriority::Default;
+  std::optional<double> prune_threshold_db_;
+  double prune_hysteresis_db_ = 0.0;
+  bool prune_fold_to_awgn_ = false;
   mutable std::mutex timings_mutex_;
   ProcessorTimings last_timings_;
   std::unordered_map<std::string, CudaLinkSlot> link_slots_;

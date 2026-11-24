@@ -124,6 +124,16 @@ struct RuntimeConfig {
   // Sustained recovery above nominal, in parts per million (10000 = 1%).
   // The independently bounded one-batch release credit is unchanged.
   std::size_t pacing_recovery_ppm = 10000;
+  // Opt-in interference pruning: omit incoming physical links whose maximum
+  // per-RX-row effective power gain falls below `prune_threshold_db`. Unset
+  // (std::nullopt) keeps the default full-superposition path bit-identical.
+  std::optional<double> prune_threshold_db;
+  // Non-negative hysteresis margin (dB) above `prune_threshold_db` required
+  // before a pruned physical link returns to calculation.
+  double prune_hysteresis_db = 0.0;
+  // When true, fold the estimated received power of pruned lanes into each
+  // RX row's explicit-noise_power receiver model AWGN variance.
+  bool prune_fold_to_awgn = false;
 };
 
 // A node in the channel-emulation graph. gNBs and UEs are the SAME class -- a

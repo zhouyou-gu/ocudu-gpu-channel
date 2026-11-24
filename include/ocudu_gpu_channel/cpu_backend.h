@@ -10,6 +10,8 @@
 #include "ocudu_gpu_channel/sample_executor.h"
 #include <array>
 #include <complex>
+#include <mutex>
+#include <optional>
 #include <set>
 #include <random>
 #include <span>
@@ -39,7 +41,11 @@ public:
                              std::uint64_t sample_rate_hz,
                              std::span<std::span<IqSample>> outputs) override;
 
-  ProcessorTimings last_timings() const override { return {}; }
+  ProcessorTimings last_timings() const override
+  {
+    std::lock_guard<std::mutex> lock(timings_mutex_);
+    return last_timings_;
+  }
   const char* backend_name() const override { return "cpu"; }
 
   std::unordered_map<std::string, BrokerLinkControl*> collect_control_links() override;
@@ -142,8 +148,14 @@ private:
                                          const ModelConfig& model,
                                          std::span<const IqSample> input,
                                          std::span<IqSample> output,
-                                         std::uint64_t sample_rate_hz);
+                                         std::uint64_t sample_rate_hz,
+                                         double extra_awgn_noise_power = 0.0);
 
+  std::optional<double> prune_threshold_db_;
+  double prune_hysteresis_db_ = 0.0;
+  bool prune_fold_to_awgn_ = false;
+  mutable std::mutex timings_mutex_;
+  ProcessorTimings last_timings_;
   std::unordered_map<std::string, LinkState> states_;
   // Keyed by physical link identity (LaneConfig::physical_link_key). Node-based
   // storage, so a LinkState may hold a pointer into it across insertions.

@@ -61,6 +61,7 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 
 | Scope / revision | Recorded result | Limit |
 |---|---|---|
+| Interference pruning, 2026-11-24 | CPU/CUDA CTest 14/14 each; `compute-sanitizer` 0 errors; 83 Python tests and publication checks passed; 3-repeat RTX 5090 benchmark (up to 4.0× gNB / 3.1× UE speedup) and live 2-cell OCUDU+srsUE `off`/`drop`/`fold` interop passed | Live runs recorded 2–6 startup starvations; strict real-time qualification unchanged; [report](docs/reports/performance/2026-11-24-interference-pruning/README.md) |
 | Live margin comparison, 2026-11-03, isolated `c3135a9` prototype | 600-second default/fixed/dynamic lag: 21.982/10.010/17.967 s; 1 ms output peaks and zero detected overflow/gap/ZMQ errors; 13/13 tests in six builds/runs | Shared-host activity varied; fixed bulk p99 175.8 ms versus default 30.0 ms; 20-second four-port traffic passed, with three silent-UL capture failures; [report](docs/reports/validation/live-runtime-limitations-20261104.md) |
 | Live slot timing, 2026-11-03, `c3135a9` | 600-second baseline: 997.472 slots/s, all 3,229,424 packets delivered; 300-second boundary diagnostic; both builds pass 13/13 RTX tests | Zero overflow/gaps/ZMQ errors; 72 baseline lifetime starvations fail strict real-time qualification; [report](docs/reports/validation/live-runtime-limitations-20261104.md) |
 | Project review, 2026-10-16 | CPU/CUDA 13/13 each; GPU 9/9; 221 Python tests; frontend, six browser views, 99 shell scripts and strict documentation checks passed | Three Python skips; no new live-radio, hardware or Docker qualification; [report](docs/reports/validation/project-review-20261016.md) |
@@ -80,6 +81,13 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Interference pruning — 2026-11-24
+
+- Added opt-in interference pruning (`prune_threshold_db`, `prune_hysteresis_db`, `prune_fold_to_awgn`) with CPU/CUDA active-edge compaction and residual AWGN folding. RTX 5090 CPU/CUDA CTest passed 14/14 each and `compute-sanitizer` reported zero errors.
+- Measured 3-repeat multi-cell CUDA scaling, 16-cell dynamic mobility traces (average 72.7% edges pruned, 1.96× faster) and accuracy on RTX 5090, adding plots and CSVs to the [report](docs/reports/performance/2026-11-24-interference-pruning/README.md).
+- Validated live two-cell OCUDU gNB + srsUE interop across `off`, `on_drop` and `on_fold` with 2/2 RRC/PDU/ping, zero ZMQ/RF errors, and 19–24% lower live p50 latency. Existing containers were untouched; startup starvations (2–6) remain.
+- Updated `AGENT_VOCABULARY.md`, configuration/backend references, and the performance index; deferred broker wait detachment (M4) to protect inter-cell lock-step timing. Publication checks and Sphinx validation of all changed pages passed cleanly.
 
 ### Demo publication review — 2026-11-04
 
