@@ -18,6 +18,9 @@ Use space-indented block-style YAML as in the runnable example below. Flow mappi
 | `cuda_stream_priority` | `default` | `default`, `high`, `low`; scheduling priority within the CUDA context |
 | `pacing` | `true` | Boolean; throttle producers to sample rate. Hardware-clocked workflows explicitly choose their setting |
 | `pacing_recovery_ppm` | `10000` | Integer 0–10000; maximum sustained recovery above nominal in parts per million (10000 = 1%). Zero prevents sustained acceleration; elapsed clock delay is retained. Immediate release credit remains one batch |
+| `prune_threshold_db` | Unset (`off`) | Optional finite dB threshold; omit incoming physical links whose maximum per-RX-port effective power gain falls below this threshold. Unset keeps full superposition unchanged |
+| `prune_hysteresis_db` | `0` | Nonnegative dB margin above `prune_threshold_db` required before a pruned physical link returns to calculation; requires `prune_threshold_db` |
+| `prune_fold_to_awgn` | `false` | Boolean; add estimated received power of pruned lanes to each RX port's explicit `noise_power` receiver model AWGN variance; requires `prune_threshold_db` and an explicit `noise_power` `rx_model` on every receiving port |
 
 ## Devices, radio nodes and edges
 

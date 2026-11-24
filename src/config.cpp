@@ -142,6 +142,16 @@ void apply_runtime(RuntimeConfig& runtime, const std::string& key, const std::st
     runtime.pacing = parse_bool(value, key);
   } else if (key == "pacing_recovery_ppm") {
     runtime.pacing_recovery_ppm = parse_size(value, key);
+  } else if (key == "prune_threshold_db") {
+    if (value == "off" || value == "none") {
+      runtime.prune_threshold_db.reset();
+    } else {
+      runtime.prune_threshold_db = parse_double(value, key);
+    }
+  } else if (key == "prune_hysteresis_db") {
+    runtime.prune_hysteresis_db = parse_double(value, key);
+  } else if (key == "prune_fold_to_awgn") {
+    runtime.prune_fold_to_awgn = parse_bool(value, key);
   } else {
     throw std::runtime_error("unknown runtime key: " + key);
   }
@@ -789,6 +799,18 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
   if (config.runtime.cpu_threads == 0) {
     errors.emplace_back("runtime.cpu_threads must be greater than zero");
   }
+  if (config.runtime.prune_threshold_db.has_value() && !std::isfinite(*config.runtime.prune_threshold_db)) {
+    errors.emplace_back("runtime.prune_threshold_db must be a finite number of dB");
+  }
+  if (!std::isfinite(config.runtime.prune_hysteresis_db) || config.runtime.prune_hysteresis_db < 0.0) {
+    errors.emplace_back("runtime.prune_hysteresis_db must be a finite non-negative number of dB");
+  }
+  if (config.runtime.prune_hysteresis_db != 0.0 && !config.runtime.prune_threshold_db.has_value()) {
+    errors.emplace_back("runtime.prune_hysteresis_db requires runtime.prune_threshold_db");
+  }
+  if (config.runtime.prune_fold_to_awgn && !config.runtime.prune_threshold_db.has_value()) {
+    errors.emplace_back("runtime.prune_fold_to_awgn requires runtime.prune_threshold_db");
+  }
 
   std::set<std::string> device_ids;
   if (config.devices.empty()) {
@@ -1072,6 +1094,24 @@ std::vector<std::string> validate_config(const TopologyConfig& config)
     }
     if (!is_destination) {
       errors.emplace_back("device " + device.id + " is not the destination of any link");
+    } else if (config.runtime.prune_fold_to_awgn) {
+      const auto* rx = device.rx_model.empty() ? nullptr : find_model(config, device.rx_model);
+      bool has_explicit_noise = false;
+      if (rx != nullptr) {
+        for (const auto& step : rx->chain) {
+          if (step.type == ModelStepType::Awgn) {
+            auto it = step.params.find("noise_power");
+            if (it != step.params.end() && std::isfinite(it->second) && it->second >= 0.0) {
+              has_explicit_noise = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!has_explicit_noise) {
+        errors.emplace_back("device " + device.id +
+                            " requires an rx_model with explicit noise_power awgn when runtime.prune_fold_to_awgn is true");
+      }
     }
   }
 

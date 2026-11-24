@@ -235,7 +235,8 @@ void launch_generate_fading_grid_kernel(
     int n_links,
     int count,
     float sample_rate_hz,
-    void* stream);
+    void* stream,
+    const int* active_edges = nullptr);
 
 // Replaces each correlated link's independent grids w with g = L w, in place,
 // at every tap and grid point. Runs between the generator and the convolution
@@ -249,7 +250,8 @@ void launch_mix_fading_grid_kernel(
     int n_groups,
     int count,
     float sample_rate_hz,
-    void* stream);
+    void* stream,
+    const int* active_groups = nullptr);
 
 // Where this slot's raw IQ of each source lives, handed to the channel kernels
 // by value (a __grid_constant__ parameter, so indexing it is a constant-bank
@@ -273,7 +275,9 @@ void launch_apply_channel_kernel_static(
     int n_links,
     int count,
     float sample_rate_hz,
-    void* stream);
+    void* stream,
+    const int* active_edges = nullptr,
+    const int* active_src_index = nullptr);
 
 // Roll the per-link delay_line ring forward and set each link's
 // slot_start_samples to the value the host supplies. Called after
@@ -297,6 +301,8 @@ void launch_update_delay_line_kernel(
     const unsigned long long* next_slot_start,
     int n_links,
     int count,
-    void* stream);
+    void* stream,
+    const int* active_edges = nullptr,
+    const int* active_src_index = nullptr);
 
 } // namespace ocg

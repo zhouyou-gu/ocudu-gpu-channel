@@ -48,6 +48,11 @@ struct ProcessorTimings {
   double host_prep_us = 0.0;
   double host_out_us = 0.0;
   double call_us = 0.0;
+  // Interference pruning accounting for the most recent process_superposition
+  // call: active_lanes <= total_lanes, and folded_noise_power >= 0.0.
+  std::size_t active_lanes = 0;
+  std::size_t total_lanes = 0;
+  double folded_noise_power = 0.0;
 };
 
 // One incoming lane of a superposition: the lane's channel model and the

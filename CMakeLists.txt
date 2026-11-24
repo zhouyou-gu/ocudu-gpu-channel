@@ -152,6 +152,10 @@ if(OCUDU_GPU_CHANNEL_BUILD_TESTS)
   target_link_libraries(test_processing PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME processing COMMAND test_processing)
 
+  add_executable(test_interference_pruning tests/core/test_interference_pruning.cpp)
+  target_link_libraries(test_interference_pruning PRIVATE ocudu_gpu_channel_lib)
+  add_test(NAME interference_pruning COMMAND test_interference_pruning)
+
   add_executable(test_cpu_parallel tests/core/test_cpu_parallel.cpp)
   target_link_libraries(test_cpu_parallel PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME cpu_parallel COMMAND test_cpu_parallel)

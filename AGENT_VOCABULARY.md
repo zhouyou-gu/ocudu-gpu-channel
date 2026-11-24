@@ -73,6 +73,8 @@ Format: one entry per line, `Word: short description.`
 - carrier frequency offset: a mismatch between the reference frequencies used by the sending and receiving radios.
 - noise: unwanted random changes added to a signal.
 - interference: other signals that affect reception of the desired signal.
+- threshold: a stated power or gain value below which an edge is omitted from calculation.
+- hysteresis: a margin above a threshold required before an omitted edge returns to calculation.
 - superposition: the addition of channel outputs representing the same receive time.
 - receiver model: a channel model applied after the incoming channel outputs have been added together.
 - matrix: a table arranged in rows and columns.
@@ -110,6 +112,7 @@ Format: one entry per line, `Word: short description.`
 - pace: release samples according to the sample rate.
 - route: send data to the destination named by the topology.
 - emulate: apply channel models to IQ streams exchanged with radio nodes.
+- prune: omit an edge from channel calculation and superposition when its gain falls below a threshold.
 - check: compare a result against a stated rule and report whether it passes.
 
 ## Unmerged Words (temporary memory)
