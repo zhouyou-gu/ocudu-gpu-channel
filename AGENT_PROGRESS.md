@@ -61,6 +61,7 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 
 | Scope / revision | Recorded result | Limit |
 |---|---|---|
+| CUDA host-prep workers, 2026-11-24 | CPU/CUDA CTest 14/14 each (`cuda_prep_parallel` bit-exact); `compute-sanitizer` 0 errors; 3-repeat RTX 5090 benchmark (2.2–3.9× `host_prep` speedup, up to 2.72× `call_p99`) and live 2-cell OCUDU+srsUE `thr=1`/`8` passed | Live runs recorded 2–6 startup starvations; strict real-time qualification unchanged; [report](docs/reports/performance/2026-11-24-cuda-prep-threads/README.md) |
 | Live margin comparison, 2026-11-03, isolated `c3135a9` prototype | 600-second default/fixed/dynamic lag: 21.982/10.010/17.967 s; 1 ms output peaks and zero detected overflow/gap/ZMQ errors; 13/13 tests in six builds/runs | Shared-host activity varied; fixed bulk p99 175.8 ms versus default 30.0 ms; 20-second four-port traffic passed, with three silent-UL capture failures; [report](docs/reports/validation/live-runtime-limitations-20261104.md) |
 | Live slot timing, 2026-11-03, `c3135a9` | 600-second baseline: 997.472 slots/s, all 3,229,424 packets delivered; 300-second boundary diagnostic; both builds pass 13/13 RTX tests | Zero overflow/gaps/ZMQ errors; 72 baseline lifetime starvations fail strict real-time qualification; [report](docs/reports/validation/live-runtime-limitations-20261104.md) |
 | Project review, 2026-10-16 | CPU/CUDA 13/13 each; GPU 9/9; 221 Python tests; frontend, six browser views, 99 shell scripts and strict documentation checks passed | Three Python skips; no new live-radio, hardware or Docker qualification; [report](docs/reports/validation/project-review-20261016.md) |
@@ -80,6 +81,12 @@ The latest row covers combined-tree checks on RTX 5090; other rows are historica
 Reports: [integration guide](docs/history/milestones/sionna-integration-20260914.md), [merge validation](docs/reports/validation/main-merge-validation.md), [channel fix validation](docs/reports/validation/sionna-merge-fixes-validation.md), [metrics recovery](docs/reports/validation/metrics-recovery-validation.md), and [rank-1 results](docs/history/translations/ko/rank1-feasibility-report.md).
 
 ## Completed Changes
+
+### Multithreaded CUDA host preparation — 2026-11-24
+
+- Added opt-in `runtime.cuda_prep_threads` with a lock-free, caller-participating `PrepExecutor` and x86-64 non-temporal streaming copies into pinned `host_source_iq`. RTX 5090 CPU/CUDA CTest passed 14/14 each (bit-exact parity) with zero `compute-sanitizer` errors.
+- Measured 3-repeat RTX 5090 scaling (`N=4..64`, 20/100 MHz, `T0`/`T1`): `host_prep_us` dropped 2.2–3.9× and gNB `call_p99` dropped up to 2.72× (concurrent `T1` 2.62×) ([report](docs/reports/performance/2026-11-24-cuda-prep-threads/README.md)).
+- Validated live two-cell OCUDU gNB + srsUE interop (`cuda_prep_threads` 1 vs 8): 2/2 RRC/PDU/ping, zero RF/ZMQ errors, and 17–24% lower live gNB latency. Existing containers were untouched; strict real-time qualification remains unchanged.
 
 ### Demo publication review — 2026-11-04
 

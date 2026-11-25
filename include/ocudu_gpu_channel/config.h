@@ -97,6 +97,10 @@ struct RuntimeConfig {
   // CPU TDL sample workers, shared across receiving nodes. One keeps the
   // serial reference; CUDA processing does not use this pool.
   std::size_t cpu_threads = 1;
+  // CUDA host-preparation workers, shared across receiving nodes for parallel
+  // input packing (`host_source_iq`), per-source power scans, host-fallback
+  // staging, and large output copies. One preserves the serial CUDA path.
+  std::size_t cuda_prep_threads = 1;
   int gpu_device = 0;
   bool batch_samples_auto = true;
   std::size_t batch_samples = 0;

@@ -35,6 +35,7 @@ add_library(ocudu_gpu_channel_lib
   src/cpu_backend.cpp
   src/latency.cpp
   src/mutable_params.cpp
+  src/prep_executor.cpp
   src/processing.cpp
   src/ring.cpp
   src/sample_executor.cpp
@@ -156,6 +157,11 @@ if(OCUDU_GPU_CHANNEL_BUILD_TESTS)
   target_link_libraries(test_cpu_parallel PRIVATE ocudu_gpu_channel_lib)
   add_test(NAME cpu_parallel COMMAND test_cpu_parallel)
   set_tests_properties(cpu_parallel PROPERTIES TIMEOUT 60)
+
+  add_executable(test_cuda_prep_parallel tests/core/test_cuda_prep_parallel.cpp)
+  target_link_libraries(test_cuda_prep_parallel PRIVATE ocudu_gpu_channel_lib)
+  add_test(NAME cuda_prep_parallel COMMAND test_cuda_prep_parallel)
+  set_tests_properties(cuda_prep_parallel PROPERTIES TIMEOUT 60)
 
   add_executable(test_ring tests/core/test_ring.cpp)
   target_link_libraries(test_ring PRIVATE ocudu_gpu_channel_lib)

@@ -5,11 +5,13 @@
 #include "ocudu_gpu_channel/device_channel.h"
 #include "ocudu_gpu_channel/physical_link.h"
 #include "ocudu_gpu_channel/mutable_params.h"
+#include "ocudu_gpu_channel/prep_executor.h"
 #include "ocudu_gpu_channel/processing.h"
 #include "ocudu_gpu_channel/runtime_control.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <cmath>
 #include <cuda_runtime.h>
@@ -18,6 +20,11 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
+#if defined(__x86_64__) || defined(_M_X64)
+#include <emmintrin.h>
+#include <immintrin.h>
+#endif
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -27,6 +34,107 @@ namespace ocg {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+// Minimum host-copy payload (bytes) before dispatching to PrepExecutor so
+// small calls (e.g. <= 4 sources at 20 MHz, ~10 us serial) avoid coordination
+// overhead altogether.
+constexpr std::size_t kMinParallelCopyBytes = 1536 * 1024;
+constexpr std::size_t kMinParallelChunkBytes = 256 * 1024;
+constexpr std::size_t kMinParallelOutBytes = 1536 * 1024;
+
+#if (defined(__x86_64__) || defined(_M_X64)) && (defined(__GNUC__) || defined(__clang__))
+__attribute__((target("avx2")))
+void copy_to_pinned_avx2(void* dst_void, const void* src_void, std::size_t bytes)
+{
+  auto* dst = static_cast<unsigned char*>(dst_void);
+  const auto* src = static_cast<const unsigned char*>(src_void);
+  const std::uintptr_t addr = reinterpret_cast<std::uintptr_t>(dst);
+  const std::size_t head = (32 - (addr & 31U)) & 31U;
+  if (head != 0) {
+    std::memcpy(dst, src, head);
+    dst += head;
+    src += head;
+    bytes -= head;
+  }
+  const std::size_t vec128 = bytes & ~static_cast<std::size_t>(127);
+  for (std::size_t i = 0; i != vec128; i += 128) {
+    const __m256i v0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i));
+    const __m256i v1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i + 32));
+    const __m256i v2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i + 64));
+    const __m256i v3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i + 96));
+    _mm256_stream_si256(reinterpret_cast<__m256i*>(dst + i), v0);
+    _mm256_stream_si256(reinterpret_cast<__m256i*>(dst + i + 32), v1);
+    _mm256_stream_si256(reinterpret_cast<__m256i*>(dst + i + 64), v2);
+    _mm256_stream_si256(reinterpret_cast<__m256i*>(dst + i + 96), v3);
+  }
+  const std::size_t tail = bytes - vec128;
+  if (tail != 0) {
+    std::memcpy(dst + vec128, src + vec128, tail);
+  }
+  _mm_sfence();
+}
+#endif
+
+// Write-only copy into pinned DMA staging memory (`host_source_iq`). On x86-64,
+// non-temporal streaming stores (AVX2 256-bit when available, else SSE2 128-bit)
+// bypass L1/L2 cache allocation so writing multi-megabyte staging buffers
+// neither triggers read-for-ownership DRAM traffic nor leaves dirty cache lines
+// across many cores for PCIe H2D DMA to snoop. Bit-exact equivalent of memcpy.
+inline void copy_to_pinned(void* dst_void, const void* src_void, std::size_t bytes)
+{
+#if defined(__x86_64__) || defined(_M_X64)
+  if (bytes >= 64 * 1024) {
+#if defined(__GNUC__) || defined(__clang__)
+    static const bool has_avx2 = __builtin_cpu_supports("avx2");
+    if (has_avx2) {
+      copy_to_pinned_avx2(dst_void, src_void, bytes);
+      return;
+    }
+#endif
+    auto* dst = static_cast<unsigned char*>(dst_void);
+    const auto* src = static_cast<const unsigned char*>(src_void);
+    const std::uintptr_t addr = reinterpret_cast<std::uintptr_t>(dst);
+    const std::size_t head = (16 - (addr & 15U)) & 15U;
+    if (head != 0) {
+      std::memcpy(dst, src, head);
+      dst += head;
+      src += head;
+      bytes -= head;
+    }
+    const std::size_t vec64 = bytes & ~static_cast<std::size_t>(63);
+    for (std::size_t i = 0; i != vec64; i += 64) {
+      const __m128i v0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
+      const __m128i v1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i + 16));
+      const __m128i v2 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i + 32));
+      const __m128i v3 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i + 48));
+      _mm_stream_si128(reinterpret_cast<__m128i*>(dst + i), v0);
+      _mm_stream_si128(reinterpret_cast<__m128i*>(dst + i + 16), v1);
+      _mm_stream_si128(reinterpret_cast<__m128i*>(dst + i + 32), v2);
+      _mm_stream_si128(reinterpret_cast<__m128i*>(dst + i + 48), v3);
+    }
+    const std::size_t tail = bytes - vec64;
+    if (tail != 0) {
+      std::memcpy(dst + vec64, src + vec64, tail);
+    }
+    _mm_sfence();
+    return;
+  }
+#endif
+  std::memcpy(dst_void, src_void, bytes);
+}
+
+double compute_signal_power(const IqSample* input, std::size_t sample_count)
+{
+  if (input == nullptr || sample_count == 0) {
+    return 0.0;
+  }
+  double sum = 0.0;
+  for (std::size_t n = 0; n != sample_count; ++n) {
+    const double si = input[n].i;
+    const double sq = input[n].q;
+    sum += si * si + sq * sq;
+  }
+  return sum / static_cast<double>(sample_count);
+}
 
 // One GPU-executable channel step. Field meaning depends on `type`:
 //   Scale:    a = amplitude factor.
@@ -406,6 +514,14 @@ struct CudaSuperposeState {
   std::deque<LinkModelState> rx_models;
   std::vector<GpuStep> host_steps;
   std::vector<int> host_step_meta;
+  // Precomputed per-source SNR-AWGN flags and reusable per-call scratch so
+  // host preparation performs zero per-slot heap allocations.
+  std::vector<bool> source_needs_snr_power;
+  bool any_source_needs_snr_power = false;
+  std::vector<const IqSample*> host_source_ptrs;
+  std::vector<double> host_source_power;
+  std::vector<int> host_edge_step_offsets;
+  std::vector<LinkModelState*> host_edge_models;
 };
 
 void free_superpose_state(CudaSuperposeState& state)
@@ -599,6 +715,12 @@ public:
   {
     check(cudaSetDevice(config.runtime.gpu_device), "cudaSetDevice");
     device_ = config.runtime.gpu_device;
+    if (config.runtime.cuda_prep_threads == 0) {
+      throw std::invalid_argument("runtime.cuda_prep_threads must be greater than zero");
+    }
+    prep_executor_ = config.runtime.cuda_prep_threads > 1
+                         ? std::make_unique<PrepExecutor>(config.runtime.cuda_prep_threads)
+                         : nullptr;
     zc_parts_ = resolve_zero_copy_parts(resolve_zero_copy(config.runtime.cuda_host_memory, device_), device_);
     stream_priority_ = config.runtime.cuda_stream_priority;
     {
@@ -854,6 +976,31 @@ public:
         per_edge_src_index.push_back(it->second);
       }
       sp.num_sources = sp.source_first_edge.size();
+      sp.source_needs_snr_power.assign(sp.num_sources, false);
+      sp.any_source_needs_snr_power = false;
+      sp.host_source_ptrs.assign(sp.num_sources, nullptr);
+      sp.host_source_power.assign(sp.num_sources, 0.0);
+      sp.host_edge_step_offsets.assign(incoming, 0);
+      sp.host_edge_models.assign(incoming, nullptr);
+      {
+        std::size_t edge_i = 0;
+        for (const auto& lane : resolved.lanes) {
+          if (lane.dst_node != node.id) continue;
+          const auto* model = find_model(config, lane.model_id);
+          if (model == nullptr) continue;
+          if (link_slots_.find(lane.key) == link_slots_.end()) continue;
+          const bool needs_snr = std::any_of(
+              model->chain.begin(), model->chain.end(), [](const ModelStep& step) {
+                return step.type == ModelStepType::Awgn &&
+                       param_or(step, "noise_power", -1.0) < 0.0;
+              });
+          if (needs_snr) {
+            sp.source_needs_snr_power[static_cast<std::size_t>(per_edge_src_index[edge_i])] = true;
+            sp.any_source_needs_snr_power = true;
+          }
+          ++edge_i;
+        }
+      }
       const std::size_t source_bytes = sp.num_sources * capacity * sizeof(IqSample);
 
       // Paired pinned-host + device buffers for the raw-IQ-into-channel-kernel
@@ -1111,6 +1258,8 @@ public:
     //       estimate (a small semantic shift from the host path which read
     //       the shaped output; explicit noise_power AWGN is unaffected).
     const int link_count = static_cast<int>(inputs.size());
+    const std::size_t sample_bytes = count * sizeof(IqSample);
+    const std::size_t prep_threads = prep_executor_ ? prep_executor_->thread_count() : 1;
     int total_steps = 0;
     // D4 pack-per-source: walk unique sources once. source_first_edge[s]
     // identifies the first edge that consumes source s (alphabetical/YAML
@@ -1126,7 +1275,6 @@ public:
     DeviceSourceTable source_table;
     source_table.base = sp.device_source_iq;
     source_table.direct = direct_in ? 1 : 0;
-    std::vector<const IqSample*> host_source(sp.num_sources, nullptr);
     if (sp.use_device_channel) {
       for (std::size_t s = 0; s < sp.num_sources; ++s) {
         const int k = sp.source_first_edge[s];
@@ -1137,13 +1285,85 @@ public:
         if (edge.samples.size() != count) {
           throw std::runtime_error("CUDA superposition input is malformed");
         }
+        sp.host_source_ptrs[s] = edge.samples.data();
         if (direct_in) {
           source_table.ptr[s] = edge.samples.data();
-          host_source[s] = edge.samples.data();
+        }
+      }
+
+      if (direct_in) {
+        if (sp.any_source_needs_snr_power) {
+          if (prep_executor_ && sp.num_sources >= 2) {
+            prep_executor_->parallel_for(sp.num_sources, [&](std::size_t s) {
+              if (sp.source_needs_snr_power[s]) {
+                sp.host_source_power[s] = compute_signal_power(sp.host_source_ptrs[s], count);
+              }
+            });
+          } else {
+            for (std::size_t s = 0; s < sp.num_sources; ++s) {
+              if (sp.source_needs_snr_power[s]) {
+                sp.host_source_power[s] = compute_signal_power(sp.host_source_ptrs[s], count);
+              }
+            }
+          }
+        }
+      } else {
+        const bool use_nt_copy = !sp.zc_in;
+        const auto copy_src = [use_nt_copy](void* dst, const void* src, std::size_t bytes) {
+          if (use_nt_copy) {
+            copy_to_pinned(dst, src, bytes);
+          } else {
+            std::memcpy(dst, src, bytes);
+          }
+        };
+        const std::size_t total_copy_bytes = sp.num_sources * sample_bytes;
+        const bool parallel_pack =
+            prep_executor_ != nullptr &&
+            (total_copy_bytes >= kMinParallelCopyBytes ||
+             (sp.any_source_needs_snr_power && sp.num_sources >= 2));
+        if (parallel_pack) {
+          if (sp.any_source_needs_snr_power || sp.num_sources >= prep_threads) {
+            // One task per source: copy and exact sequential power sum run
+            // together while the source buffer is hot in L1/L2 cache.
+            prep_executor_->parallel_for(sp.num_sources, [&](std::size_t s) {
+              const IqSample* src = sp.host_source_ptrs[s];
+              IqSample* dst = sp.host_source_iq + s * count;
+              copy_src(dst, src, sample_bytes);
+              if (sp.source_needs_snr_power[s]) {
+                sp.host_source_power[s] = compute_signal_power(src, count);
+              }
+            });
+          } else {
+            // Fewer sources than workers and no per-source power sum: split
+            // each source into contiguous chunks so all workers saturate DDR.
+            const std::size_t max_chunks_per_src =
+                std::max<std::size_t>(1, sample_bytes / kMinParallelChunkBytes);
+            const std::size_t target_chunks =
+                (prep_threads + sp.num_sources - 1) / sp.num_sources;
+            const std::size_t chunks_per_src =
+                std::max<std::size_t>(1, std::min(target_chunks, max_chunks_per_src));
+            prep_executor_->parallel_for(
+                sp.num_sources * chunks_per_src, [&](std::size_t task_idx) {
+                  const std::size_t s = task_idx / chunks_per_src;
+                  const std::size_t c = task_idx % chunks_per_src;
+                  const std::size_t begin = (c * count) / chunks_per_src;
+                  const std::size_t end = ((c + 1) * count) / chunks_per_src;
+                  if (end > begin) {
+                    copy_src(sp.host_source_iq + s * count + begin,
+                             sp.host_source_ptrs[s] + begin,
+                             (end - begin) * sizeof(IqSample));
+                  }
+                });
+          }
         } else {
-          IqSample* src_slot = sp.host_source_iq + s * count;
-          std::copy(edge.samples.data(), edge.samples.data() + count, src_slot);
-          host_source[s] = src_slot;
+          for (std::size_t s = 0; s < sp.num_sources; ++s) {
+            const IqSample* src = sp.host_source_ptrs[s];
+            IqSample* dst = sp.host_source_iq + s * count;
+            copy_src(dst, src, sample_bytes);
+            if (sp.source_needs_snr_power[s]) {
+              sp.host_source_power[s] = compute_signal_power(src, count);
+            }
+          }
         }
       }
     }
@@ -1294,27 +1514,51 @@ public:
       // any clock advance below, so every edge of a link ships the same value.
       sp.host_next_slot_start[k] =
           link.clock.slot_start_samples + static_cast<unsigned long long>(count);
-      if (sp.use_device_channel) {
-        // Device-kernel path: build_steps reads the SHARED source slot for
-        // this edge's snr_db power estimator. Edges sharing a source share
-        // the same raw_slot pointer here — fine because build_steps is
-        // read-only on its input buffer.
-        const int src_idx = sp.host_link_states[k].src_index;
-        build_steps(ls_it->second.model, *edge.model, host_source[static_cast<std::size_t>(src_idx)], count,
-                    sample_rate_hz);
-      } else {
-        // Host stage_link path (legacy).
-        IqSample* slot = sp.host_staged + k * count;
-        stage_link(ls_it->second.model, edge.samples.data(), slot, count, sample_rate_hz,
-                   ls_it->second.model.link->clock.slot_start_samples);
-        build_steps(ls_it->second.model, *edge.model, slot, count, sample_rate_hz);
-      }
       const int nsteps = static_cast<int>(edge.model->chain.size());
+      sp.host_edge_step_offsets[k] = total_steps;
+      sp.host_edge_models[k] = &ls_it->second.model;
       sp.host_step_meta[k] = total_steps;                          // offset
       sp.host_step_meta[static_cast<std::size_t>(link_count) + k] = nsteps; // count
-      std::copy(ls_it->second.model.host_steps.begin(), ls_it->second.model.host_steps.begin() + nsteps,
-                sp.host_steps.begin() + total_steps);
+      if (sp.use_device_channel) {
+        // Device-kernel path: source_power was already computed once per unique
+        // source during Stage A (in parallel when cuda_prep_threads > 1).
+        const int src_idx = sp.host_link_states[k].src_index;
+        const double pre_power =
+            sp.source_needs_snr_power[static_cast<std::size_t>(src_idx)]
+                ? sp.host_source_power[static_cast<std::size_t>(src_idx)]
+                : 0.0;
+        build_steps(ls_it->second.model, *edge.model, nullptr, count, sample_rate_hz,
+                    pre_power);
+        std::copy(ls_it->second.model.host_steps.begin(),
+                  ls_it->second.model.host_steps.begin() + nsteps,
+                  sp.host_steps.begin() + total_steps);
+      }
       total_steps += nsteps;
+    }
+
+    if (!sp.use_device_channel) {
+      // Host stage_link path (legacy): each edge owns disjoint delay-line,
+      // staged output slice, and host_steps slice, so edges run in parallel
+      // when cuda_prep_threads > 1.
+      const auto stage_one = [&](std::size_t k) {
+        const auto& edge = inputs[k];
+        LinkModelState& lms = *sp.host_edge_models[k];
+        IqSample* slot = sp.host_staged + k * count;
+        stage_link(lms, edge.samples.data(), slot, count, sample_rate_hz,
+                   lms.link->clock.slot_start_samples);
+        build_steps(lms, *edge.model, slot, count, sample_rate_hz);
+        const int nsteps = static_cast<int>(edge.model->chain.size());
+        const int offset = sp.host_edge_step_offsets[k];
+        std::copy(lms.host_steps.begin(), lms.host_steps.begin() + nsteps,
+                  sp.host_steps.begin() + offset);
+      };
+      if (prep_executor_ && inputs.size() >= 2) {
+        prep_executor_->parallel_for(inputs.size(), stage_one);
+      } else {
+        for (std::size_t k = 0; k != inputs.size(); ++k) {
+          stage_one(k);
+        }
+      }
     }
 
     // Every edge of this node has now been staged against its link's slot-start
@@ -1345,7 +1589,6 @@ public:
       rx_steps = static_cast<int>(rx_model->chain.size());
     }
 
-    const std::size_t sample_bytes = count * sizeof(IqSample);
     const auto total_start = std::chrono::steady_clock::now();
 
     check(cudaEventRecord(sp.h2d_start, sp.stream), "cudaEventRecord superpose h2d_start");
@@ -1490,9 +1733,32 @@ public:
     check(cudaEventRecord(sp.d2h_done, sp.stream), "cudaEventRecord superpose d2h_done");
     check(cudaStreamSynchronize(sp.stream), "cudaStreamSynchronize superpose");
     const auto out_start = std::chrono::steady_clock::now();
-    for (std::size_t r = 0; !sp.zc_direct && r != sp.rows; ++r) {
-      const IqSample* row = sp.host_output + r * count;
-      std::copy(row, row + count, outputs[r].begin());
+    if (!sp.zc_direct) {
+      const std::size_t total_out_bytes = sp.rows * sample_bytes;
+      if (prep_executor_ && total_out_bytes >= kMinParallelOutBytes) {
+        const std::size_t max_chunks_per_row =
+            std::max<std::size_t>(1, sample_bytes / kMinParallelChunkBytes);
+        const std::size_t target_chunks = (prep_threads + sp.rows - 1) / sp.rows;
+        const std::size_t chunks_per_row =
+            std::max<std::size_t>(1, std::min(target_chunks, max_chunks_per_row));
+        prep_executor_->parallel_for(
+            sp.rows * chunks_per_row, [&](std::size_t task_idx) {
+              const std::size_t r = task_idx / chunks_per_row;
+              const std::size_t c = task_idx % chunks_per_row;
+              const std::size_t begin = (c * count) / chunks_per_row;
+              const std::size_t end = ((c + 1) * count) / chunks_per_row;
+              if (end > begin) {
+                std::memcpy(outputs[r].data() + begin,
+                            sp.host_output + r * count + begin,
+                            (end - begin) * sizeof(IqSample));
+              }
+            });
+      } else {
+        for (std::size_t r = 0; r != sp.rows; ++r) {
+          const IqSample* row = sp.host_output + r * count;
+          std::memcpy(outputs[r].data(), row, sample_bytes);
+        }
+      }
     }
 
     record_timings(sp.h2d_start, sp.h2d_done, sp.kernel_done, sp.d2h_done, call_start, total_start, out_start,
@@ -1568,19 +1834,20 @@ private:
                    const ModelConfig& model,
                    const IqSample* input,
                    std::size_t sample_count,
-                   std::uint64_t sample_rate_hz)
+                   std::uint64_t sample_rate_hz,
+                   std::optional<double> precomputed_power = std::nullopt)
   {
     double running_power = 0.0;
-    const bool has_awgn = std::any_of(model.chain.begin(), model.chain.end(),
-                                      [](const ModelStep& s) { return s.type == ModelStepType::Awgn; });
-    if (has_awgn && input != nullptr && sample_count != 0) {
-      double sum = 0.0;
-      for (std::size_t n = 0; n != sample_count; ++n) {
-        const double si = input[n].i;
-        const double sq = input[n].q;
-        sum += si * si + sq * sq;
+    if (precomputed_power.has_value()) {
+      running_power = *precomputed_power;
+    } else {
+      const bool needs_snr_power = std::any_of(
+          model.chain.begin(), model.chain.end(), [](const ModelStep& s) {
+            return s.type == ModelStepType::Awgn && param_or(s, "noise_power", -1.0) < 0.0;
+          });
+      if (needs_snr_power && input != nullptr && sample_count != 0) {
+        running_power = compute_signal_power(input, sample_count);
       }
-      running_power = sum / static_cast<double>(sample_count);
     }
 
     for (std::size_t step_index = 0; step_index != model.chain.size(); ++step_index) {
@@ -1668,6 +1935,8 @@ private:
   // LaneConfig::physical_link_key. Node-based storage, so the pointers the
   // lanes hold stay valid as the table grows.
   std::unordered_map<std::string, PhysicalLinkRuntime> links_;
+  // Declared after superpose_states_ so workers join before GPU/host buffers free.
+  std::unique_ptr<PrepExecutor> prep_executor_;
 };
 
 } // namespace

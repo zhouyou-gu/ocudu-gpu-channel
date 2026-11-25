@@ -10,6 +10,7 @@ Use space-indented block-style YAML as in the runnable example below. Flow mappi
 |---|---|---|
 | `backend` | `cuda` | `cuda` or `cpu`; the selected backend must be built and available |
 | `cpu_threads` | `1` | Positive CPU TDL sample-worker count; one preserves the serial reference. A pool is shared across receiving nodes; CUDA does not use it. Requires restart |
+| `cuda_prep_threads` | `1` | Positive CUDA host-preparation worker count (caller plus `N - 1` background workers, shared across receiving nodes); parallelizes pinned input packing (`host_source_iq`), per-source `snr_db` AWGN power scans, host-fallback staging, and large output copies. One preserves serial CUDA host preparation. Requires restart |
 | `gpu_device` | `0` | Nonnegative CUDA device index |
 | `batch_samples` | `auto` | Positive sample count; `auto` resolves one millisecond at each device's sample rate |
 | `queue_samples` | `614400` | Positive per-TX-ring capacity; each device needs at least two batches |
